@@ -1,7 +1,6 @@
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-from PIL import Image, ImageTk
 import os
 
 class MainWindow:
@@ -47,8 +46,8 @@ class MainWindow:
                 info_text = f"IMG File loaded:\nSize: {os.path.getsize(file_path)} bytes\nPath: {file_path}"
                 self.image_label.configure(text=info_text, image='')
                 
-                self.image_label.configure(image=photo)
-                self.image_label.image = photo  # Keep a reference
+                # Just display the file info
+                self.image_label.configure(text=info_text)
                 messagebox.showinfo("Success", "Image loaded successfully")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to load image: {str(e)}")
