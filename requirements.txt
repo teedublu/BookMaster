@@ -1,0 +1,7 @@
+guestfs
+mutagen
+ffmpeg-python
+pathlib
+tk
+logging
+pytest
