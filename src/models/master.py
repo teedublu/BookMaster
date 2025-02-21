@@ -1,6 +1,7 @@
 from pathlib import Path
-import guestfs
+import pycdlib
 import logging
+from .tracks import Tracks
 
 class Master:
     """
@@ -51,7 +52,7 @@ class Master:
     
     @classmethod
     def from_img(cls, config, image_path):
-        """ Alternative constructor to initialize Master from a disk image using guestfs. """
+        """ Alternative constructor to initialize Master from a disk image using pycdlib. """
         instance = cls(config)
         instance.load_master_from_image(image_path)
         return instance
@@ -63,7 +64,8 @@ class Master:
     
     def load_input_tracks(self, input_folder):
         """Loads the raw input tracks provided by the publisher."""
-        self.input_tracks = Tracks(input_folder, self.config.params)
+        self.input_tracks = Tracks(input_folder, getattr(self.config, "params", {}))
+
     
     def _load_processed_tracks(self):
         """Loads previously encoded and cleaned tracks to avoid re-encoding."""
@@ -89,6 +91,28 @@ class Master:
             self.logger.error("Required metadata files (id.txt, count.txt) missing in bookInfo.")
             raise
     
+    def load_master_from_image(self, image_path):
+        """Loads a previously created Master from a disk image using pycdlib."""
+        self.logger.info(f"Loading Master from disk image: {image_path}")
+        iso = pycdlib.PyCdlib()
+        iso.open(image_path)
+        
+        try:
+            file_list = iso.listdir('/')
+            self.logger.info(f"Found files in image: {file_list}")
+            
+            if "bookInfo/id.txt" in file_list:
+                self.isbn = iso.open_file_from_iso("/bookInfo/id.txt").read().decode().strip()
+            if "bookInfo/count.txt" in file_list:
+                self.file_count_expected = int(iso.open_file_from_iso("/bookInfo/count.txt").read().decode().strip())
+            
+            self.logger.info(f"Loaded Master metadata - ISBN: {self.isbn}, File Count: {self.file_count_expected}")
+        except Exception as e:
+            self.logger.error(f"Error reading disk image: {e}")
+            raise
+        finally:
+            iso.close()
+    
     def process_tracks(self):
         """
         Processes raw input tracks into clean, encoded versions.
@@ -104,47 +128,8 @@ class Master:
         else:
             self.logger.info("Using previously processed tracks, skipping re-encoding.")
     
-    def _encode_tracks(self):
-        """Encodes and cleans tracks, saving them in the processed folder."""
-        processed_folder = self.config.processed_folder
-        Path(processed_folder).mkdir(parents=True, exist_ok=True)
-
-        for track in self.input_tracks.files:
-            output_path = Path(processed_folder) / track.file_path.name
-            if output_path.exists():
-                self.logger.info(f"Skipping {track.file_path.name}, already processed.")
-            else:
-                self.logger.info(f"Encoding {track.file_path.name}...")
-                track.reencode(self.config)
-                track.save_to(output_path)
-
-        self._load_processed_tracks()
-    
     def validate_master(self):
         """Validates an existing Master from drive or disk image."""
         if self.master_tracks:
             self.logger.info("Validating Master...")
             self._validate_tracks(self.master_tracks)
-    
-    def _validate_tracks(self, tracks):
-        """Checks if a set of tracks conforms to the expected format."""
-        errors = []
-        
-        if tracks.has_non_mp3_files:
-            errors.append("Warning: Non-MP3 files found in Master.")
-        
-        if len(tracks.files) != self.file_count_expected:
-            errors.append(f"File count mismatch: Expected {self.file_count_expected}, found {len(tracks.files)}.")
-        
-        try:
-            if tracks.isbn != self.isbn:
-                errors.append(f"ISBN mismatch: Expected {self.isbn}, found {tracks.isbn}.")
-        except ValueError:
-            errors.append("Inconsistent ISBN values across tracks.")
-        
-        if errors:
-            self.logger.warning("Validation Errors:")
-            for error in errors:
-                self.logger.warning(f"- {error}")
-        else:
-            self.logger.info("Master validation complete. No issues found.")

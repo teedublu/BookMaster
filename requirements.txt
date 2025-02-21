@@ -1,7 +1,11 @@
-guestfs
+# Core dependencies
+pycdlib
 mutagen
 ffmpeg-python
 pathlib
 tk
 logging
 pytest
+
+# Additional dependencies
+argparse  # For CLI argument parsing

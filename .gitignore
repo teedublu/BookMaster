@@ -4,3 +4,5 @@ __pycache__/
 .env
 samples/.DS_Store
 .DS_Store
+/bookmaster/bin
+/bookmaster/lib
