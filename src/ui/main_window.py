@@ -32,7 +32,7 @@ class MainWindow:
         file_path = filedialog.askopenfilename(
             initialdir=samples_dir,
             title="Select Image",
-            filetypes=[("Master IMG files", "*.IMG")]
+            filetypes=[("Master IMG files", "*.img")]
         )
         
         if file_path:
