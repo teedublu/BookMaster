@@ -29,20 +29,23 @@ class MainWindow:
         self.image_label.grid(row=4, column=0, columnspan=2, pady=10)
         
     def load_image(self):
-        samples_dir = os.path.join(os.getcwd(), 'samples', 'images')
+        samples_dir = os.path.join(os.getcwd(), 'samples')
         file_path = filedialog.askopenfilename(
             initialdir=samples_dir,
             title="Select Image",
-            filetypes=[("Image files", "*.jpg *.jpeg *.png *.gif *.bmp *.img")]
+            filetypes=[("Master IMG files", "*.IMG")]
         )
         
         if file_path:
             try:
-                image = Image.open(file_path)
-                # Resize image to fit window while maintaining aspect ratio
-                display_size = (400, 300)
-                image.thumbnail(display_size, Image.Resampling.LANCZOS)
-                photo = ImageTk.PhotoImage(image)
+                with open(file_path, 'rb') as f:
+                    # Read the IMG file header or content here
+                    # This is a placeholder - implement actual IMG file parsing
+                    img_data = f.read(1024)  # Read first 1KB for demonstration
+                    
+                # Display IMG file info instead of image
+                info_text = f"IMG File loaded:\nSize: {os.path.getsize(file_path)} bytes\nPath: {file_path}"
+                self.image_label.configure(text=info_text, image='')
                 
                 self.image_label.configure(image=photo)
                 self.image_label.image = photo  # Keep a reference
