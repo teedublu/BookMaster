@@ -7,23 +7,29 @@ import argparse
 import logging
 from config.config import Config  # Assuming a Config class exists
 from models.master import Master
-from ui.masteruiwrapper import MasterUIWrapper  # Using the UI wrapper
+from models.usbhub import USBHub
+from ui.main_window import VoxblockUI
 from utils.custom_logging import setup_logging
+from settings import (
+    load_settings, save_settings
+)
 
 def start_app(debug=False):
-    """Starts the application with optional debug mode."""
+    
+    # Load UI settings
+    settings = load_settings()
+
 
     # Load configuration
-    config = Config(debug=debug)  # Assuming Config can accept a debug flag
+    config = Config()  # Assuming Config can accept a debug flag
+    master = Master(config, settings)
+    hub = USBHub()
+    main_window = VoxblockUI(hub, master, settings)
 
-    # Initialize the master object
-    master = Master(config)
-
-    # Wrap the master object with the UI wrapper
-    master_ui = MasterUIWrapper(master)
+    
 
     # Start the UI (if applicable)
-    master_ui.run()
+    main_window.run()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Voxblock Master Creation Utility")

@@ -32,7 +32,7 @@ class TextHandler(logging.Handler):
 def setup_logging(text_widget):
     """Set up logging to redirect to the Tkinter Text widget."""
     logger = logging.getLogger()  # Root logger
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
 
     # Create a handler for the text widget
     text_handler = TextHandler(text_widget)

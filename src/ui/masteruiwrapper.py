@@ -1,8 +1,9 @@
 import tkinter as tk
+import logging
 from tkinter import messagebox, filedialog
 from tkinter.scrolledtext import ScrolledText
-from utils.custom_logging import setup_logging
-from models.master import Master  # Import Master class
+from utils.custom_logging import setup_logging, TextHandler
+from models import Master  # Import Master class
 
 class MasterUIWrapper:
     """
@@ -16,9 +17,9 @@ class MasterUIWrapper:
         float: lambda value=0.0: tk.DoubleVar(value=value),
     }
 
-    def __init__(self, master_instance):
+    def __init__(self, root, master_instance):
         self.master = master_instance
-        self.root = tk.Tk()
+        self.root = root
         
         # Create Tkinter variables dynamically
         self._vars = {
@@ -37,11 +38,15 @@ class MasterUIWrapper:
                 lambda self, value, k=key: self._vars[k].set(value)
             ))
 
-        self.create_widgets()
+    def check(self):
+        """Validates Master and updates UI."""
+        self.master.check()
+        self.update_ui()
 
     def _on_var_change(self, key):
         """Sync changes from Tkinter variables back to the Master instance."""
         def callback(*args):
+            print (f"Updating master {key} with {self._vars[key].get()}")
             setattr(self.master, key, self._vars[key].get())
         return callback
 
@@ -55,15 +60,6 @@ class MasterUIWrapper:
         for key in self._vars:
             setattr(self.master, key, self._vars[key].get())
 
-    def create_widgets(self):
-        """Creates the UI layout"""
-        self.root.title("Voxblock Master Creation App")
-        self.root.geometry("800x800")
-
-        ############ ROW 0
-        # Select Input Folder
-        tk.Label(self.root, text="Select Input Folder:").grid(row=0, column=0, sticky='w')
-        tk.Button(self.root, text="Browse", command=lambda: self.select_input_folder()).grid(row=0, column=2)
     
     def select_input_folder(self):
         """Opens a folder selection dialog, updates the corresponding Tkinter variable, and creates a Master from the input folder."""
@@ -71,8 +67,8 @@ class MasterUIWrapper:
         if folder_selected:
             setattr(self.master, "input_folder", folder_selected)
             self.master.load_input_tracks(folder_selected)  # Load tracks from the folder
-            self.update_ui_from_master()
+            self.master.process_tracks()
+            self.master.validate_master()
+            # self.update_ui_from_master()
 
-    def run(self):
-        """Runs the Tkinter main loop."""
-        self.root.mainloop()
+    

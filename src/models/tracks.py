@@ -5,20 +5,24 @@ import ffmpeg
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, TIT2, TPE1, TXXX
 from .track import Track
-
+import logging
 class Tracks:
     """
     Manages a collection of File objects and provides aggregate properties.
     """
     def __init__(self, directory, params):
-        self.directory = Path(directory)
+        
+        self.directory = Path(directory).resolve()
         self.files = []
         self.params = params  # Store the parameter object
         self._load_files()
+
+        logging.debug(f"Init Tracks with {self.directory}")
     
     def _load_files(self):
         """ Loads all audio files from the directory and creates File objects. """
         if self.directory.exists() and self.directory.is_dir():
+            logging.debug(f"Load Track(s) from {self.directory}")
             self.files = [Track(file, self.params) for file in self.directory.glob("*.*") if not file.name.startswith(".")]
         else:
             raise ValueError("Tracks directory missing or inaccessible.")

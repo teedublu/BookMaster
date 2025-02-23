@@ -1,0 +1,22 @@
+{
+    "global": {
+        "acceptable_formats": [
+            ".mp3",
+            ".wav"
+        ],
+        "target_lufs": -19
+    },
+    "last_used": {
+        "isbn": "9781915443472",
+        "sku": "BK-43472-SSMS",
+        "title": "Maggie Sparks and the Monster Baby + Maggie Sparks and the Swimming Pool Sharks",
+        "author": "Steve Smallman",
+        "input_folder": "/Users/thomaswilliams/Library/CloudStorage/GoogleDrive-tom@voxblock.co.uk/Shared drives/Codek Masters/Book Files",
+        "output_folder": "/Users/thomaswilliams/Documents/VoxblockMaster",
+        "file_count": 0,
+        "find_isbn_folder": true,
+        "use_webcam": false,
+        "csv_lookup": true,
+        "feedback": ""
+    }
+}
