@@ -35,7 +35,8 @@ class Master:
             "info_path": "bookInfo",
             "id_file": "bookInfo/id.txt",
             "count_file": "bookInfo/count.txt",
-            "metadata_file": ".metadata_never_index"
+            "metadata_file": ".metadata_never_index",
+            "checksum_file": "bookInfo/checksum.txt"
         }
         
         # Logger setup
@@ -43,26 +44,30 @@ class Master:
     
     @property
     def checksum(self):
-        """Computes a SHA-256 checksum for all files in master_structure."""
-        if not self.master_structure:
-            self.logger.warning("No master tracks found, cannot compute checksum.")
+        """Computes a SHA-256 checksum for all files in the master directory."""
+        if not self.master_structure or not self.master_structure.is_dir():
+            self.logger.warning("Master structure is not set or is not a directory.")
             return None
 
         hasher = hashlib.sha256()
-        file_paths = sorted(track.file_path for track in self.master_structure)  # Sort for consistency
+        
+        # Collect all files inside the directory recursively
+        file_paths = sorted(self.master_structure.rglob("*"))  # Get all files inside the directory
 
         for file_path in file_paths:
-            try:
-                with open(file_path, "rb") as f:
-                    while chunk := f.read(8192):  # Read file in chunks
-                        hasher.update(chunk)
-            except Exception as e:
-                self.logger.error(f"Failed to compute checksum for {file_path}: {e}")
-                return None
+            if file_path.is_file():  # Ensure it's a file, not a directory
+                try:
+                    with file_path.open("rb") as f:
+                        while chunk := f.read(8192):
+                            hasher.update(chunk)
+                except Exception as e:
+                    self.logger.error(f"Failed to compute checksum for {file_path}: {e}")
+                    return None
 
         checksum_value = hasher.hexdigest()
         self.logger.info(f"Computed master tracks checksum: {checksum_value}")
         return checksum_value  
+
     
     def get_fields(self):
         """Returns a dictionary of all property values for UI synchronization."""
@@ -111,8 +116,10 @@ class Master:
     
     def load_input_tracks(self, input_folder):
         """Loads the raw input tracks provided by the publisher."""
-        self.logger.info(f"Loading Master input tracks {input_folder}")
-        self.input_tracks = Tracks(input_folder, getattr(self.config, "params", {}))
+        params = getattr(self.config, "params", {})
+        self.logger.info(f"Loading Tracks {input_folder} with params {params}")
+
+        self.input_tracks = Tracks(self, input_folder, params)
 
     def encode_tracks(self):
         """
@@ -122,50 +129,42 @@ class Master:
             self.logger.error("No input tracks to encode.")
             raise ValueError("No input tracks to encode.")
 
-        processed_folder = Path(self.settings.get("processed_folder"))
+        processed_folder = Path(self.settings.get("processed_folder","."))
         processed_folder.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
+        params = getattr(self.config, "params", {})
 
         self.logger.info(f"Encoding input tracks...")
 
-        for track in self.input_tracks.files:
+        for track in sorted(self.input_tracks.files, key=lambda t: t.file_path.name):
             input_file = track.file_path
             output_file = processed_folder / f"{track.file_path.stem}_processed.mp3"
-
+            track.convert(output_file)
             self.logger.info(f"Encoding track: {input_file} -> {output_file}")
 
-            try:
-                # Convert to MP3 format with standard bitrate and sampling rate
-                (
-                    ffmpeg.input(str(input_file))
-                    .output(str(output_file), audio_bitrate="192k", ar="44100", ac="2", format="mp3")
-                    .run(overwrite_output=True, capture_stderr=True)
-                )
-
-                self.logger.info(f"Successfully encoded: {output_file}")
-
-            except ffmpeg.Error as e:
-                self.logger.error(f"Encoding failed for {input_file}: {e}")
-
-        # Reload processed tracks after encoding
-        self.processed_tracks = Tracks(processed_folder, self.config)
+            
+        self.processed_tracks = Tracks(processed_folder, params)
 
 
     def _load_processed_tracks(self):
         """Loads previously encoded and cleaned tracks to avoid re-encoding."""
         processed_folder = self.settings.get("processed_folder")
+        params = getattr(self.config, "params", {})
+
         logging.info(f"Load processed tracks from {processed_folder}")
         if Path(processed_folder).exists():
-            self.processed_tracks = Tracks(processed_folder, self.config)
+            self.processed_tracks = Tracks(processed_folder, params)
         else:
             self.logger.info(f"No processed files found in settings: {self.settings}")  
     
     def load_master_from_drive(self, drive_path):
         """Loads a previously created Master from a removable drive."""
         self.logger.info(f"Loading Master from drive: {drive_path}")
+        params = getattr(self.config, "params", {})
+
         tracks_path = Path(drive_path) / self.config.output_structure["tracks_path"]
         info_path = Path(drive_path) / self.config.output_structure["info_path"]
         
-        self.master_tracks = Tracks(tracks_path or image_path, self.config)
+        self.master_tracks = Tracks(tracks_path or image_path, params)
         
         try:
             self.isbn = (info_path / self.config.output_structure["id_file"]).read_text().strip()
@@ -205,19 +204,18 @@ class Master:
             logging.error("No input tracks provided.")
             raise ValueError("No input tracks provided.")
 
-        if not self.processed_tracks:
-            logging.info("No processed tracks found, encoding new files...")
+        if not self.processed_tracks or not self.skip_encoding:
+            logging.info("No processed tracks found or encoding requested, encoding new files...")
             self.encode_tracks()
         else:
             logging.info(f"Using previously processed tracks {self.processed_tracks.directory}, skipping re-encoding.")
-
-        # Debugging: Print the actual processed directory
-        logging.debug(f"Processed tracks directory AFTER assignment: {self.processed_tracks.directory}")
 
 
     def create_structure(self):
         """Creates the required directory and file structure for the master."""
         master_path = Path(self.settings.get("output_folder")) / self.sku # Use the main output directory
+        params = getattr(self.config, "params", {})
+
         self.master_structure = master_path.resolve()
         self.logger.info(f"Creating master structure in {master_path}")
 
@@ -232,11 +230,9 @@ class Master:
             else:  # Otherwise, assume it's a file
                 path.touch(exist_ok=True)
 
-        # TODO the files need to have ISBN and count inserted!!!
-        # TODO the files need to have ISBN and count inserted!!!
-        # TODO the files need to have ISBN and count inserted!!!
-        # TODO the files need to have ISBN and count inserted!!!
-
+        (master_path / self.output_structure["id_file"]).write_text(self.isbn)
+        (master_path / self.output_structure["count_file"]).write_text(str(self.file_count_expected))
+        (master_path / self.output_structure["checksum_file"]).write_text(str(self.checksum))
 
         # If processed tracks exist, move them into `tracks/`
         if self.processed_tracks:
@@ -254,7 +250,7 @@ class Master:
                 shutil.move(str(track.file_path), str(destination))
                 self.logger.info(f"Moved {track.file_path} -> {destination}")
 
-        self.master_tracks = Tracks(tracks_path, self.config)
+        self.master_tracks = Tracks(tracks_path, params)
 
 
         self.logger.info("Master structure setup complete.")

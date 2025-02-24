@@ -2,6 +2,7 @@ from pathlib import Path
 import mimetypes
 import mutagen
 import ffmpeg
+import slugify
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, TIT2, TPE1, TXXX
 from .track import Track
@@ -10,20 +11,26 @@ class Tracks:
     """
     Manages a collection of File objects and provides aggregate properties.
     """
-    def __init__(self, directory, params):
+    def __init__(self, master, directory, params):
         
         self.directory = Path(directory).resolve()
         self.files = []
+        self.master = master
         self.params = params  # Store the parameter object
         self._load_files()
 
-        logging.debug(f"Init Tracks with {self.directory}")
+        logging.debug(f"Init Tracks with {self.directory} with params {params}")
     
     def _load_files(self):
         """ Loads all audio files from the directory and creates File objects. """
         if self.directory.exists() and self.directory.is_dir():
-            logging.debug(f"Load Track(s) from {self.directory}")
-            self.files = [Track(file, self.params) for file in self.directory.glob("*.*") if not file.name.startswith(".")]
+            logging.debug(f"Load Track(s) from {self.directory} with params {self.params}")
+            self.files = sorted(
+                [Track(self.master, file, index, self.params) for index, file in enumerate(self.directory.glob("*.*")) if not file.name.startswith(".")],
+                key=lambda track: track.file_path.name
+            )
+
+
         else:
             raise ValueError("Tracks directory missing or inaccessible.")
     

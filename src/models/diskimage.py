@@ -15,6 +15,7 @@ class DiskImage:
     def __init__(self, output_base):
         self.output_base = output_base
         self.image_binaries_dir = os.path.join(self.output_base, "image_binaries")
+        self.logger = logging.getLogger(__name__)
         os.makedirs(self.image_binaries_dir, exist_ok=True)
 
     def create_disk_image(self, master_root, sku):
@@ -26,6 +27,14 @@ class DiskImage:
             raise RuntimeError(f"Error creating disk image from {master_root}")
 
         master_folder = master_root
+
+        # **Ensure the directory exists**
+        try:
+            master_folder.mkdir(parents=True, exist_ok=True)
+            self.logger.info(f"Ensured master folder exists: {master_folder}")
+        except Exception as e:
+            self.logger.error(f"Failed to create master folder {master_folder}: {e}")
+            raise
 
         logging.info(f"Creating disk image from {master_folder} in {self.output_base}")
 

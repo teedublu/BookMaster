@@ -41,11 +41,9 @@ class MasterUIWrapper:
             ))
 
         self._callbacks = {
-            "isbn": self._on_isbn_change,
-            "csv_lookup": self._on_csv_lookup_change,
+            "isbn": self._on_isbn_change
         }
 
-        self.books_data = self._load_books_csv()  # Load books.csv once
 
     def check(self):
         """Validates Master and updates UI."""
@@ -69,36 +67,29 @@ class MasterUIWrapper:
 
         """Triggered when ISBN changes. Looks up book details if ISBN is 13 digits."""
         if len(new_isbn) != 13 or not self.main_window.lookup_csv_var.get():
-            logging.debug(f"Invalid ISBN {self.master.isbn} {args[0]}")
+            logging.debug(f"Invalid ISBN {self.master}_{new_isbn}")
             return
 
-        logging.info(f"Looking up data for {self.master.isbn}")
+        logging.info(f"Looking up data for {new_isbn}_{self.master.isbn}")
 
-        row = self.books_data.get(self.master.isbn, {})  # Fast lookup from cached dictionary
+        row = self.master.config.books.get(new_isbn, {})  # Fast lookup from cached dictionary
 
         if not row:
-            logging.warning(f"No data found for {self.master.isbn}")
-            self.master.sku = None
-            self.master.title = None
-            self.master.author = None
-            self.master.expected_file_count = None
-            self.master.duration = None
+            logging.warning(f"No data found for {new_isbn}")
+            self._vars["sku"].set("")
+            self._vars["title"].set("")
+            self._vars["author"].set("")
+            self._vars["file_count_expected"].set(0)
+            self._vars["duration"].set(0.0)
             return
 
-        self.master.sku = row.get('SKU', None)
-        self.master.title = row.get('Title', None)
-        self.master.author = row.get('Author', None)
-        self.master.expected_file_count = row.get('ExpectedFileCount', None)
+        logging.debug(f"Data found for {new_isbn}")
+
+        self._vars["sku"].set(row.get('SKU', ""))
+        self._vars["title"].set(row.get('Title', ""))
+        self._vars["author"].set(row.get('Author', ""))
+        self._vars["file_count_expected"].set(row.get('ExpectedFileCount', 0))
         
-
-
-
-
-    def _on_csv_lookup_change(self, key):
-        """Call _on_isbn_change if csv_lookup is checked"""
-        if self.csv_lookup:  # Check if the checkbox is checked
-            self._on_isbn_change(key)  # Call the other function
-
 
 
     def update_ui_from_master(self):
@@ -122,22 +113,3 @@ class MasterUIWrapper:
             self.master.validate_master()
             # self.update_ui_from_master()
 
-    def _load_books_csv(self):
-        """Loads books.csv into memory as a dictionary for quick lookup."""
-        books = {}
-        try:
-            with open('books.csv', 'r', encoding='utf-8') as csvfile:
-                reader = csv.DictReader(csvfile)
-                for row in reader:
-                    isbn = row.get('ISBN')
-                    if isbn:
-                        books[isbn] = row  # Store row with ISBN as key
-            logging.info("Loaded books.csv into memory.")
-        except FileNotFoundError:
-            logging.error("Error: books.csv not found.")
-        except Exception as e:
-            logging.error(f"Error reading books.csv: {e}")
-        return books  # Return empty dict if file is missing
-
-
-    

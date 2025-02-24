@@ -155,11 +155,15 @@ class VoxblockUI:
     
     def toggle_csvlookup(self):
         new_state = "readonly" if self.lookup_csv_var.get() else "normal"
-
+        logging.debug(f"CSV changed to {new_state}")
         self.title_entry.config(state=new_state)
         self.author_entry.config(state=new_state)
         self.sku_entry.config(state=new_state)
         self.file_count.config(state=new_state)
+        if self.lookup_csv_var.get():
+            self.master_ui._on_isbn_change()
+
+
 
     def create(self):
         """Validates Master and updates UI."""
