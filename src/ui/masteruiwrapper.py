@@ -65,7 +65,7 @@ class MasterUIWrapper:
 
     # Inline lookup function
     def _on_isbn_change(self, *args):
-        new_isbn = self.isbn_var.get()
+        new_isbn = self._vars["isbn"].get()
 
         """Triggered when ISBN changes. Looks up book details if ISBN is 13 digits."""
         if len(new_isbn) != 13 or not self.main_window.lookup_csv_var.get():
