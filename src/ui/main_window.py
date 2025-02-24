@@ -30,7 +30,7 @@ class VoxblockUI:
         self.lookup_csv_var = tk.BooleanVar(value=settings.get('lookup_csv', False))
 
         # Wrap the master object with the UI wrapper
-        self.master_ui = MasterUIWrapper(self.root, master)
+        self.master_ui = MasterUIWrapper(self, master)
         
         self.create_widgets()
 
@@ -73,7 +73,7 @@ class VoxblockUI:
         self.sku_entry = tk.Entry(self.root, textvariable=self.master_ui._vars["sku"], state='normal')
         self.sku_entry.grid(row=4, column=1, sticky='w')
         # Radio button for CSV lookup
-        self.lookup_csv_field = tk.Checkbutton(self.root, text="CSV lookup", variable=self.lookup_csv_var)
+        self.lookup_csv_field = tk.Checkbutton(self.root, text="CSV lookup", variable=self.lookup_csv_var, command=self.toggle_csvlookup)
         self.lookup_csv_field.grid(row=4, column=3, sticky='w')
 
         ############ ROW 5
@@ -170,7 +170,7 @@ class VoxblockUI:
             self.master_ui.master.load_input_tracks(folder_selected)
 
         self.master_ui.master.create()
-        
+
 
     def test_selected_drive(self):
         """Trigger a test on the selected USB drive."""

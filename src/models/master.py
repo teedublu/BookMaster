@@ -236,7 +236,7 @@ class Master:
         # TODO the files need to have ISBN and count inserted!!!
         # TODO the files need to have ISBN and count inserted!!!
         # TODO the files need to have ISBN and count inserted!!!
-        
+
 
         # If processed tracks exist, move them into `tracks/`
         if self.processed_tracks:
