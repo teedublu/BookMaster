@@ -56,8 +56,10 @@ class MasterUIWrapper:
         if self.main_window.find_isbn_folder_var.get():
             input_folder = find_input_folder_from_isbn(self, input_folder, self.isbn)
 
-        logging.info(f"Passing '{input_folder}' to create a Master")
-        self.master.create(input_folder)
+        usb_drive = self.main_window.usb_hub.first_available_drive
+
+        logging.info(f"Passing '{input_folder}' to create a Master on {usb_drive}")
+        self.master.create(input_folder, usb_drive)
 
     def _on_var_change(self, key):
         """Creates a callback function for trace_add"""

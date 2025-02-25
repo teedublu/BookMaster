@@ -86,6 +86,7 @@ def extract_audio_metadata(file_path):
 
     try:
         probe = ffmpeg.probe(str(file_path))
+
         if "format" in probe and "duration" in probe["format"]:
             try:
                 results["duration"] = float(probe["format"]["duration"])

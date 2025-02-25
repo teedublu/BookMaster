@@ -16,7 +16,7 @@ class Track:
     """
     Represents a single audio file and its associated properties.
     """
-    def __init__(self, master, file_path, file_index, params, tests=None):
+    def __init__(self, master, file_path, file_index, params, tests):
         self.file_path = Path(file_path)
         self.file_type = self._determine_file_type()
         self.title = master.title
@@ -74,7 +74,7 @@ class Track:
         mime_type, _ = mimetypes.guess_type(self.file_path)
         return mime_type.split("/")[-1] if mime_type and "audio" in mime_type else None
 
-    def _extract_metadata(self):
+    def OLD_extract_metadata(self):
         """ Extracts metadata from MP3 files. """
         try:
             audio = MP3(self.file_path, ID3=ID3)
@@ -118,7 +118,7 @@ class Track:
         #     logging.warning(f"Skipping {self.file_path.name}, unable to retrieve audio properties.")
             
         file_path_string = str(destination_path / self.output_file)
-
+        logging.debug(f"Converting track duration={self.duration} sample_rate={self.sample_rate} bit_rate={self.bit_rate}")
 
         filter_complex = (
             f"[a0]volume=1.0[a1]; " # existing track

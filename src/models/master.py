@@ -106,7 +106,7 @@ class Master:
         instance.load_master_from_image(image_path)
         return instance
 
-    def create(self, input_folder):
+    def create(self, input_folder, usb_drive=None):
         logging.info (f"Processed path is {self.processed_path}")
         self.load_input_tracks(input_folder)
         # take input files and process
@@ -117,7 +117,12 @@ class Master:
 
         # Ensure we pass the correct processed tracks directory
         diskimage = DiskImage(output_path=self.image_path)
-        diskimage.create_disk_image(self.master_structure, self.sku)
+        image = diskimage.create_disk_image(self.master_structure, self.sku)
+
+        self.logger.info(f"Disk image written to {self.image_path}, {image}")
+
+        if usb_drive:
+            usb_drive.write_disk_image(self.image_path)
 
 
     def check(self):
@@ -126,20 +131,17 @@ class Master:
     
     def load_input_tracks(self, input_folder):
         """Loads the raw input tracks provided by the publisher."""
-        
-        self.input_tracks = Tracks(self, input_folder, self.params, None)
-        self._load_processed_tracks()
 
-    def _load_processed_tracks(self):
-        """Loads previously encoded and cleaned tracks to avoid re-encoding."""
-        processed_folder = self.processed_path
+        self.input_tracks = Tracks(self, input_folder, self.params, ["metadata"])
         
-
-        if Path(processed_folder).exists() and any(Path(processed_folder).iterdir()):
-            self.processed_tracks = Tracks(self, processed_folder, self.params, None)
-            logging.info(f"Attempting to load processed tracks from {processed_folder}")
+        if Path(self.processed_path).exists() and any(Path(self.processed_path).iterdir()):
+            self.processed_tracks = Tracks(self, self.processed_path, self.params, ["metadata"])
+            logging.info(f"Attempting to load processed tracks from {self.processed_path}")
+            if len(self.processed_tracks.files) != len(self.input_tracks.files):
+                logging.warning(f"Processed files unequal in length to input files. Rejecting")
+                self.processed_tracks = None
         else:
-            self.logger.info(f"No processed files folder found: {processed_folder}")  
+            self.logger.info(f"No processed files folder found or empty: {self.processed_path}")  
     
     def load_master_from_drive(self, drive_path):
         """Loads a previously created Master from a removable drive."""
@@ -210,9 +212,9 @@ class Master:
 
         self.logger.info(f"Encoding input tracks...")
 
-        # for track in sorted(self.input_tracks.files, key=lambda t: t.file_path.name):
-        #     track.convert(self.processed_path)
-        #     self.logger.info(f"Encoding track: {track.file_path} -> {self.processed_path}")
+        for track in sorted(self.input_tracks.files, key=lambda t: t.file_path.name):
+            track.convert(self.processed_path)
+            self.logger.info(f"Encoding track: {track.file_path} -> {self.processed_path}")
 
         self.processed_tracks = Tracks(self, self.processed_path, self.params, ["convert"])
 
