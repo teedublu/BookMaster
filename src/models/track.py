@@ -9,12 +9,14 @@ from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, TIT2, TPE1, TXXX
 import logging
 import traceback
+from utils.audio_helper import analyze_loudness, detect_silence, extract_audio_metadata, check_frame_errors
+
 
 class Track:
     """
     Represents a single audio file and its associated properties.
     """
-    def __init__(self, master, file_path, file_index, params):
+    def __init__(self, master, file_path, file_index, params, tests=None):
         self.file_path = Path(file_path)
         self.file_type = self._determine_file_type()
         self.title = master.title
@@ -32,7 +34,7 @@ class Track:
         self.sample_rate = int(params["encoding"]["sample_rate"])
         self.bit_rate = int(params["encoding"]["bit_rate"])  # bps
         self.channels = int(params["encoding"]["channels"])  # Mono = 1, Stereo = 2
-
+        self.tests = tests
         self.output_file = f"{str(self.index).zfill(3)}_{slugify(self.isbn[-5:])}{slugify(self.sku[-4:]).upper()}"[:13] + ".mp3"
 
 
@@ -85,70 +87,30 @@ class Track:
             logging.debug(f"Warning: Could not read metadata from {self.file_path}: {e}")
 
     def _analyze_audio_properties(self):
-        """ Runs loudness and silence detection in one ffmpeg command and frame error check separately. """
-        
-        result = ffmpeg.input(str(self.file_path)) \
-            .filter("silencedetect", noise=f"{self.params.get('silence_threshold', -30)}dB", d=self.params.get("min_silence_duration", 0.5)) \
-            .output("null", f="null").global_args("-hide_banner").run(capture_stderr=True)
+        """Runs only the specified audio tests."""
+        if not self.tests:
+            logging.info(f"No audio tests requested.")
+            return
 
-        try:
-            # Run loudness and silence detection together
-            result = ffmpeg.input(str(self.file_path)) \
-                .filter("silencedetect", noise=f"{self.params.get('silence_threshold', -30)}dB", d=self.params.get("min_silence_duration", 0.5)) \
-                .output("null", f="null").global_args("-hide_banner").run(capture_stderr=True)
+        if "loudness" in self.tests:
+            self.loudness = analyze_loudness(self.file_path)
 
-            output = result[1].decode("utf-8")  # Capture stderr instead of stdout
-            logging.debug(f"FFmpeg Output: {result}")  # Debugging step            
+        if "silence" in self.tests:
+            self.silences = detect_silence(self.file_path, self.params)
 
-            # Extract loudness safely
-            if "input_i:" in output:
-                try:
-                    loudness_str = output.split("input_i:")[1].split("dB")[0].strip()
-                    self.loudness = float(loudness_str) if loudness_str else None  # Handle missing values
-                except ValueError:
-                    self.loudness = None
-                    logging.debug("Warning: Could not parse loudness value.")
+        if "metadata" in self.tests:
+            audio_data = extract_audio_metadata(self.file_path)
+            self.duration = audio_data["duration"]
+            self.sample_rate = audio_data["sample_rate"]
+            self.bit_rate = audio_data["bit_rate"]
+            self.channels = audio_data["channels"]
+        else:
+            logging.warning(f"No metadata extracted. Impossible to continue.")
 
-            # Extract silence periods using regex
-            self.silences = []
-            silence_matches = re.findall(r"silence_start:\s*([\d\.]+)", output)
+        if "frame_errors" in self.tests:
+            self.frame_errors = check_frame_errors(self.file_path)
 
-            for match in silence_matches:
-                try:
-                    self.silences.append(float(match))
-                except ValueError:
-                    logging.debug(f"Warning: Could not parse silence_start value: {match}")
-
-            # Extract duration safely
-            probe = ffmpeg.probe(str(self.file_path))
-            if "format" in probe and "duration" in probe["format"]:
-                try:
-                    # self.duration = float(probe["format"]["duration"])
-                    self.duration = float(probe.get("format").get("duration", "0"))
-                except ValueError:
-                    self.duration = None
-                    logging.warning("Warning: Could not parse audio duration.")
-
-            audio_stream = next((s for s in probe["streams"] if s["codec_type"] == "audio"), None)
-            if audio_stream:
-                sample_rate = int(audio_stream.get("sample_rate", 0))
-                bit_rate = int(audio_stream.get("bit_rate", 0))
-                self.channels = int(audio_stream.get("channels", 0))  # Mono = 1, Stereo = 2
-                self.bit_rate = int(min(bit_rate, self.bit_rate))
-                self.sample_rate = int(min(sample_rate, self.sample_rate))
-
-        except Exception as e:
-            tb = traceback.extract_tb(e.__traceback__)[-1]  # Get the last traceback entry
-            logging.debug(f"Warning: Could not check frame errors for {self.file_path} at {tb.filename}:{tb.lineno}: {e}")
-
-        # Run frame error check separately
-        try:
-            error_result = ffmpeg.input(str(self.file_path)).output("null", f="null").global_args("-hide_banner", "-loglevel", "error").run(capture_stderr=True)
-            self.frame_errors = len(error_result[1].decode("utf-8").splitlines())
-        except Exception as e:
-            logging.debug(f"Warning: Could not check frame errors for {self.file_path}: {e}")
-
-        logging.info(f"Analysed file {self.file_path}")
+        logging.info(f"Analyzed file {self.file_path}")
 
     def convert(self, destination_path):
         # props = self._analyze_audio_properties()

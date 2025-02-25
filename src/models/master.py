@@ -127,7 +127,7 @@ class Master:
     def load_input_tracks(self, input_folder):
         """Loads the raw input tracks provided by the publisher."""
         
-        self.input_tracks = Tracks(self, input_folder, self.params)
+        self.input_tracks = Tracks(self, input_folder, self.params, None)
         self._load_processed_tracks()
 
     def _load_processed_tracks(self):
@@ -135,11 +135,11 @@ class Master:
         processed_folder = self.processed_path
         
 
-        if Path(processed_folder).exists():
-            self.processed_tracks = Tracks(self, processed_folder, self.params)
+        if Path(processed_folder).exists() and any(Path(processed_folder).iterdir()):
+            self.processed_tracks = Tracks(self, processed_folder, self.params, None)
             logging.info(f"Attempting to load processed tracks from {processed_folder}")
         else:
-            self.logger.info(f"No processed files found in settings: {self.settings}")  
+            self.logger.info(f"No processed files folder found: {processed_folder}")  
     
     def load_master_from_drive(self, drive_path):
         """Loads a previously created Master from a removable drive."""
@@ -198,7 +198,7 @@ class Master:
             logging.info("No processed tracks found, encoding new files...")
             self.encode_tracks()
         else:
-            logging.info(f"Using previously processed tracks {self.processed_tracks.directory}, skipping re-encoding.")
+            self.encode_tracks()
 
     def encode_tracks(self):
         """
@@ -210,11 +210,11 @@ class Master:
 
         self.logger.info(f"Encoding input tracks...")
 
-        for track in sorted(self.input_tracks.files, key=lambda t: t.file_path.name):
-            track.convert(self.processed_path)
-            self.logger.info(f"Encoding track: {track.file_path} -> {self.processed_path}")
+        # for track in sorted(self.input_tracks.files, key=lambda t: t.file_path.name):
+        #     track.convert(self.processed_path)
+        #     self.logger.info(f"Encoding track: {track.file_path} -> {self.processed_path}")
 
-        self.processed_tracks = Tracks(self, self.processed_path, self.params)
+        self.processed_tracks = Tracks(self, self.processed_path, self.params, ["convert"])
 
     def create_structure(self):
         """Creates the required directory and file structure for the master."""
@@ -260,7 +260,7 @@ class Master:
                 shutil.copy(str(track.file_path), str(destination))
                 self.logger.info(f"Copied {track.file_path} -> {destination}")
 
-        self.master_tracks = Tracks(self, tracks_path, params)
+        self.master_tracks = Tracks(self, tracks_path, params, ["loudness", "silence", "metadata", "frame_errors"])
 
 
         self.logger.info("Master structure setup complete.")

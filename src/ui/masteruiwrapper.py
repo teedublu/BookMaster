@@ -5,6 +5,7 @@ from tkinter import messagebox, filedialog
 from tkinter.scrolledtext import ScrolledText
 from utils.custom_logging import setup_logging, TextHandler
 from models import Master  # Import Master class
+from utils import find_input_folder_from_isbn
 
 class MasterUIWrapper:
     """
@@ -52,7 +53,10 @@ class MasterUIWrapper:
 
     def create(self):
         input_folder = self.main_window.input_folder_var.get()
-        logging.info(f"Passing {input_folder} to create a Master")
+        if self.main_window.find_isbn_folder_var.get():
+            input_folder = find_input_folder_from_isbn(self, input_folder, self.isbn)
+
+        logging.info(f"Passing '{input_folder}' to create a Master")
         self.master.create(input_folder)
 
     def _on_var_change(self, key):

@@ -11,12 +11,14 @@ class Tracks:
     """
     Manages a collection of File objects and provides aggregate properties.
     """
-    def __init__(self, master, directory, params):
+    def __init__(self, master, directory, params, tests=None):
         
         self.directory = Path(directory).resolve()
         self.files = []
         self.master = master
         self.params = params  # Store the parameter object
+        self.tests = tests
+
         self._load_files()
     
     def _load_files(self):
