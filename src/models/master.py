@@ -117,12 +117,13 @@ class Master:
 
         # Ensure we pass the correct processed tracks directory
         diskimage = DiskImage(output_path=self.image_path)
-        image = diskimage.create_disk_image(self.master_structure, self.sku)
+        image_file = diskimage.create_disk_image(self.master_structure, self.sku)
 
-        self.logger.info(f"Disk image written to {self.image_path}, {image}")
+        self.logger.info(f"Disk image written to {self.image_path}, {image_file}")
 
         if usb_drive:
-            usb_drive.write_disk_image(self.image_path)
+            self.logger.info(f"USB drive written to {usb_drive}, {image_file}")
+            usb_drive.write_disk_image(image_file)
 
 
     def check(self):

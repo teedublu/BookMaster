@@ -52,9 +52,15 @@ class MasterUIWrapper:
         self.update_ui()
 
     def create(self):
+        self.master = Master(self.master.config, self.master.settings)
         input_folder = self.main_window.input_folder_var.get()
+
         if self.main_window.find_isbn_folder_var.get():
-            input_folder = find_input_folder_from_isbn(self, input_folder, self.isbn)
+            try:
+                input_folder = find_input_folder_from_isbn(self, input_folder, self.isbn)
+            except Exception as e:
+                logging.error(f"Finding folder with isbn {self.isbn} failed. Stopping.")
+                return
 
         usb_drive = self.main_window.usb_hub.first_available_drive
 

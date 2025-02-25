@@ -55,7 +55,7 @@ def detect_silence(file_path, params):
             .run(capture_stderr=True)
 
         output = result[1].decode("utf-8")
-        logging.debug(f"FFmpeg Output (Silence Detection): {output}")
+        logging.debug(f"FFmpeg Output (Silence Detection): {output==None}")
 
         # Extract silence periods using regex
         silence_matches = re.findall(r"silence_start:\s*([\d\.]+)", output)

@@ -26,15 +26,13 @@ class Tracks:
         """ Loads all audio files from the directory and creates File objects. """
         if self.directory.exists() and self.directory.is_dir():
             logging.debug(f"Load Track(s) from {self.directory}")
-            self.files = sorted(
-                [
-                    Track(self.master, file, index, self.params, self.tests)
-                    for index, file in enumerate(self.directory.glob("*.*"), start=1) 
-                    if not file.name.startswith(".")
-                    logging.debug(f"{file}, {index}")
-                ],
-                key=lambda track: track.file_path.name
-            )
+
+            self.files = [
+                Track(self.master, file, index, self.params, self.tests)
+                for index, file in enumerate(sorted(self.directory.glob("*.*"), key=lambda f: f.name), start=1)
+                if not file.name.startswith(".")
+            ]
+
 
         else:
             raise ValueError("Tracks directory missing or inaccessible.")

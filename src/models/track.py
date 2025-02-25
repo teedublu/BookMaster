@@ -37,6 +37,7 @@ class Track:
         self.tests = tests
         self.output_file = f"{str(self.index).zfill(3)}_{slugify(self.isbn[-5:])}{slugify(self.sku[-4:]).upper()}"[:13] + ".mp3"
 
+        logging.debug(f"File index {file_index}, is called {file_path.name}")
 
         self._analyze_audio_properties()  # Perform all ffmpeg-related analysis first
         if self.file_type == "mp3":
