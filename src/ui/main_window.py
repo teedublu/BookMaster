@@ -96,7 +96,7 @@ class VoxblockUI:
 
         ############ ROW 8
         # Create Button
-        self.create_master_button = tk.Button(self.root, text="Create Master", command=self.create)
+        self.create_master_button = tk.Button(self.root, text="Create Master", command=self.master_ui.create)
         self.create_master_button.grid(row=8, column=0, columnspan=2)
         # Create Button
         self.check_master_button = tk.Button(self.root, text="Check Master", command=self.master_ui.check)
@@ -162,19 +162,6 @@ class VoxblockUI:
         self.file_count.config(state=new_state)
         if self.lookup_csv_var.get():
             self.master_ui._on_isbn_change()
-
-
-
-    def create(self):
-        """Validates Master and updates UI."""
-
-        if not self.master_ui.master.input_tracks:
-            logging.info(f"load input tracks")
-            folder_selected = self.input_folder_var.get()
-            self.master_ui.master.load_input_tracks(folder_selected)
-
-        self.master_ui.master.create()
-
 
     def test_selected_drive(self):
         """Trigger a test on the selected USB drive."""

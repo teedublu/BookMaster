@@ -8,6 +8,7 @@ from slugify import slugify
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, TIT2, TPE1, TXXX
 import logging
+import traceback
 
 class Track:
     """
@@ -27,10 +28,10 @@ class Track:
         self.frame_errors = 0
         self.params = params  # Store the parameter object
         self.master = master
-        self.target_lufs = params["encoding"]["target_lufs"]
-        self.sample_rate = params["encoding"]["sample_rate"]
-        self.bit_rate = params["encoding"]["bit_rate"]  # bps
-        self.channels = params["encoding"]["channels"]  # Mono = 1, Stereo = 2
+        self.target_lufs = int(params["encoding"]["target_lufs"])
+        self.sample_rate = int(params["encoding"]["sample_rate"])
+        self.bit_rate = int(params["encoding"]["bit_rate"])  # bps
+        self.channels = int(params["encoding"]["channels"])  # Mono = 1, Stereo = 2
 
         self.output_file = f"{str(self.index).zfill(3)}_{slugify(self.isbn[-5:])}{slugify(self.sku[-4:]).upper()}"[:13] + ".mp3"
 
@@ -41,8 +42,30 @@ class Track:
     
     @property
     def is_valid(self):
-        """ Determines if the track is valid based on silence and frame errors. """
-        return not self.silences and self.frame_errors == 0
+        """ 
+        Determines if the track is valid based on silence, frame errors, 
+        and correct metadata reporting.
+        """
+        return (
+            not self.silences and
+            self.frame_errors == 0 and
+            bool(self.isbn) and  # Ensure ISBN is present
+            self.encoding_is_valid() and  # Validate encoding
+            self.loudness_is_valid()  # Validate loudness
+        )
+
+    def encoding_is_valid(self):
+        """ Checks if encoding parameters are correctly set. """
+        return all([
+            isinstance(self.sample_rate, int) and self.sample_rate > 0,
+            isinstance(self.bit_rate, int) and self.bit_rate > 0,
+            isinstance(self.channels, int) and self.channels in (1, 2)  # Mono or Stereo
+        ])
+
+    def loudness_is_valid(self):
+        """ Checks if loudness is reported and within a reasonable range. """
+        return self.loudness is not None and -40 < self.loudness < 0  # LUFS range for audio
+
 
     def _determine_file_type(self):
         """ Determines the file type based on its MIME type. """
@@ -111,11 +134,12 @@ class Track:
                 sample_rate = int(audio_stream.get("sample_rate", 0))
                 bit_rate = int(audio_stream.get("bit_rate", 0))
                 self.channels = int(audio_stream.get("channels", 0))  # Mono = 1, Stereo = 2
-                self.bit_rate = f"{min(bit_rate, self.params["encoding"]["bit_rate"]) // 1000}k"
-                self.sample_rate = min(sample_rate, self.params["encoding"]["sample_rate"])
+                self.bit_rate = int(min(bit_rate, self.bit_rate))
+                self.sample_rate = int(min(sample_rate, self.sample_rate))
 
         except Exception as e:
-            logging.warning(f"Could not analyze audio properties for {self.file_path}: {e}")
+            tb = traceback.extract_tb(e.__traceback__)[-1]  # Get the last traceback entry
+            logging.debug(f"Warning: Could not check frame errors for {self.file_path} at {tb.filename}:{tb.lineno}: {e}")
 
         # Run frame error check separately
         try:
@@ -156,7 +180,7 @@ class Track:
                     .output(
                         file_path_string, 
                         ar=self.sample_rate, 
-                        ab=self.bit_rate, 
+                        ab=f"{self.bit_rate}k", 
                         ac=1, 
                         format='mp3', 
                         acodec='libmp3lame', 
@@ -201,4 +225,5 @@ class Track:
 
         # Save the changes
         audio.save()
+        logging.info(f"ID3 tags saved to {file_path.name}")
         

@@ -50,6 +50,10 @@ class MasterUIWrapper:
         self.master.check()
         self.update_ui()
 
+    def create(self):
+        input_folder = self.main_window.input_folder_var.get()
+        logging.info(f"Passing {input_folder} to create a Master")
+        self.master.create(input_folder)
 
     def _on_var_change(self, key):
         """Creates a callback function for trace_add"""

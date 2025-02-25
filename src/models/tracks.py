@@ -18,10 +18,9 @@ class Tracks:
         self.master = master
         self.params = params  # Store the parameter object
         self._load_files()
-
-        logging.debug(f"Init Tracks with {self.directory} with params {params}")
     
     def _load_files(self):
+        logging.debug(f"Load Tracks with _load_files {self.directory}")
         """ Loads all audio files from the directory and creates File objects. """
         if self.directory.exists() and self.directory.is_dir():
             logging.debug(f"Load Track(s) from {self.directory} with params {self.params}")
@@ -33,8 +32,6 @@ class Tracks:
                 ],
                 key=lambda track: track.file_path.name
             )
-
-
 
         else:
             raise ValueError("Tracks directory missing or inaccessible.")

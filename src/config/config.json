@@ -1,6 +1,7 @@
 {
     "encoding": {
-        "bit_rate": "192k",
+        "bit_rate": "96",
+        "bit_rate_comment": "without k as comparisons > < are performed",
         "sample_rate": 44100,
         "channels": 1,
         "target_lufs": -19

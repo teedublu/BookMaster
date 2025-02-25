@@ -15,6 +15,7 @@ class Master:
     def __init__(self, config, settings):
         self.config = config # config of audio settings
         self.settings = settings # UI and file locations
+        self.params = getattr(self.config, "params", {})
         self.input_tracks = None  # Tracks: Raw publisher files Tracks
         self.processed_tracks = None  # Tracks: Encoded and cleaned tracks
         self.master_tracks = None  # Tracks: Loaded from either USB drive or disk image
@@ -29,9 +30,13 @@ class Master:
         self.file_count_observed = 0
         self.status = ""
         self.skip_encoding = False # useful for speeding up debugging
-        self.processed_path = Path(settings.get("processed_folder")) / self.sku
+        self.output_path = Path(settings.get("output_folder"))
+        self.master_path = self.output_path / self.sku / "master"
+        self.processed_path = self.output_path / self.sku / "processed"
+        self.image_path =  self.output_path / self.sku / "image"
 
         self.processed_path.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
+        self.image_path.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
 
         # HEER FOR NOW BUT SHOULD COME FROM CONFIG
         self.output_structure = {
@@ -101,8 +106,9 @@ class Master:
         instance.load_master_from_image(image_path)
         return instance
 
-    def create(self):
-       
+    def create(self, input_folder):
+        logging.info (f"Processed path is {self.processed_path}")
+        self.load_input_tracks(input_folder)
         # take input files and process
         self.process_tracks()
 
@@ -110,7 +116,7 @@ class Master:
         self.create_structure() # do this after process so converted tracks can be put under /tracks
 
         # Ensure we pass the correct processed tracks directory
-        diskimage = DiskImage(output_base=self.settings.get("output_folder"))
+        diskimage = DiskImage(output_path=self.image_path)
         diskimage.create_disk_image(self.master_structure, self.sku)
 
 
@@ -120,52 +126,29 @@ class Master:
     
     def load_input_tracks(self, input_folder):
         """Loads the raw input tracks provided by the publisher."""
-        params = getattr(self.config, "params", {})
-        self.logger.info(f"Loading Tracks {input_folder} with params {params}")
-
-        self.input_tracks = Tracks(self, input_folder, params)
-
-    def encode_tracks(self):
-        """
-        Encodes raw input tracks to a standard format and stores them as processed tracks.
-        """
-        if not self.input_tracks:
-            self.logger.error("No input tracks to encode.")
-            raise ValueError("No input tracks to encode.")
-
-        processed_path = self.processed_path
         
-        params = getattr(self.config, "params", {})
-
-        self.logger.info(f"Encoding input tracks...")
-
-        for track in sorted(self.input_tracks.files, key=lambda t: t.file_path.name):
-            track.convert(processed_path)
-            self.logger.info(f"Encoding track: {track.file_path} -> {processed_path}")
-
-        self.processed_tracks = Tracks(self, processed_path, params)
-
+        self.input_tracks = Tracks(self, input_folder, self.params)
+        self._load_processed_tracks()
 
     def _load_processed_tracks(self):
         """Loads previously encoded and cleaned tracks to avoid re-encoding."""
-        processed_folder = self.settings.get("processed_folder")
-        params = getattr(self.config, "params", {})
+        processed_folder = self.processed_path
+        
 
-        logging.info(f"Load processed tracks from {processed_folder}")
         if Path(processed_folder).exists():
-            self.processed_tracks = Tracks(processed_folder, params)
+            self.processed_tracks = Tracks(self, processed_folder, self.params)
+            logging.info(f"Attempting to load processed tracks from {processed_folder}")
         else:
             self.logger.info(f"No processed files found in settings: {self.settings}")  
     
     def load_master_from_drive(self, drive_path):
         """Loads a previously created Master from a removable drive."""
         self.logger.info(f"Loading Master from drive: {drive_path}")
-        params = getattr(self.config, "params", {})
 
         tracks_path = Path(drive_path) / self.config.output_structure["tracks_path"]
         info_path = Path(drive_path) / self.config.output_structure["info_path"]
         
-        self.master_tracks = Tracks(tracks_path or image_path, params)
+        self.master_tracks = Tracks(tracks_path or image_path, self.params)
         
         try:
             self.isbn = (info_path / self.config.output_structure["id_file"]).read_text().strip()
@@ -199,22 +182,43 @@ class Master:
         finally:
             iso.close()
     
+    
     def process_tracks(self):
         """Processes tracks and creates a disk image."""
         if not self.input_tracks:
             logging.error("No input tracks provided.")
             raise ValueError("No input tracks provided.")
 
-        if not self.processed_tracks or not self.skip_encoding:
-            logging.info("No processed tracks found or encoding requested, encoding new files...")
+        if self.skip_encoding and self.processed_tracks:
+            logging.info("Skip encoding requested, using processed tracks.")
+        elif self.skip_encoding and not self.processed_tracks:
+            logging.info("Skip encoding requested, BUT processed tracks not found, encoding anyway")
+            self.encode_tracks()
+        elif not self.processed_tracks:
+            logging.info("No processed tracks found, encoding new files...")
             self.encode_tracks()
         else:
             logging.info(f"Using previously processed tracks {self.processed_tracks.directory}, skipping re-encoding.")
 
+    def encode_tracks(self):
+        """
+        Encodes raw input tracks to a standard format and stores them as processed tracks.
+        """
+        if not self.input_tracks:
+            self.logger.error("No input tracks to encode.")
+            raise ValueError("No input tracks to encode.")
+
+        self.logger.info(f"Encoding input tracks...")
+
+        for track in sorted(self.input_tracks.files, key=lambda t: t.file_path.name):
+            track.convert(self.processed_path)
+            self.logger.info(f"Encoding track: {track.file_path} -> {self.processed_path}")
+
+        self.processed_tracks = Tracks(self, self.processed_path, self.params)
 
     def create_structure(self):
         """Creates the required directory and file structure for the master."""
-        master_path = Path(self.settings.get("output_folder")) / self.sku # Use the main output directory
+        master_path = self.master_path # Use the main output directory
         params = getattr(self.config, "params", {})
 
         self.master_structure = master_path.resolve()
@@ -229,19 +233,21 @@ class Master:
         # Create required directories and files
         for key, rel_path in self.output_structure.items():
             path = master_path / rel_path
+            self.logger.debug(f"Creating structure : {path}")
             if "." not in rel_path:  # If no file extension, assume directory
                 path.mkdir(parents=True, exist_ok=True)
             else:  # Otherwise, assume it's a file
+                self.logger.debug(f"Creating file : {path}")
                 path.touch(exist_ok=True)
 
         (master_path / self.output_structure["id_file"]).write_text(self.isbn)
         (master_path / self.output_structure["count_file"]).write_text(str(len(self.processed_tracks.files)))
         (master_path / self.output_structure["checksum_file"]).write_text(str(self.checksum))
 
-        # If processed tracks exist, move them into `tracks/`
+        # If processed tracks exist, copy them into `tracks/`
         if self.processed_tracks:
             tracks_path = master_path / self.output_structure["tracks_path"]
-            self.logger.info(f"Moving processed tracks to {tracks_path}")
+            self.logger.info(f"Copying processed tracks to {tracks_path}")
 
             tracks_path.mkdir(parents=True, exist_ok=True)  # Ensure the folder exists
             for track in self.processed_tracks.files:
@@ -251,8 +257,8 @@ class Master:
                 if destination.exists():
                     self.logger.warning(f"Overwriting existing file: {destination}")
 
-                shutil.move(str(track.file_path), str(destination))
-                self.logger.info(f"Moved {track.file_path} -> {destination}")
+                shutil.copy(str(track.file_path), str(destination))
+                self.logger.info(f"Copied {track.file_path} -> {destination}")
 
         self.master_tracks = Tracks(self, tracks_path, params)
 
