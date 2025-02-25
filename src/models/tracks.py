@@ -26,9 +26,14 @@ class Tracks:
         if self.directory.exists() and self.directory.is_dir():
             logging.debug(f"Load Track(s) from {self.directory} with params {self.params}")
             self.files = sorted(
-                [Track(self.master, file, index, self.params) for index, file in enumerate(self.directory.glob("*.*")) if not file.name.startswith(".")],
+                [
+                    Track(self.master, file, index, self.params)
+                    for index, file in enumerate(self.directory.glob("*.*"), start=1) 
+                    if not file.name.startswith(".")
+                ],
                 key=lambda track: track.file_path.name
             )
+
 
 
         else:

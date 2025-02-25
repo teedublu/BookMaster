@@ -32,6 +32,9 @@ class Track:
         self.bit_rate = params["encoding"]["bit_rate"]  # bps
         self.channels = params["encoding"]["channels"]  # Mono = 1, Stereo = 2
 
+        self.output_file = f"{str(self.index).zfill(3)}_{slugify(self.isbn[-5:])}{slugify(self.sku[-4:]).upper()}"[:13] + ".mp3"
+
+
         self._analyze_audio_properties()  # Perform all ffmpeg-related analysis first
         if self.file_type == "mp3":
             self._extract_metadata()  # Extract metadata after audio analysis
@@ -97,7 +100,8 @@ class Track:
             probe = ffmpeg.probe(str(self.file_path))
             if "format" in probe and "duration" in probe["format"]:
                 try:
-                    self.duration = float(probe["format"]["duration"])
+                    # self.duration = float(probe["format"]["duration"])
+                    self.duration = float(probe.get("format").get("duration", "0"))
                 except ValueError:
                     self.duration = None
                     logging.warning("Warning: Could not parse audio duration.")
@@ -127,9 +131,8 @@ class Track:
         # if not props:
         #     logging.warning(f"Skipping {self.file_path.name}, unable to retrieve audio properties.")
             
+        file_path_string = str(destination_path / self.output_file)
 
-        new_file_name = f"{str(self.index).zfill(3)}_{slugify(self.isbn[-5:])}{slugify(self.sku[-4:]).upper()}"[:13] + ".mp3"
-        file_path_string = str(destination_path / new_file_name)
 
         filter_complex = (
             f"[a0]volume=1.0[a1]; " # existing track
@@ -143,15 +146,8 @@ class Track:
         # this should trim overly long silence at start of track to prevent player seeming unreactive but cant get to work
         # f"[0:a]silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB[a0]; "
 
-        # add metadata
-        metadata = {
-            'metadata:g:0': "title="+ self.title,
-            'metadata:g:1': "artist="+ self.author,
-            'metadata:g:2': "TXXX=ID:"+ base64.urlsafe_b64encode(str(self.isbn).encode()).decode(), #obfuscate
-            'metadata:g:3': "encoder=" # explcitly remove the encoder tag that gets set
-        }
 
-        # logging.info(f"converting {file.name} {sample_rate_icon} renaming to {new_file_name} duration {duration} metadata {metadata} samplerate {final_sample_rate} bitrate {final_bitrate}")
+        logging.info(f"Converting {self.file_path.name} renaming to {file_path_string} duration {self.duration} samplerate {self.sample_rate} bitrate {self.bit_rate}")
         try:
             (
                 (
@@ -166,9 +162,7 @@ class Track:
                         acodec='libmp3lame', 
                         filter_complex=filter_complex, 
                         map="[out]",
-                        map_metadata="-1",
-                        write_xing=0,
-                        **metadata
+                        map_metadata="-1"
                     )
                     .run(quiet=True, overwrite_output=True)
                 )
@@ -178,5 +172,33 @@ class Track:
             logging.error(e.stderr.decode('utf8'))
             raise e
 
-        # although metatags written in ffmpeg, want to strip out all which this function does (ffmpeg seems to insist on encoder)
+        # although metatags can be written in ffmpeg, want to strip out all which this function does (ffmpeg seems to insist on encoder)
+        self.update_mp3_metadata(self.file_path, self.title, self.author, self.isbn)
+
+    def update_mp3_metadata(self, file_path, title, author, isbn):
+        """
+        Remove all existing ID3 tags from an MP3 file and set new metadata.
+
+        Parameters:
+        - file_path: Path to the MP3 file.
+        - title: Title of the track.
+        - author: Author/Artist of the track.
+        - isbn: ISBN number to be obfuscated and added as a custom tag.
+        """
+        # Load the MP3 file
+        audio = MP3(file_path, ID3=ID3)
+
+        # Delete all existing ID3 tags
+        audio.delete()
+
+        # Add new tags
+        audio["TIT2"] = TIT2(encoding=3, text=title)  # Title tag
+        audio["TPE1"] = TPE1(encoding=3, text=author)  # Artist/Author tag
+
+        # Create a custom TXXX frame for the obfuscated ISBN
+        obfuscated_isbn = base64.urlsafe_b64encode(str(isbn).encode()).decode()
+        audio["TXXX:ID"] = TXXX(encoding=3, desc="ID", text=obfuscated_isbn)
+
+        # Save the changes
+        audio.save()
         

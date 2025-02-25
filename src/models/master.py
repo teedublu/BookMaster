@@ -4,6 +4,7 @@ import logging
 import ffmpeg
 import hashlib
 import shutil
+from utils import remove_folder
 from .tracks import Tracks
 from .diskimage import DiskImage
 
@@ -28,6 +29,9 @@ class Master:
         self.file_count_observed = 0
         self.status = ""
         self.skip_encoding = False # useful for speeding up debugging
+        self.processed_path = Path(settings.get("processed_folder")) / self.sku
+
+        self.processed_path.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
 
         # HEER FOR NOW BUT SHOULD COME FROM CONFIG
         self.output_structure = {
@@ -129,20 +133,17 @@ class Master:
             self.logger.error("No input tracks to encode.")
             raise ValueError("No input tracks to encode.")
 
-        processed_folder = Path(self.settings.get("processed_folder","."))
-        processed_folder.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
+        processed_path = self.processed_path
+        
         params = getattr(self.config, "params", {})
 
         self.logger.info(f"Encoding input tracks...")
 
         for track in sorted(self.input_tracks.files, key=lambda t: t.file_path.name):
-            input_file = track.file_path
-            output_file = processed_folder / f"{track.file_path.stem}_processed.mp3"
-            track.convert(output_file)
-            self.logger.info(f"Encoding track: {input_file} -> {output_file}")
+            track.convert(processed_path)
+            self.logger.info(f"Encoding track: {track.file_path} -> {processed_path}")
 
-            
-        self.processed_tracks = Tracks(processed_folder, params)
+        self.processed_tracks = Tracks(self, processed_path, params)
 
 
     def _load_processed_tracks(self):
@@ -219,9 +220,12 @@ class Master:
         self.master_structure = master_path.resolve()
         self.logger.info(f"Creating master structure in {master_path}")
 
+        # Ensure base master directory is clean
+        remove_folder(master_path, self.settings, self.logger)
+
         # Ensure base master directory exists
         master_path.mkdir(parents=True, exist_ok=True)
-
+        
         # Create required directories and files
         for key, rel_path in self.output_structure.items():
             path = master_path / rel_path
@@ -231,7 +235,7 @@ class Master:
                 path.touch(exist_ok=True)
 
         (master_path / self.output_structure["id_file"]).write_text(self.isbn)
-        (master_path / self.output_structure["count_file"]).write_text(str(self.file_count_expected))
+        (master_path / self.output_structure["count_file"]).write_text(str(len(self.processed_tracks.files)))
         (master_path / self.output_structure["checksum_file"]).write_text(str(self.checksum))
 
         # If processed tracks exist, move them into `tracks/`
@@ -250,7 +254,7 @@ class Master:
                 shutil.move(str(track.file_path), str(destination))
                 self.logger.info(f"Moved {track.file_path} -> {destination}")
 
-        self.master_tracks = Tracks(tracks_path, params)
+        self.master_tracks = Tracks(self, tracks_path, params)
 
 
         self.logger.info("Master structure setup complete.")
