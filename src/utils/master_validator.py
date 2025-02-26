@@ -1,12 +1,18 @@
 import os
-import hashlib
+from utils import compute_sha256
+import logging
+from config.config import Config
+from settings import (
+    load_settings, save_settings
+)
+
 
 class MasterValidator:
     """
     Validates a master structure to ensure it follows the required format on a USB drive.
     """
 
-    def __init__(self, usb_drive, expected_count, expected_isbn):
+    def __init__(self, usb_drive, expected_count=None, expected_isbn=None):
         """
         :param usb_drive: USBDrive instance representing the mounted USB device.
         :param expected_count: Expected number of track files.
@@ -15,16 +21,29 @@ class MasterValidator:
         self.usb_drive = usb_drive
         self.expected_count = expected_count
         self.expected_isbn = expected_isbn
+        self.file_isbn = None
+        self.file_count = None
         self.errors = []
+        logging.info(f"MasterValidator created")
+        self.validate()
 
     def validate(self):
+        from models import Master # needs to be in function to prevent circular imports
         """Runs all validation checks and returns a summary."""
         self.errors = []  # Reset errors before validation
+
+        settings = load_settings()
+        config = Config()  # Assuming Config can accept a debug flag
+
+        logging.debug(f"creating candidate master {self.usb_drive.mountpoint}")
+        self.candidate_master = Master.from_device(config, settings, self.usb_drive.mountpoint)
 
         self.check_path_exists()
         self.check_tracks_folder()
         self.check_bookinfo_id()
         self.check_checksum()
+
+        logging.info(f"Validation performed, errors found: {self.errors}")
 
         return len(self.errors) == 0, self.errors  # Return validation status and errors
 
@@ -43,9 +62,11 @@ class MasterValidator:
 
         # Count only the files (ignore directories)
         track_files = [f for f in os.listdir(tracks_path) if os.path.isfile(os.path.join(tracks_path, f))]
+        self.track_count = len(track_files)
 
-        if len(track_files) != self.expected_count:
-            self.errors.append(f"Expected {self.expected_count} track files, but found {len(track_files)} in '{tracks_path}'.")
+        if self.track_count != self.expected_count:
+            if self.expected_count: #only check if passed explicit value
+                self.errors.append(f"Expected {self.expected_count} track files, but found {self.track_count} in '{tracks_path}'.")
 
     def check_bookinfo_id(self):
         """Check that the ISBN in 'bookinfo/id.txt' matches the expected value."""
@@ -62,10 +83,11 @@ class MasterValidator:
 
         # Read ISBN from file
         with open(id_txt_path, "r", encoding="utf-8") as f:
-            file_isbn = f.read().strip()
+            self.file_isbn = f.read().strip()
 
-        if file_isbn != self.expected_isbn:
-            self.errors.append(f"ISBN mismatch: Expected {self.expected_isbn}, but found {file_isbn} in 'id.txt'.")
+        if self.file_isbn != self.expected_isbn:
+            if self.expected_isbn: #only check if passed explicit value
+                self.errors.append(f"ISBN mismatch: Expected {self.expected_isbn}, but found {self.file_isbn} in 'id.txt'.")
 
     def check_checksum(self):
         """Check that the checksum.txt file exists and matches computed checksums."""
@@ -90,7 +112,7 @@ class MasterValidator:
                 file_path = os.path.join(root, file)
                 if file == "checksum.txt":  # Skip checksum file itself
                     continue
-                actual_checksums[file] = self.compute_md5(file_path)
+                actual_checksums[file] = compute_sha256(file_path)
 
         # Compare expected vs actual
         for file, expected_hash in expected_checksums.items():
@@ -105,10 +127,6 @@ class MasterValidator:
             if file not in expected_checksums:
                 self.errors.append(f"⚠️ Unexpected file '{file}' not listed in checksum.txt.")
 
-    def compute_md5(self, file_path):
-        """Computes the MD5 hash of a file."""
-        hasher = hashlib.md5()
-        with open(file_path, "rb") as f:
-            while chunk := f.read(4096):
-                hasher.update(chunk)
-        return hasher.hexdigest()
+    
+
+

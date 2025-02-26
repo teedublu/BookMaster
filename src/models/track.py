@@ -103,7 +103,7 @@ class Track:
             audio_data = extract_audio_metadata(self.file_path)
             self.duration = audio_data["duration"]
             self.sample_rate = audio_data["sample_rate"]
-            self.bit_rate = audio_data["bit_rate"]
+            self.bit_rate = int(audio_data["bit_rate"])//1000
             self.channels = audio_data["channels"]
         else:
             logging.warning(f"No metadata extracted. Impossible to continue.")

@@ -6,6 +6,7 @@ import subprocess
 import platform
 import hashlib
 import logging
+import traceback
 from models import USBDrive
 
 class USBHub:
@@ -62,7 +63,8 @@ class USBHub:
                             drives[part.mountpoint] = USBDrive(part.mountpoint, device_path)
 
         except Exception as e:
-            logging.debug(f"Error getting USB drives: {e}")
+            tb = traceback.extract_tb(e.__traceback__)[-1]
+            logging.debug(f"Error getting USB drives at {tb.filename}:{tb.lineno}: {e}")
 
         return drives
 

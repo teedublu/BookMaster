@@ -80,16 +80,16 @@ class Master:
         }
 
     @classmethod
-    def from_device(cls, config, device_path):
+    def from_device(cls, config, settings, device_path):
         """ Alternative constructor to initialize Master from a device. """
-        instance = cls(config)
+        instance = cls(config, settings)
         instance.load_master_from_drive(device_path)
         return instance
     
     @classmethod
-    def from_img(cls, config, image_path):
+    def from_img(cls, config, settings, image_path):
         """ Alternative constructor to initialize Master from a disk image using pycdlib. """
-        instance = cls(config)
+        instance = cls(config, settings)
         instance.load_master_from_image(image_path)
         return instance
 
@@ -133,16 +133,21 @@ class Master:
     
     def load_master_from_drive(self, drive_path):
         """Loads a previously created Master from a removable drive."""
-        self.logger.info(f"Loading Master from drive: {drive_path}")
-
-        tracks_path = Path(drive_path) / self.config.output_structure["tracks_path"]
-        info_path = Path(drive_path) / self.config.output_structure["info_path"]
         
-        self.master_tracks = Tracks(tracks_path or image_path, self.params)
+
+        tracks_path = Path(drive_path) / self.output_structure["tracks_path"]
+        info_path = Path(drive_path) / self.output_structure["info_path"]
+        
+        self.logger.info(f"Loading Master from drive: {drive_path} _ {tracks_path} _ {info_path}")
+
+        self.master_tracks = Tracks(self, tracks_path, self.params)
+
+        isbn_file = Path(drive_path) / self.output_structure["id_file"]
+        count_file = Path(drive_path) / self.output_structure["count_file"]
         
         try:
-            self.isbn = (info_path / self.config.output_structure["id_file"]).read_text().strip()
-            self.file_count_expected = int((info_path / self.config.output_structure["count_file"]).read_text().strip())
+            self.isbn = isbn_file.read_text().strip()
+            self.file_count_expected = int(count_file.read_text().strip())
             self.title = self.master_tracks.title
             self.author = self.master_tracks.author
             self.duration = self.master_tracks.duration

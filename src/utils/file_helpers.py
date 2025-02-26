@@ -14,7 +14,8 @@ def compute_sha256(file_paths):
     :return: SHA-256 hash string or None if an error occurs.
     """
     hasher = hashlib.sha256()
-
+    
+    logging.debug(f"Creating hash for {len(file_paths)} paths")
     for file_path in file_paths:
         if file_path.is_file() and not any(excluded in file_path.parts for excluded in EXCLUDED_DIRS):
             try:

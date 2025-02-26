@@ -9,6 +9,7 @@ import hashlib
 from utils import compute_sha256
 # from utils import remove_system_files
 from pathlib import Path
+from utils import MasterValidator
 
 class USBDrive:
     def __init__(self, mountpoint, device_path=None):
@@ -20,22 +21,35 @@ class USBDrive:
         self.capacity = self.get_capacity()
         self.speed = None  # To be determined via test
         self.current_content = {}
+        self.is_master = self.is_master()
+        self.checksum = None
+        self.stored_checksum = None
+        self.is_checksum_valid = None
 
-        self.checksum = self.compute_checksum()  # Compute actual checksum
-        self.stored_checksum = self.load_stored_checksum()  # Load stored checksum
-        self.is_checksum_valid = self.checksum_matches()  # Check if they match
+        if self.is_master:
+            logging.debug(f"Inserted drive is likely Master")
+            self.checksum = self.compute_checksum()  # Compute actual checksum
+            self.stored_checksum = self.load_stored_checksum()  # Load stored checksum
+            self.is_checksum_valid = self.checksum_matches()  # Check if they match
 
-        logging.debug(f"Stored checksum {self.stored_checksum}")
-        logging.debug(f"Calcul checksum {self.checksum}")
+
+            self.validator = MasterValidator(self)
+
+            logging.debug(f"Stored checksum {self.stored_checksum}")
+            logging.debug(f"Calcul checksum {self.checksum}")
     
     def compute_checksum(self):
         """Computes a SHA-256 checksum for all files in the USB drive."""
         
         # Get all files inside the directory recursively
-        file_paths = sorted(self.mountpoint.rglob("*"))  
-        checksum_value = compute_sha256(file_paths)
-        logging.info(f"Computed master tracks {file_paths} checksum: {checksum_value}")
-        return checksum_value
+        file_paths = sorted(self.mountpoint.rglob("*")) 
+        try:
+            checksum_value = compute_sha256(file_paths)
+            logging.info(f"Computed master tracks checksum: {checksum_value}")
+            return checksum_value
+        except Exception as e:
+            logging.error(f"Failed to read 'checksum.txt' from disk: {e}")
+            return None
 
     def load_stored_checksum(self):
         """Loads the expected checksum from /bookinfo/checksum.txt if available."""
@@ -220,6 +234,16 @@ class USBDrive:
             logging.error(f"Error loading current content of block: {e}")
 
         return
+
+    def is_master(self):
+        """
+        Checks if the USB drive contains the required master structure.
+        Returns True if all required directories exist, otherwise False.
+        """
+        required_dirs = ["tracks", "bookInfo"]
+        
+        return all((self.mountpoint / directory).is_dir() for directory in required_dirs)
+
 
     
     def __repr__(self):
