@@ -5,6 +5,8 @@ import time
 import threading
 import subprocess
 import pathlib
+import hashlib
+from utils import compute_sha256
 # from utils import remove_system_files
 from pathlib import Path
 
@@ -13,12 +15,48 @@ class USBDrive:
         """
         Initialize USBDrive with its mountpoint.
         """
-        self.mountpoint = mountpoint
+        self.mountpoint = Path(mountpoint)
         self.device_path = device_path or self.get_device_path()  # Get raw device if not provided
         self.capacity = self.get_capacity()
         self.speed = None  # To be determined via test
         self.current_content = {}
+
+        self.checksum = self.compute_checksum()  # Compute actual checksum
+        self.stored_checksum = self.load_stored_checksum()  # Load stored checksum
+        self.is_checksum_valid = self.checksum_matches()  # Check if they match
+
+        logging.debug(f"Stored checksum {self.stored_checksum}")
+        logging.debug(f"Calcul checksum {self.checksum}")
     
+    def compute_checksum(self):
+        """Computes a SHA-256 checksum for all files in the USB drive."""
+        
+        # Get all files inside the directory recursively
+        file_paths = sorted(self.mountpoint.rglob("*"))  
+        checksum_value = compute_sha256(file_paths)
+        logging.info(f"Computed master tracks {file_paths} checksum: {checksum_value}")
+        return checksum_value
+
+    def load_stored_checksum(self):
+        """Loads the expected checksum from /bookinfo/checksum.txt if available."""
+        checksum_path = self.mountpoint / "bookInfo" / "checksum.txt"
+
+        if not checksum_path.is_file():
+            logging.warning("No checksum.txt found in bookinfo directory.")
+            return None
+
+        try:
+            with checksum_path.open("r", encoding="utf-8") as f:
+                return f.read().strip()
+        except Exception as e:
+            logging.error(f"Failed to read 'checksum.txt': {e}")
+            return None
+
+    def checksum_matches(self):
+        """Checks if computed checksum matches the stored checksum."""
+        return self.checksum and self.stored_checksum and self.checksum == self.stored_checksum
+
+
     def get_device_path(self):
         """
         Find the raw device path corresponding to this mountpoint.
@@ -129,7 +167,6 @@ class USBDrive:
             print(f"Speed Test Results for {self.mountpoint}: {self.speed}")
         except Exception as e:
             print(f"Error testing drive speed: {e}")
-
 
     def get_capacity(self):
         """Check and return total capacity of the USB drive."""

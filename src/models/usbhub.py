@@ -4,6 +4,8 @@ import time
 import threading
 import subprocess
 import platform
+import hashlib
+import logging
 from models import USBDrive
 
 class USBHub:
@@ -41,18 +43,52 @@ class USBHub:
         Detect connected USB drives and return them as a dictionary.
 
         Returns:
-            dict: {mountpoint: mountpoint} of available drives.
+            dict: {mountpoint: USBDrive} of available drives.
         """
         drives = {}
+
         try:
             for part in psutil.disk_partitions(all=False):
                 if part.mountpoint.startswith(self.mountpoint) and part.fstype in ("exfat", "vfat", "msdos"):
                     device_path = self.get_device_path(part.mountpoint)
+
                     if device_path:
-                        drives[part.mountpoint] = USBDrive(part.mountpoint, device_path)
+                        if part.mountpoint in self.drives:
+                            # Reuse existing USBDrive instance
+                            drives[part.mountpoint] = self.drives[part.mountpoint]
+                        else:
+                            # Create new USBDrive instance only for newly detected drives
+                            logging.debug(f"Creating new USB drive: {part.mountpoint} _ {device_path}")
+                            drives[part.mountpoint] = USBDrive(part.mountpoint, device_path)
+
         except Exception as e:
-            print(f"Error getting USB drives: {e}")
+            logging.debug(f"Error getting USB drives: {e}")
+
         return drives
+
+    def monitor_drives(self):
+        """Continuously monitor for USB insertions/removals."""
+        while True:
+            with self.lock:
+                current_drives = self.get_usb_drives()
+                new_drives = {d: drive for d, drive in current_drives.items() if d not in self.drives}
+                removed_drives = {d: drive for d, drive in self.drives.items() if d not in current_drives}
+
+                # Update stored drives (only modifying what's needed)
+                for mountpoint, drive in new_drives.items():
+                    print(f"🔌 New drive detected: {mountpoint}")
+                    self.drives[mountpoint] = drive  # Store the new drive
+
+                for mountpoint in removed_drives:
+                    print(f"💨 Drive removed: {mountpoint}")
+                    del self.drives[mountpoint]  # Remove disconnected drives
+
+                self.update_drive_list()
+
+            time.sleep(5)  # Polling interval
+
+    
+
 
     def get_device_path(self, mountpoint):
         """
@@ -75,31 +111,6 @@ class USBHub:
         except subprocess.CalledProcessError as e:
             logging.error(f"Failed to retrieve device path for {mountpoint}: {e}")
         return None  # Return None if the device path couldn't be determined
-
-
-    def monitor_drives(self):
-        """Continuously monitor for USB insertions/removals."""
-        while True:
-            with self.lock:
-                current_drives = self.get_usb_drives()
-                new_drives = {d: drive for d, drive in current_drives.items() if d not in self.drives}
-                removed_drives = {d: drive for d, drive in self.drives.items() if d not in current_drives}
-
-                # Update stored drives
-                self.drives = current_drives
-
-                # Handle newly inserted drives
-                for mountpoint, drive in new_drives.items():
-                    print(f"New drive detected: {mountpoint}")
-                    self.drives[mountpoint] = drive
-
-                # Handle removed drives
-                for mountpoint in removed_drives:
-                    print(f"Drive removed: {mountpoint}")
-                    # del self.drives[mountpoint]  # Optionally clean up removed drive
-
-                self.update_drive_list()
-            time.sleep(5)  # Polling interval
 
     def update_drive_list(self):
         """Update the drive list and notify the UI."""

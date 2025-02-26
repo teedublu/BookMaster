@@ -1,6 +1,32 @@
 import shutil
 from pathlib import Path
 import logging
+import hashlib
+
+EXCLUDED_DIRS = {".fseventsd", ".Spotlight-V100", ".Trashes", ".DS_Store"}
+
+
+def compute_sha256(file_paths):
+    """
+    Computes a SHA-256 checksum for a list of files.
+
+    :param file_paths: A list of Path objects representing files to include in the hash.
+    :return: SHA-256 hash string or None if an error occurs.
+    """
+    hasher = hashlib.sha256()
+
+    for file_path in file_paths:
+        if file_path.is_file() and not any(excluded in file_path.parts for excluded in EXCLUDED_DIRS):
+            try:
+                with file_path.open("rb") as f:
+                    while chunk := f.read(8192):  # 8KB buffer
+                        hasher.update(chunk)
+            except Exception as e:
+                logging.error(f"Error reading {file_path}: {e}")
+                return None  # Stop if any file fails
+
+    return hasher.hexdigest()
+
 
 def remove_folder(folder_path, settings, logger=None):
     """

@@ -4,7 +4,7 @@ import logging
 import ffmpeg
 import hashlib
 import shutil
-from utils import remove_folder
+from utils import remove_folder, compute_sha256
 from .tracks import Tracks
 from .diskimage import DiskImage
 
@@ -57,24 +57,11 @@ class Master:
         if not self.master_structure or not self.master_structure.is_dir():
             self.logger.warning("Master structure is not set or is not a directory.")
             return None
-
-        hasher = hashlib.sha256()
         
         # Collect all files inside the directory recursively
         file_paths = sorted(self.master_structure.rglob("*"))  # Get all files inside the directory
-
-        for file_path in file_paths:
-            if file_path.is_file():  # Ensure it's a file, not a directory
-                try:
-                    with file_path.open("rb") as f:
-                        while chunk := f.read(8192):
-                            hasher.update(chunk)
-                except Exception as e:
-                    self.logger.error(f"Failed to compute checksum for {file_path}: {e}")
-                    return None
-
-        checksum_value = hasher.hexdigest()
-        self.logger.info(f"Computed master tracks checksum: {checksum_value}")
+        checksum_value = compute_sha256(file_paths)
+        self.logger.info(f"Computed master tracks {file_paths} checksum: {checksum_value}")
         return checksum_value  
 
     
@@ -247,6 +234,8 @@ class Master:
         (master_path / self.output_structure["count_file"]).write_text(str(len(self.processed_tracks.files)))
         (master_path / self.output_structure["checksum_file"]).write_text(str(self.checksum))
 
+        self.logger.debug(f"Writing metadata {self.isbn} _ {len(self.processed_tracks.files)} _ {self.checksum}")
+
         # If processed tracks exist, copy them into `tracks/`
         if self.processed_tracks:
             tracks_path = master_path / self.output_structure["tracks_path"]
@@ -263,6 +252,10 @@ class Master:
                 shutil.copy(str(track.file_path), str(destination))
                 self.logger.info(f"Copied {track.file_path} -> {destination}")
 
+        else:
+            self.logger.error(f"Copying processed tracks to {tracks_path}")
+            raise ValueError(f"Missing process_tracks can not proceed")
+
         self.master_tracks = Tracks(self, tracks_path, params, ["loudness", "silence", "metadata", "frame_errors"])
 
 
@@ -278,6 +271,3 @@ class Master:
             self._validate_tracks(self.master_tracks)
         elif self.input_tracks:
             self.logger.info("Have input tracks...")
-
-    
-
