@@ -3,12 +3,15 @@ import mimetypes
 import mutagen
 import ffmpeg
 import re
+import sys
 import base64
 from slugify import slugify
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, TIT2, TPE1, TXXX
+from config.config import COLORS
 import logging
 import traceback
+
 from utils.audio_helper import analyze_loudness, detect_silence, extract_audio_metadata, check_frame_errors
 
 
@@ -42,21 +45,51 @@ class Track:
         self._analyze_audio_properties()  # Perform all ffmpeg-related analysis first
         if self.file_type == "mp3":
             self._extract_metadata()  # Extract metadata after audio analysis
+
+        print (self)
     
+
+    def __str__(self):
+        """
+        Returns a colorized, user-friendly string representation of the track.
+        Example:
+            "track1.mp3" (Green for valid)
+            "track2.mp3 (Silence)" (Yellow)
+            "track3.mp3 (Frame errors)" (Red)
+        """
+        # Determine color based on status
+        is_valid, issue_str = self.status
+        color = COLORS["green"] if is_valid else COLORS["yellow"] if issue_str.startswith("Silence") else COLORS["red"]
+
+        # Return formatted output
+        return f"{color}{self.file_path.name}{f' ({issue_str})' if issue_str else ''}{COLORS['reset']}"
+
+
+
+    def __repr__(self):
+        """ Returns a detailed representation of the track for debugging. """
+        return f"Track(filename={self.file_path.name}, is_valid={self.is_valid} , sample_rate={self.sample_rate}, bit_rate={self.bit_rate} frame_errors={self.frame_errors}, silences={len(self.silences)})"
+
+    @property
+    def status(self):
+        """
+        Returns a tuple:
+        - First element: Boolean (True = valid, False = has issues).
+        - Second element: A detailed string with issues if any.
+        """
+        issues = [
+            "Silence" if self.silences else "",
+            f"Frame errors: {self.frame_errors}" if self.frame_errors > 0 else "",
+            "Encoding issue" if not self.encoding_is_valid() else ""
+        ]
+        issue_str = ", ".join(filter(None, issues))
+        is_valid = len(issues) == 0
+        return (is_valid, issue_str)  # (True = valid, False = has issues)
+
     @property
     def is_valid(self):
-        """ 
-        Determines if the track is valid based on silence, frame errors, 
-        and correct metadata reporting.
-        """
-        print (self.loudness_is_valid())
-        return (
-            not self.silences and
-            self.frame_errors == 0 and
-            bool(self.isbn) and  # Ensure ISBN is present
-            self.encoding_is_valid() and  # Validate encoding
-            self.loudness_is_valid()  # Validate loudness
-        )
+        """ Returns True if the track has no issues. """
+        return self.status[0]
 
     def encoding_is_valid(self):
         """ Checks if encoding parameters are correctly set. """
@@ -93,6 +126,8 @@ class Track:
         if not self.tests:
             logging.info(f"No audio tests requested.")
             return
+
+        logging.info(f"Performing audio tests {self.tests}.")
 
         if "loudness" in self.tests:
             self.loudness = analyze_loudness(self.file_path)

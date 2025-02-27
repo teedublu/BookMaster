@@ -1,7 +1,20 @@
 import json
 import csv
+import sys
 import logging
 from pathlib import Path
+
+COLORS = {
+    "green": "\033[92m",
+    "yellow": "\033[93m",
+    "red": "\033[91m",
+    "reset": "\033[0m"
+}
+
+# Disable colors if output is not a terminal (e.g., piped to a file)
+if not sys.stdout.isatty():
+    COLORS = {key: "" for key in COLORS}
+
 
 class Config:
     """Handles shared Master processing configuration (Read-Only)."""

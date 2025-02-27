@@ -20,6 +20,7 @@ def compute_sha256(file_paths):
         if file_path.is_file() and not any(excluded in file_path.parts for excluded in EXCLUDED_DIRS):
             try:
                 with file_path.open("rb") as f:
+                    logging.debug(f"Creating hash chunk for {file_path}")
                     while chunk := f.read(8192):  # 8KB buffer
                         hasher.update(chunk)
             except Exception as e:

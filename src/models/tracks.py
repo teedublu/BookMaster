@@ -32,8 +32,8 @@ class Tracks:
                 for index, file in enumerate(sorted(self.directory.glob("*.*"), key=lambda f: f.name), start=1)
                 if not file.name.startswith(".")
             ]
-
-
+            print ('-------------------------------')
+            print (self.files)
         else:
             raise ValueError("Tracks directory missing or inaccessible.")
     
