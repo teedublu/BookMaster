@@ -1,6 +1,8 @@
 import os
-from utils import compute_sha256
+from utils import compute_sha256, remove_system_files
+from pathlib import Path
 import logging
+import subprocess
 from config.config import Config
 from settings import (
     load_settings, save_settings
@@ -23,6 +25,7 @@ class MasterValidator:
         self.expected_isbn = expected_isbn
         self.file_isbn = None
         self.file_count = None
+        self.is_clean = None
         self.errors = []
         logging.info(f"MasterValidator created")
         self.validate()
@@ -36,21 +39,54 @@ class MasterValidator:
         config = Config()  # Assuming Config can accept a debug flag
 
         logging.debug(f"creating candidate master {self.usb_drive.mountpoint}")
-        self.candidate_master = Master.from_device(config, settings, self.usb_drive.mountpoint)
+        self.candidate_master = Master.from_device(config, settings, self.usb_drive.mountpoint) #from_device defines the checks to be made
 
         self.check_path_exists()
         self.check_tracks_folder()
         self.check_bookinfo_id()
         self.check_checksum()
-
+        
+        self.is_clean = self.ensure_metadata_never_index() & remove_system_files(self.usb_drive.mountpoint)
+        
         logging.info(f"Validation performed, errors found: {self.errors}")
-
+        logging.info(f"Validation performed, title: {self.candidate_master.title}")
+        logging.info(f"Validation performed, isbn: {self.candidate_master.isbn}")
+        logging.info(f"Validation performed, sku: {self.candidate_master.sku}")
+        logging.info(f"Validation performed, duration: {self.candidate_master.duration}")
+        logging.info(f"Validation performed, USB is_clean: {self.is_clean}")
+        logging.info(f"Validation performed, USB is_single_volume: {self.usb_drive.properties.get("is_single_volume")}")
+        logging.info(f"Validation performed, Candiate: {self.candidate_master.master_tracks.are_valid}")
+        logging.info(f"Validation performed, Candiate: {self.candidate_master.master_tracks.invalid_tracks}")
+        
         return len(self.errors) == 0, self.errors  # Return validation status and errors
 
     def check_path_exists(self):
         """Ensure the USB drive mount path exists."""
         if not os.path.exists(self.usb_drive.mountpoint):
             self.errors.append(f"USB drive path does not exist: {self.usb_drive.mountpoint}")
+
+    def ensure_metadata_never_index(self):
+        """
+        Ensures that the `.metadata_never_index` file exists in the given drive to prevent Spotlight indexing.
+        
+        Args:
+            drive (str or Path): The root directory of the drive.
+        """
+
+        drive_path = Path(self.usb_drive.mountpoint)  # Ensure it's a Path object
+        metadata_file = drive_path / ".metadata_never_index"  # Construct path
+
+        if metadata_file.exists():
+            logging.info(".metadata_never_index already exists; no need to create it.")
+        else:
+            try:
+                metadata_file.touch(exist_ok=True)  # Create empty file
+                logging.info("Created .metadata_never_index to prevent Spotlight indexing.")
+            except PermissionError:
+                logging.warning("Failed to create .metadata_never_index due to permissions.")
+                return False
+
+        return True
 
     def check_tracks_folder(self):
         """Check if the 'tracks' folder exists and contains the correct number of files."""
@@ -128,5 +164,6 @@ class MasterValidator:
                 self.errors.append(f"⚠️ Unexpected file '{file}' not listed in checksum.txt.")
 
     
+
 
 

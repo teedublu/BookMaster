@@ -137,10 +137,11 @@ class Master:
 
         tracks_path = Path(drive_path) / self.output_structure["tracks_path"]
         info_path = Path(drive_path) / self.output_structure["info_path"]
+        tests = ["metadata", "frame_errors", "silence"]
         
         self.logger.info(f"Loading Master from drive: {drive_path} _ {tracks_path} _ {info_path}")
 
-        self.master_tracks = Tracks(self, tracks_path, self.params)
+        self.master_tracks = Tracks(self, tracks_path, self.params, tests)
 
         isbn_file = Path(drive_path) / self.output_structure["id_file"]
         count_file = Path(drive_path) / self.output_structure["count_file"]

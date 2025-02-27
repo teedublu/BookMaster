@@ -49,6 +49,7 @@ class Track:
         Determines if the track is valid based on silence, frame errors, 
         and correct metadata reporting.
         """
+        print (self.loudness_is_valid())
         return (
             not self.silences and
             self.frame_errors == 0 and

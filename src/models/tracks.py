@@ -43,9 +43,19 @@ class Tracks:
         return sum(file.duration for file in self.files if file.duration)
     
     @property
-    def has_non_mp3_files(self):
+    def are_valid(self):
         """ Returns True if the directory contains files that are not MP3 or system files. """
-        return any(file.file_type != "mp3" for file in self.files)
+        return all(track.is_valid for track in self.files)
+
+    @property
+    def invalid_tracks(self):
+        """ Returns a list of invalid tracks."""
+        return [track for track in self.files if not track.is_valid]
+
+    @property
+    def has_silences(self):
+        """ Returns True if the directory contains files that are not MP3 or system files. """
+        return any(file.silences for file in self.files)
     
     @property
     def isbn(self):

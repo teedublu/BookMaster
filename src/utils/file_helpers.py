@@ -2,7 +2,7 @@ import shutil
 from pathlib import Path
 import logging
 import hashlib
-
+import subprocess
 EXCLUDED_DIRS = {".fseventsd", ".Spotlight-V100", ".Trashes", ".DS_Store"}
 
 
@@ -28,6 +28,34 @@ def compute_sha256(file_paths):
 
     return hasher.hexdigest()
 
+def remove_system_files(drive):
+    """
+    Removes unwanted system files from the given drive.
+
+    Args:
+        drive (str or Path): The root directory of the drive.
+    """
+    drive_path = Path(drive)  # Ensure it's a Path object
+
+    patterns_to_remove = [
+        '._*', '*.DS_Store', '.fseventsd', '.Trashes', '.TemporaryItems', 
+        '.Spotlight-V100', '.DocumentRevisions-V100', 'System Volume Information', '*.tmp'
+    ]
+
+    for pattern in patterns_to_remove:
+        for file in drive_path.rglob(pattern):  # Recursively find matching files/folders
+            try:
+                if file.is_file() or file.is_symlink():
+                    file.unlink()  # Remove file or symlink
+                    logging.warning(f"Removed file: {file}")
+                elif file.is_dir():
+                    shutil.rmtree(file)  # Recursively remove directory
+                    logging.warning(f"Removed directory: {file}")
+            except Exception as e:
+                logging.error(f"Failed to remove {file}: {e}")
+                return False
+
+    return True
 
 def remove_folder(folder_path, settings, logger=None):
     """

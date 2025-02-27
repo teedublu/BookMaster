@@ -1,5 +1,6 @@
 import psutil
 import os
+import re
 import logging
 import time
 import threading
@@ -7,7 +8,6 @@ import subprocess
 import pathlib
 import hashlib
 from utils import compute_sha256
-# from utils import remove_system_files
 from pathlib import Path
 from utils import MasterValidator
 
@@ -16,16 +16,21 @@ class USBDrive:
         """
         Initialize USBDrive with its mountpoint.
         """
-        self.mountpoint = Path(mountpoint)
-        self.device_path = device_path or self.get_device_path()  # Get raw device if not provided
+        self.mountpoint = Path(mountpoint) #eg /Volumes/AA11111AA
+        self.device_path = device_path or self.get_device_path()  # eg "/dev/disk4"
         self.capacity = self.get_capacity()
+        self.properties = self.drive_properties() # contains capacity, device_path etc so could use from here
+        
         self.speed = None  # To be determined via test
         self.current_content = {}
         self.is_master = self.is_master()
         self.checksum = None
         self.stored_checksum = None
         self.is_checksum_valid = None
-
+        logging.debug(f"USBDrive found mountpoint:{self.mountpoint} device_path:{self.device_path}")
+        
+        logging.debug(f"USBDrive Properties {self.properties}")
+        
         if self.is_master:
             logging.debug(f"Inserted drive is likely Master")
             self.checksum = self.compute_checksum()  # Compute actual checksum
@@ -38,6 +43,7 @@ class USBDrive:
             logging.debug(f"Stored checksum {self.stored_checksum}")
             logging.debug(f"Calcul checksum {self.checksum}")
     
+
     def compute_checksum(self):
         """Computes a SHA-256 checksum for all files in the USB drive."""
         
@@ -70,6 +76,63 @@ class USBDrive:
         """Checks if computed checksum matches the stored checksum."""
         return self.checksum and self.stored_checksum and self.checksum == self.stored_checksum
 
+    def drive_properties(self):
+        """
+        Retrieves native properties of a USB drive using psutil, including whether it's a single volume.
+
+        Returns:
+            dict: {
+                "device_info": sdiskpart object,
+                "disk_usage": sdiskusage object,
+                "is_single_volume": bool
+            }
+        """
+        mountpoint = str(self.mountpoint).rstrip("/")  # Ensure string & remove trailing slash
+        logging.debug(f"Checking properties for mountpoint: {mountpoint}")
+
+        # Print all available mountpoints for debugging
+        all_partitions = psutil.disk_partitions(all=True)
+        logging.debug(f"Available Partitions: {[p.mountpoint for p in all_partitions]}")
+
+        device_info = None
+
+        # Find the device info based on mountpoint
+        for part in all_partitions:
+            logging.debug(f"Checking partition: {part.mountpoint} (Device: {part.device})")
+            if part.mountpoint.rstrip("/") == mountpoint:
+                device_info = part  # Native psutil structure
+                break
+
+        if not device_info:
+            logging.warning(f"⚠️ Device not found for mountpoint: {mountpoint}")
+            return None
+
+        try:
+            disk_usage = psutil.disk_usage(mountpoint)  # Get disk space details
+        except Exception as e:
+            logging.warning(f"❌ Failed to get disk usage for {mountpoint}: {e}")
+            disk_usage = None
+
+        # **Determine if it's a single volume**
+        device_path = device_info.device  # Example: "/dev/disk5s1"
+        match = re.match(r'/dev/disk(\d+)', device_path)  # Extract base disk ID
+
+        if match:
+            base_disk = f"/dev/disk{match.group(1)}"  # Example: "/dev/disk5"
+            related_partitions = [p for p in all_partitions if p.device.startswith(base_disk)]
+            is_single_volume = len(related_partitions) == 1  # True if only one partition exists
+        else:
+            logging.warning(f"⚠️ Unable to determine base device from {device_path}")
+            is_single_volume = None
+
+        properties = {
+            "device_info": device_info,  # Returns the native psutil structure
+            "disk_usage": disk_usage,  # Returns total, used, and free space
+            "is_single_volume": is_single_volume  # True if it's the only partition
+        }
+
+        logging.debug(f"✅ Drive Properties for {mountpoint}: {properties}")
+        return properties
 
     def get_device_path(self):
         """
@@ -78,17 +141,13 @@ class USBDrive:
         Returns:
             str: The raw device path (e.g., '/dev/disk2') or None if not found.
         """
-        try:
-            result = subprocess.run(
-                ["diskutil", "info", self.mountpoint],
-                capture_output=True, text=True, check=True
-            )
-            for line in result.stdout.splitlines():
-                if "Device Node" in line:
-                    return line.split(":")[-1].strip()
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Failed to retrieve device path for {self.mountpoint}: {e}")
-        return None  # Return None if the device path couldn't be determined
+        for part in psutil.disk_partitions(all=True):
+            if part.mountpoint == self.mountpoint:
+                return part.device  # Example: "/dev/disk2s1"
+
+        logging.warning(f"Could not find device path for {self.mountpoint}")
+        return None
+
 
 
     def write_disk_image(self, image_path, use_sudo=True):
@@ -243,6 +302,7 @@ class USBDrive:
         required_dirs = ["tracks", "bookInfo"]
         
         return all((self.mountpoint / directory).is_dir() for directory in required_dirs)
+
 
 
     
