@@ -45,6 +45,8 @@ class MasterValidator:
         self.check_tracks_folder()
         self.check_bookinfo_id()
         self.check_checksum()
+
+        print (self.candidate_master)
         
         self.is_clean = self.ensure_metadata_never_index() & remove_system_files(self.usb_drive.mountpoint)
         

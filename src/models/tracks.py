@@ -21,6 +21,10 @@ class Tracks:
 
         self._load_files()
     
+    def __str__(self):
+        children = "\n".join(f'|-----{str(track)}' for track in self.files)
+        return f"--{self.directory}\n{children}"
+
     def _load_files(self):
         logging.debug(f"Load Tracks with _load_files {self.directory}")
         """ Loads all audio files from the directory and creates File objects. """
@@ -32,8 +36,6 @@ class Tracks:
                 for index, file in enumerate(sorted(self.directory.glob("*.*"), key=lambda f: f.name), start=1)
                 if not file.name.startswith(".")
             ]
-            print ('-------------------------------')
-            print (self.files)
         else:
             raise ValueError("Tracks directory missing or inaccessible.")
     

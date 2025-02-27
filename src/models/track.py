@@ -62,7 +62,7 @@ class Track:
         color = COLORS["green"] if is_valid else COLORS["yellow"] if issue_str.startswith("Silence") else COLORS["red"]
 
         # Return formatted output
-        return f"{color}{self.file_path.name}{f' ({issue_str})' if issue_str else ''}{COLORS['reset']}"
+        return f"{color}{self.file_path.name} {self.sample_rate}k {self.bit_rate}kbps {f' ({issue_str})' if issue_str else ''}{COLORS['reset']}"
 
 
 
@@ -124,7 +124,7 @@ class Track:
     def _analyze_audio_properties(self):
         """Runs only the specified audio tests."""
         if not self.tests:
-            logging.info(f"No audio tests requested.")
+            logging.debug(f"No audio tests requested.")
             return
 
         logging.info(f"Performing audio tests {self.tests}.")

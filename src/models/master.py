@@ -51,6 +51,54 @@ class Master:
         # Logger setup
         self.logger = logging.getLogger(__name__)
     
+    def __str__(self):
+        """
+        Returns a string representation of the Master instance, including its tracks,
+        structure, and metadata files.
+        """
+        tracks_info = str(self.master_tracks) if self.master_tracks else "No tracks loaded"
+        structure_info = "\n".join(f"{key}: {value}" for key, value in self.output_structure.items())
+
+        # Paths to metadata files
+        master_path = self.master_path
+        metadata_file = master_path / self.output_structure["metadata_file"]
+        count_file = master_path / self.output_structure["count_file"]
+        id_file = master_path / self.output_structure["id_file"]
+        checksum_file = master_path / "bookInfo/checksum.txt"
+
+        # Check presence of `.metadata_never_index`
+        metadata_status = "Present" if metadata_file.exists() else "Not Present"
+
+        # Read values from metadata files (if they exist)
+        def read_file(file_path):
+            logging.info(file_path)
+            return file_path.read_text().strip() if file_path.exists() else "Missing"
+
+        count_value = read_file(count_file)
+        id_value = read_file(id_file)
+        checksum_value = read_file(checksum_file)
+
+        return (
+            f"Master Audiobook Collection:\n"
+            f"Title: {self.title}\n"
+            f"Author: {self.author}\n"
+            f"ISBN: {self.isbn}\n"
+            f"SKU: {self.sku}\n"
+            f"Duration: {self.duration} seconds\n"
+            f"Expected Files: {self.file_count_expected}\n"
+            f"Observed Files: {self.file_count_observed}\n"
+            f"Status: {self.status}\n"
+            f"Encoding Skipped: {self.skip_encoding}\n"
+            f"\nMaster Structure:\n{structure_info}\n"
+            f"\nMetadata Presence:\n"
+            f".metadata_never_index: {metadata_status}\n"
+            f"bookInfo/count.txt: {count_value}\n"
+            f"bookInfo/id.txt: {id_value}\n"
+            f"bookInfo/checksum.txt: {checksum_value}\n"
+            f"\nTracks:\n{tracks_info}"
+        )
+
+
     @property
     def checksum(self):
         """Computes a SHA-256 checksum for all files in the master directory."""

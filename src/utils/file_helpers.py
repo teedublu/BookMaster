@@ -5,10 +5,9 @@ import hashlib
 import subprocess
 EXCLUDED_DIRS = {".fseventsd", ".Spotlight-V100", ".Trashes", ".DS_Store"}
 
-
 def compute_sha256(file_paths):
     """
-    Computes a SHA-256 checksum for a list of files.
+    Computes a SHA-256 checksum for a list of files, excluding system files and directories.
 
     :param file_paths: A list of Path objects representing files to include in the hash.
     :return: SHA-256 hash string or None if an error occurs.
@@ -16,8 +15,10 @@ def compute_sha256(file_paths):
     hasher = hashlib.sha256()
     
     logging.debug(f"Creating hash for {len(file_paths)} paths")
+
     for file_path in file_paths:
-        if file_path.is_file() and not any(excluded in file_path.parts for excluded in EXCLUDED_DIRS):
+        # Check if any part of the path is in EXCLUDED_DIRS (including all parent directories)
+        if file_path.is_file() and not any(part in EXCLUDED_DIRS for part in file_path.parts):
             try:
                 with file_path.open("rb") as f:
                     logging.debug(f"Creating hash chunk for {file_path}")
@@ -28,6 +29,7 @@ def compute_sha256(file_paths):
                 return None  # Stop if any file fails
 
     return hasher.hexdigest()
+
 
 def remove_system_files(drive):
     """
