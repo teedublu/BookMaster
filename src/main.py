@@ -25,7 +25,7 @@ def start_app(debug=False):
     master = Master(config, settings)
     hub = USBHub()
     main_window = VoxblockUI(hub, master, settings)
-
+    hub.ui_context = main_window
     
 
     # Start the UI (if applicable)

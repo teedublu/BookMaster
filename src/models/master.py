@@ -310,7 +310,7 @@ class Master:
             self.logger.error(f"Copying processed tracks to {tracks_path}")
             raise ValueError(f"Missing process_tracks can not proceed")
 
-        self.master_tracks = Tracks(self, tracks_path, params, ["loudness", "silence", "metadata", "frame_errors"])
+        self.master_tracks = Tracks(self, tracks_path, params, [])
 
 
         self.logger.info("Master structure setup complete.")

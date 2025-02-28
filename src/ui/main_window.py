@@ -29,6 +29,12 @@ class VoxblockUI:
         #self.encode_var = tk.BooleanVar(value=False)
         self.lookup_csv_var = tk.BooleanVar(value=settings.get('lookup_csv', False))
 
+        self.usb_drive_check_on_mount = tk.BooleanVar(value=settings.get('usb_drive_check_on_mount', False))
+        self.usb_drive_tests_silence = tk.BooleanVar(value=settings.get('usb_drive_tests_silence', False))
+        self.usb_drive_tests_loudness = tk.BooleanVar(value=settings.get('usb_drive_tests_loudness', False))
+        self.usb_drive_tests_metadata = tk.BooleanVar(value=settings.get('usb_drive_tests_metadata', False))
+        self.usb_drive_tests_frames = tk.BooleanVar(value=settings.get('usb_drive_tests_frames', False))
+
         # Wrap the master object with the UI wrapper
         self.master_ui = MasterUIWrapper(self, master)
         
@@ -106,11 +112,18 @@ class VoxblockUI:
         # Webcam panel
         self.webcam_frame = tk.LabelFrame(self.root, borderwidth=2, relief="groove", text="Webcam")
         self.webcam_frame.grid(row=9, column=0, columnspan=2, padx=10, pady=10, sticky="nsew")
-        # USB Drives
+        # USB Drives Panel
         self.usbdrives_frame = tk.LabelFrame(self.root, borderwidth=2, relief="groove", text="Waiting for USB devices...")
         self.usbdrives_frame.grid(row=9, column=2, columnspan=1, padx=10, pady=10, sticky="nsew")
         self.usb_listbox = tk.Listbox(self.usbdrives_frame, height=5)
-        self.usb_listbox.grid(row=9, column=0, sticky='w')
+        self.usb_listbox.grid(row=0, column=0, rowspan=10, sticky='w')
+
+        tk.Checkbutton(self.usbdrives_frame, text="Check on mount", variable=self.usb_drive_check_on_mount).grid(row=0, column=1, sticky='w')
+        tk.Checkbutton(self.usbdrives_frame, text="Silence", variable=self.usb_drive_tests_silence).grid(row=1, column=1, sticky='w')
+        tk.Checkbutton(self.usbdrives_frame, text="Loudness", variable=self.usb_drive_tests_loudness).grid(row=2, column=1, sticky='w')
+        tk.Checkbutton(self.usbdrives_frame, text="Metadata", variable=self.usb_drive_tests_metadata).grid(row=3, column=1, sticky='w')
+        tk.Checkbutton(self.usbdrives_frame, text="Frames", variable=self.usb_drive_tests_frames).grid(row=4, column=1, sticky='w')
+
         #self.write_button = tk.Button(self.usbdrives_frame, text="Write Disk Image", command=self.write_disk_image)
 
 
@@ -236,6 +249,12 @@ class VoxblockUI:
         self.settings['input_folder'] = self.input_folder_var.get()
         self.settings['find_isbn_folder'] = self.find_isbn_folder_var.get()
         self.settings['lookup_csv'] = self.lookup_csv_var.get()
+
+        self.settings['usb_drive_check_on_mount'] = self.usb_drive_check_on_mount.get()
+        self.settings['usb_drive_tests_silence'] = self.usb_drive_tests_silence.get()
+        self.settings['usb_drive_tests_loudness'] = self.usb_drive_tests_loudness.get()
+        self.settings['usb_drive_tests_metadata'] = self.usb_drive_tests_metadata.get()
+        self.settings['usb_drive_tests_frames'] = self.usb_drive_tests_frames.get()
 
         self.settings['past_master']={
             'isbn': self.master_ui._vars["isbn"].get(),

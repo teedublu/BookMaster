@@ -22,6 +22,7 @@ class Track:
     def __init__(self, master, file_path, file_index, params, tests):
         self.file_path = Path(file_path)
         self.file_type = self._determine_file_type()
+        self.audio = None
         self.title = master.title
         self.author = master.author
         self.isbn = master.isbn
@@ -41,7 +42,7 @@ class Track:
         self.output_file = f"{str(self.index).zfill(3)}_{slugify(self.isbn[-5:])}{slugify(self.sku[-4:]).upper()}"[:13] + ".mp3"
 
         logging.debug(f"File index {file_index}, is called {file_path.name}")
-
+        #self.update_mp3_metadata()
         self._analyze_audio_properties()  # Perform all ffmpeg-related analysis first
         if self.file_type == "mp3":
             self._extract_metadata()  # Extract metadata after audio analysis
@@ -138,11 +139,16 @@ class Track:
         if "metadata" in self.tests:
             audio_data = extract_audio_metadata(self.file_path)
             self.duration = audio_data["duration"]
-            self.sample_rate = audio_data["sample_rate"]
-            self.bit_rate = int(audio_data["bit_rate"])//1000
-            self.channels = audio_data["channels"]
+            sample_rate = audio_data["sample_rate"]
+            bit_rate = int(audio_data["bit_rate"]) // 1000 if "bit_rate" in audio_data and audio_data["bit_rate"] is not None else None
+            channels = audio_data["channels"]
+
+            self.bitrate = min(bit_rate, self.bit_rate)
+            self.sample_rate = min(sample_rate, self.sample_rate)
         else:
             logging.warning(f"No metadata extracted. Impossible to continue.")
+
+        
 
         if "frame_errors" in self.tests:
             self.frame_errors = check_frame_errors(self.file_path)
@@ -196,33 +202,25 @@ class Track:
             raise e
 
         # although metatags can be written in ffmpeg, want to strip out all which this function does (ffmpeg seems to insist on encoder)
-        self.update_mp3_metadata(self.file_path, self.title, self.author, self.isbn)
+        self.update_mp3_metadata()
 
-    def update_mp3_metadata(self, file_path, title, author, isbn):
-        """
-        Remove all existing ID3 tags from an MP3 file and set new metadata.
+    def update_mp3_metadata(self):
 
-        Parameters:
-        - file_path: Path to the MP3 file.
-        - title: Title of the track.
-        - author: Author/Artist of the track.
-        - isbn: ISBN number to be obfuscated and added as a custom tag.
-        """
-        # Load the MP3 file
-        audio = MP3(file_path, ID3=ID3)
+        if not self.audio:
+            self.audio = MP3(self.file_path, ID3=ID3)
 
         # Delete all existing ID3 tags
-        audio.delete()
+        self.audio.delete()
 
         # Add new tags
-        audio["TIT2"] = TIT2(encoding=3, text=title)  # Title tag
-        audio["TPE1"] = TPE1(encoding=3, text=author)  # Artist/Author tag
+        self.audio["TIT2"] = TIT2(encoding=3, text=self.title)  # Title tag
+        self.audio["TPE1"] = TPE1(encoding=3, text=self.author)  # Artist/Author tag
 
         # Create a custom TXXX frame for the obfuscated ISBN
-        obfuscated_isbn = base64.urlsafe_b64encode(str(isbn).encode()).decode()
-        audio["TXXX:ID"] = TXXX(encoding=3, desc="ID", text=obfuscated_isbn)
+        obfuscated_isbn = base64.urlsafe_b64encode(str(self.isbn).encode()).decode()
+        self.audio["TXXX:ID"] = TXXX(encoding=3, desc="ID", text=obfuscated_isbn)
 
         # Save the changes
-        audio.save()
-        logging.info(f"ID3 tags saved to {file_path.name}")
+        self.audio.save()
+        logging.info(f"ID3 tags saved to {self.file_path.name}")
         

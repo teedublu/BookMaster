@@ -28,6 +28,8 @@ class USBHub:
         self.monitor_thread = threading.Thread(target=self.monitor_drives, daemon=True)
         self.monitor_thread.start()
 
+        self.ui_context = None
+
     @property
     def has_available_drive(self):
         """Check if at least one USB drive is connected."""
@@ -59,8 +61,11 @@ class USBHub:
                             drives[part.mountpoint] = self.drives[part.mountpoint]
                         else:
                             # Create new USBDrive instance only for newly detected drives
-                            logging.debug(f"Creating new USB drive: {part.mountpoint} _ {device_path}")
-                            drives[part.mountpoint] = USBDrive(part.mountpoint, device_path)
+                            logging.debug(f"Creating new USB drive: {part.mountpoint} _ {device_path} ___{self.ui_context}")
+
+                            print(f"USBHub ui_context : {self.ui_context}, type: {type(self.ui_context)}")
+
+                            drives[part.mountpoint] = USBDrive(part.mountpoint, device_path, self.ui_context)
 
         except Exception as e:
             tb = traceback.extract_tb(e.__traceback__)[-1]

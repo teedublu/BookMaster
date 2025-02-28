@@ -12,15 +12,17 @@ from pathlib import Path
 from utils import MasterValidator
 
 class USBDrive:
-    def __init__(self, mountpoint, device_path=None):
+    def __init__(self, mountpoint, device_path=None, ui_context=None):
         """
         Initialize USBDrive with its mountpoint.
         """
+        print(f"USBDrive ui_context : {ui_context}, type: {type(ui_context)}")
+
         self.mountpoint = Path(mountpoint) #eg /Volumes/AA11111AA
         self.device_path = device_path or self.get_device_path()  # eg "/dev/disk4"
         self.capacity = self.get_capacity()
         self.properties = self.drive_properties() # contains capacity, device_path etc so could use from here
-        
+        self.ui_context = ui_context
         self.speed = None  # To be determined via test
         self.current_content = {}
         self.is_master = self.is_master()
@@ -30,8 +32,9 @@ class USBDrive:
         logging.debug(f"USBDrive found mountpoint:{self.mountpoint} device_path:{self.device_path}")
         
         logging.debug(f"USBDrive Properties {self.properties}")
+        logging.debug(f"USBDrive Context {self.ui_context.usb_drive_check_on_mount.get()}")
         
-        if self.is_master:
+        if self.is_master and self.ui_context.usb_drive_check_on_mount.get():
             logging.debug(f"Inserted drive is likely Master")
             self.checksum = self.compute_checksum()  # Compute actual checksum
             self.stored_checksum = self.load_stored_checksum()  # Load stored checksum
