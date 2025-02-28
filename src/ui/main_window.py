@@ -12,8 +12,10 @@ from ui.masteruiwrapper import MasterUIWrapper
 from settings import save_settings
 
 class VoxblockUI:
-    def __init__(self, usb_hub, master, settings):
+    def __init__(self, usb_hub, master, config, settings):
         self.root = tk.Tk()
+        self.config = config
+        self.settings = settings
         self.webcam = None
         self.usb_hub = usb_hub
         self.usb_hub.callback = self.update_usb_list

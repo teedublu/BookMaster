@@ -23,6 +23,8 @@ class MasterUIWrapper:
         self.master = master_instance
         self.main_window = main_window
         self.root = main_window.root
+        self.config_copy = master_instance.config
+        self.settings_copy = master_instance.settings
         
         # Create Tkinter variables dynamically
         self._vars = {
@@ -80,13 +82,14 @@ class MasterUIWrapper:
     # Inline lookup function
     def _on_isbn_change(self, *args):
         new_isbn = self._vars["isbn"].get()
+        self.master = Master(self.config_copy, self.settings_copy) # create fresh Master as isbn has changed
 
         """Triggered when ISBN changes. Looks up book details if ISBN is 13 digits."""
         if len(new_isbn) != 13 or not self.main_window.lookup_csv_var.get():
-            logging.debug(f"Invalid ISBN {self.master}_{new_isbn}")
+            logging.debug(f"Invalid ISBN {new_isbn} len={len(new_isbn)}")
             return
 
-        logging.info(f"Looking up data for {new_isbn}_{self.master.isbn}")
+        logging.info(f"Looking up data for {new_isbn}")
 
         row = self.master.config.books.get(new_isbn, {})  # Fast lookup from cached dictionary
 

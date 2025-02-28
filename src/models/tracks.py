@@ -7,6 +7,7 @@ from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, TIT2, TPE1, TXXX
 from .track import Track
 import logging
+from natsort import natsorted
 class Tracks:
     """
     Manages a collection of File objects and provides aggregate properties.
@@ -26,14 +27,14 @@ class Tracks:
         return f"--{self.directory}\n{children}"
 
     def _load_files(self):
-        logging.debug(f"Load Tracks with _load_files {self.directory}")
+
         """ Loads all audio files from the directory and creates File objects. """
         if self.directory.exists() and self.directory.is_dir():
-            logging.debug(f"Load Track(s) from {self.directory}")
+            logging.debug(f"Load Track(s) from {self.directory.parent.name}/{self.directory.name}")
 
             self.files = [
                 Track(self.master, file, index, self.params, self.tests)
-                for index, file in enumerate(sorted(self.directory.glob("*.*"), key=lambda f: f.name), start=1)
+                for index, file in enumerate(natsorted(self.directory.glob("*.*"), key=lambda f: f.name), start=1)
                 if not file.name.startswith(".")
             ]
         else:

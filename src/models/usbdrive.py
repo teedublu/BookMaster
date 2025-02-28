@@ -103,7 +103,9 @@ class USBDrive:
         device_info = None
 
         # Find the device info based on mountpoint
-        for part in all_partitions:
+        non_system_parts = [part for part in all_partitions if "/System/" not in part.mountpoint]
+
+        for part in non_system_parts:
             logging.debug(f"Checking partition: {part.mountpoint} (Device: {part.device})")
             if part.mountpoint.rstrip("/") == mountpoint:
                 device_info = part  # Native psutil structure

@@ -103,7 +103,7 @@ def extract_audio_metadata(file_path):
         tb = traceback.extract_tb(e.__traceback__)[-1]
         logging.debug(f"Warning: Could not extract metadata for {file_path} at {tb.filename}:{tb.lineno}: {e}")
 
-    logging.info(f"Metadata for {file_path} : {results}.")
+    logging.info(f"Metadata for {file_path.parent.name}/{file_path.name} : {results}.")
     return results
 
 def check_frame_errors(file_path):
@@ -116,6 +116,7 @@ def check_frame_errors(file_path):
     Returns:
         int: Number of detected frame errors.
     """
+    logging.debug(f"Checking frame errors for {file_path.parent.name}/{file_path.name}")
     try:
         error_result = ffmpeg.input(str(file_path)) \
             .output("null", f="null") \
@@ -123,7 +124,7 @@ def check_frame_errors(file_path):
             .run(capture_stderr=True)
 
         frame_err_count = len(error_result[1].decode("utf-8").splitlines())
-        logging.info(f"Frame errors for {file_path} : {frame_err_count}.")
+        logging.info(f"Frame errors for {file_path.parent.name}/{file_path.name} : {frame_err_count}.")
         return frame_err_count
 
     except Exception as e:

@@ -4,6 +4,7 @@ import logging
 import ffmpeg
 import hashlib
 import shutil
+from natsort import natsorted
 from utils import remove_folder, compute_sha256
 from .tracks import Tracks
 from .diskimage import DiskImage
@@ -167,17 +168,9 @@ class Master:
     
     def load_input_tracks(self, input_folder):
         """Loads the raw input tracks provided by the publisher."""
+        logging.info(f"Loading input files into Tracks from {input_folder}.")
+        self.input_tracks = Tracks(self, input_folder, self.params, ["metadata","frame_errors"])
 
-        self.input_tracks = Tracks(self, input_folder, self.params, ["metadata"])
-        
-        if Path(self.processed_path).exists() and any(Path(self.processed_path).iterdir()):
-            self.processed_tracks = Tracks(self, self.processed_path, self.params, ["metadata"])
-            logging.info(f"Attempting to load processed tracks from {self.processed_path}")
-            if len(self.processed_tracks.files) != len(self.input_tracks.files):
-                logging.warning(f"Processed files unequal in length to input files. Rejecting")
-                self.processed_tracks = None
-        else:
-            self.logger.info(f"No processed files folder found or empty: {self.processed_path}")  
     
     def load_master_from_drive(self, drive_path):
         """Loads a previously created Master from a removable drive."""
@@ -233,16 +226,25 @@ class Master:
             logging.error("No input tracks provided.")
             raise ValueError("No input tracks provided.")
 
-        if self.skip_encoding and self.processed_tracks:
-            logging.info("Skip encoding requested, using processed tracks.")
-        elif self.skip_encoding and not self.processed_tracks:
-            logging.info("Skip encoding requested, BUT processed tracks not found, encoding anyway")
-            self.encode_tracks()
-        elif not self.processed_tracks:
-            logging.info("No processed tracks found, encoding new files...")
-            self.encode_tracks()
-        else:
-            self.encode_tracks()
+        processed_path = self.processed_path
+        
+        if self.skip_encoding:
+            self.processed_tracks = None
+            if processed_path.exists() and any(processed_path.iterdir()):
+                processed_files = list(processed_path.glob("*.*"))  # Get processed files list
+                logging.info(f"Checking processed files in {processed_path}")
+
+                # Compare file count before loading Tracks
+                if len(processed_files) != len(self.input_tracks.files):
+                    logging.warning("Processed files unequal in length to input files. Rejecting.")
+                    self.processed_tracks = None
+                else:
+                    logging.info("Skip encoding requested, using processed tracks.")
+                    self.processed_tracks = Tracks(self, processed_path, self.params, [])
+                    return
+
+        self.logger.info(f"Processing input tracks into: {processed_path.parent.name}/{processed_path.name}")  
+        self.encode_tracks()
 
     def encode_tracks(self):
         """
@@ -252,13 +254,11 @@ class Master:
             self.logger.error("No input tracks to encode.")
             raise ValueError("No input tracks to encode.")
 
-        self.logger.info(f"Encoding input tracks...")
-
-        for track in sorted(self.input_tracks.files, key=lambda t: t.file_path.name):
+        for track in natsorted(self.input_tracks.files, key=lambda t: t.file_path.name):
             track.convert(self.processed_path)
-            self.logger.info(f"Encoding track: {track.file_path} -> {self.processed_path}")
+            self.logger.info(f"Encoding track: {track.file_path.parent.name}/{track.file_path.name} and moving to -> {self.processed_path}")
 
-        self.processed_tracks = Tracks(self, self.processed_path, self.params, ["convert"])
+        self.processed_tracks = Tracks(self, self.processed_path, self.params, [""])
 
     def create_structure(self):
         """Creates the required directory and file structure for the master."""
@@ -307,8 +307,9 @@ class Master:
                 self.logger.info(f"Copied {track.file_path} -> {destination}")
 
         else:
-            self.logger.error(f"Copying processed tracks to {tracks_path}")
+            self.logger.error(f"Missing process_tracks can not proceed ")
             raise ValueError(f"Missing process_tracks can not proceed")
+            return
 
         self.master_tracks = Tracks(self, tracks_path, params, [])
 

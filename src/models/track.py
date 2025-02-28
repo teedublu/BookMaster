@@ -41,14 +41,16 @@ class Track:
         self.tests = tests
         self.output_file = f"{str(self.index).zfill(3)}_{slugify(self.isbn[-5:])}{slugify(self.sku[-4:]).upper()}"[:13] + ".mp3"
 
-        logging.debug(f"File index {file_index}, is called {file_path.name}")
-        #self.update_mp3_metadata()
+        logging.debug(f"File index {file_index}, is called {file_path.parent.name}/{file_path.name}")
+        # self.update_mp3_metadata()
         self._analyze_audio_properties()  # Perform all ffmpeg-related analysis first
         if self.file_type == "mp3":
-            self._extract_metadata()  # Extract metadata after audio analysis
+            self._extract_metadata()  # Extract metadata after audio analysis  
 
-        print (self)
-    
+        if "convert" in self.tests:
+            self._analyze_audio_properties()
+            self.convert(self.master.processed_path)
+
 
     def __str__(self):
         """
@@ -104,7 +106,6 @@ class Track:
         """ Checks if loudness is reported and within a reasonable range. """
         return self.loudness is not None and -40 < self.loudness < 0  # LUFS range for audio
 
-
     def _determine_file_type(self):
         """ Determines the file type based on its MIME type. """
         mime_type, _ = mimetypes.guess_type(self.file_path)
@@ -136,7 +137,7 @@ class Track:
         if "silence" in self.tests:
             self.silences = detect_silence(self.file_path, self.params)
 
-        if "metadata" in self.tests:
+        if "metadata" in self.tests or "convert" in self.tests:
             audio_data = extract_audio_metadata(self.file_path)
             self.duration = audio_data["duration"]
             sample_rate = audio_data["sample_rate"]
@@ -153,16 +154,17 @@ class Track:
         if "frame_errors" in self.tests:
             self.frame_errors = check_frame_errors(self.file_path)
 
-        logging.info(f"Analyzed file {self.file_path}")
+        logging.info(f"Analyzed file {self.file_path.parent.name}/{self.file_path.name}")
 
     def convert(self, destination_path):
         # props = self._analyze_audio_properties()
         # if not props:
         #     logging.warning(f"Skipping {self.file_path.name}, unable to retrieve audio properties.")
-            
-        file_path_string = str(destination_path / self.output_file)
-        logging.debug(f"Converting track duration={self.duration} sample_rate={self.sample_rate} bit_rate={self.bit_rate}")
-
+        if not self.duration:
+            raise ValueError (f"Track missing duration {str(self)} can not convert")
+        
+        file_path = destination_path / self.output_file
+        file_path_string = str(file_path)
         filter_complex = (
             f"[a0]volume=1.0[a1]; " # existing track
             f"anoisesrc=r=44100:c=pink:a=0.0001:d={self.duration}[a2]; " # pink noise track of duration = inoput track
@@ -176,7 +178,7 @@ class Track:
         # f"[0:a]silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB[a0]; "
 
 
-        logging.info(f"Converting {self.file_path.name} renaming to {file_path_string} duration {self.duration} samplerate {self.sample_rate} bitrate {self.bit_rate}")
+        logging.info(f"Converting {self.file_path.parent.name}/{self.file_path.name} renaming to {file_path.parent.name}/{file_path.name} duration {self.duration} samplerate {self.sample_rate} bitrate {self.bit_rate} target_lufs {self.target_lufs}")
         try:
             (
                 (
@@ -202,12 +204,14 @@ class Track:
             raise e
 
         # although metatags can be written in ffmpeg, want to strip out all which this function does (ffmpeg seems to insist on encoder)
+        
+        logging.info(f"Point Track to newly converted file {file_path.parent.name}/{file_path.name}")
+        self.file_path = Path(file_path_string)
         self.update_mp3_metadata()
 
     def update_mp3_metadata(self):
 
-        if not self.audio:
-            self.audio = MP3(self.file_path, ID3=ID3)
+        self.audio = MP3(self.file_path, ID3=ID3)
 
         # Delete all existing ID3 tags
         self.audio.delete()
@@ -222,5 +226,5 @@ class Track:
 
         # Save the changes
         self.audio.save()
-        logging.info(f"ID3 tags saved to {self.file_path.name}")
+        logging.info(f"ID3 tags saved to {self.file_path.name} {self.title} {self.author} {self.isbn}")
         

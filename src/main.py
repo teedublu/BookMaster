@@ -24,7 +24,7 @@ def start_app(debug=False):
     config = Config()  # Assuming Config can accept a debug flag
     master = Master(config, settings)
     hub = USBHub()
-    main_window = VoxblockUI(hub, master, settings)
+    main_window = VoxblockUI(hub, master, config, settings)
     hub.ui_context = main_window
     
 
