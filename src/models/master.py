@@ -145,6 +145,11 @@ class Master:
     def create(self, input_folder, usb_drive=None):
         logging.info (f"Processed path is {self.processed_path}")
         self.load_input_tracks(input_folder)
+
+        # will it fit
+        # calculate_encoding_for_1gb
+        # will have to do the conversion first? otherwise need to look at each file and see what it would be after eoncding and see??
+
         # take input files and process
         self.process_tracks()
 
@@ -243,6 +248,7 @@ class Master:
                     self.processed_tracks = Tracks(self, processed_path, self.params, [])
                     return
 
+        remove_folder(processed_path, self.settings, self.logger)
         self.logger.info(f"Processing input tracks into: {processed_path.parent.name}/{processed_path.name}")  
         self.encode_tracks()
 
@@ -258,7 +264,9 @@ class Master:
             track.convert(self.processed_path)
             self.logger.info(f"Encoding track: {track.file_path.parent.name}/{track.file_path.name} and moving to -> {self.processed_path}")
 
-        self.processed_tracks = Tracks(self, self.processed_path, self.params, [""])
+        self.processed_tracks = Tracks(self, self.processed_path, self.params, ["metadata"]) #metadata required to get duration
+        self.logger.info(f"Processed Tracks total size {self.processed_tracks.total_size}")
+
 
     def create_structure(self):
         """Creates the required directory and file structure for the master."""
@@ -315,6 +323,35 @@ class Master:
 
 
         self.logger.info("Master structure setup complete.")
+
+    def calculate_encoding_for_1gb(self):
+        """
+        Determines if the total size of the tracks fits on a 1GB drive.
+        If not, calculates the required encoding settings to make it fit.
+        """
+        ONE_GB_KB = 1_000_000  # 1GB in KB
+        current_size_kb = self.tracks.total_size // 1024  # Convert bytes to KB
+
+        if current_size_kb <= ONE_GB_KB:
+            self.logger.info(f"Tracks fit within 1GB ({current_size_kb} KB). No encoding changes required.")
+            return self.config.params["encoding"]["bit_rate"]  # Keep existing encoding
+
+        # Calculate required bitrate to fit within 1GB
+        reduction_factor = ONE_GB_KB / current_size_kb
+        current_bitrate_kbps = self.config.params["encoding"]["bit_rate"]  # e.g., 192 for 192kbps
+        required_bitrate_kbps = int(current_bitrate_kbps * reduction_factor)
+
+        # Ensure bitrate remains in a reasonable range (e.g., 32kbps - 192kbps)
+        MIN_BITRATE = 32
+        MAX_BITRATE = current_bitrate_kbps
+        adjusted_bitrate_kbps = max(MIN_BITRATE, min(required_bitrate_kbps, MAX_BITRATE))
+
+        self.logger.warning(
+            f"Tracks exceed 1GB ({current_size_kb} KB). "
+            f"Reducing bitrate from {current_bitrate_kbps}kbps to {adjusted_bitrate_kbps}kbps."
+        )
+
+        return adjusted_bitrate_kbps
 
 
 

@@ -21,6 +21,7 @@ class Track:
     """
     def __init__(self, master, file_path, file_index, params, tests):
         self.file_path = Path(file_path)
+        self.file_size = self.file_path.stat().st_size
         self.file_type = self._determine_file_type()
         self.audio = None
         self.title = master.title
@@ -139,11 +140,10 @@ class Track:
 
         if "metadata" in self.tests or "convert" in self.tests:
             audio_data = extract_audio_metadata(self.file_path)
-            self.duration = audio_data["duration"]
             sample_rate = audio_data["sample_rate"]
             bit_rate = int(audio_data["bit_rate"]) // 1000 if "bit_rate" in audio_data and audio_data["bit_rate"] is not None else None
             channels = audio_data["channels"]
-
+            self.duration = audio_data["duration"]
             self.bitrate = min(bit_rate, self.bit_rate)
             self.sample_rate = min(sample_rate, self.sample_rate)
         else:

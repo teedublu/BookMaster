@@ -46,6 +46,11 @@ class Tracks:
         return sum(file.duration for file in self.files if file.duration)
     
     @property
+    def total_size(self):
+        """ Returns the total duration of all files. """
+        return sum(file.file_size for file in self.files if file.duration)
+    
+    @property
     def are_valid(self):
         """ Returns True if the directory contains files that are not MP3 or system files. """
         return all(track.is_valid for track in self.files)
