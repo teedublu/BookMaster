@@ -27,18 +27,31 @@ class Tracks:
         return f"--{self.directory}\n{children}"
 
     def _load_files(self):
+        """Loads all audio files from the directory and creates Track objects."""
+        
+        if not self.directory.exists() or not self.directory.is_dir():
+            raise ValueError(f"Tracks directory missing or inaccessible: {self.directory}")
 
-        """ Loads all audio files from the directory and creates File objects. """
-        if self.directory.exists() and self.directory.is_dir():
-            logging.debug(f"Load Track(s) from {self.directory.parent.name}/{self.directory.name}")
+        logging.debug(f"Loading Tracks from {self.directory.parent.name}/{self.directory.name}")
 
-            self.files = [
-                Track(self.master, file, index, self.params, self.tests)
-                for index, file in enumerate(natsorted(self.directory.glob("*.*"), key=lambda f: f.name), start=1)
-                if not file.name.startswith(".")
-            ]
-        else:
-            raise ValueError("Tracks directory missing or inaccessible.")
+        files = list(natsorted(self.directory.glob("*.*"), key=lambda f: f.name))
+        self.files = []
+
+        for index, file in enumerate(files, start=1):
+            if file.name.startswith("."):
+                continue  # Ignore hidden files
+
+            try:
+                track = Track(self.master, file, index, self.params, self.tests)
+                self.files.append(track)
+            except Exception as e:
+                logging.error(f"Failed to load Track {file.name}: {e}")
+
+        if not self.files:
+            raise ValueError(f"No valid tracks found in {self.directory}")
+
+        logging.debug(f"Successfully loaded {len(self.files)} Track(s) from {self.directory}")
+
     
     @property
     def duration(self):
@@ -49,6 +62,11 @@ class Tracks:
     def total_size(self):
         """ Returns the total duration of all files. """
         return sum(file.file_size for file in self.files if file.duration)
+
+    @property
+    def total_size_after_encoding(self):
+        """ Returns the total duration of all files. """
+        return sum(file.file_size for file in self.files if file.encoded_size)
     
     @property
     def are_valid(self):

@@ -40,9 +40,10 @@ class Track:
         self.bit_rate = int(params["encoding"]["bit_rate"])  # bps
         self.channels = int(params["encoding"]["channels"])  # Mono = 1, Stereo = 2
         self.tests = tests
-        self.output_file = f"{str(self.index).zfill(3)}_{slugify(self.isbn[-5:])}{slugify(self.sku[-4:]).upper()}"[:13] + ".mp3"
+        self.output_file = f"{str(self.index).zfill(3)}_{slugify(str(self.isbn)[-5:])}{slugify(str(self.sku)[-4:]).upper()}"[:13] + ".mp3"
+        self.metadata = extract_audio_metadata(self.file_path)
 
-        logging.debug(f"File index {file_index}, is called {file_path.parent.name}/{file_path.name}")
+        logging.debug(f"File index {file_index}, is called {file_path.parent.name}/{file_path.name} of type {self.file_type} metadata: {self.metadata}")
         # self.update_mp3_metadata()
         self._analyze_audio_properties()  # Perform all ffmpeg-related analysis first
         if self.file_type == "mp3":
@@ -66,7 +67,7 @@ class Track:
         color = COLORS["green"] if is_valid else COLORS["yellow"] if issue_str.startswith("Silence") else COLORS["red"]
 
         # Return formatted output
-        return f"{color}{self.file_path.name} {self.sample_rate}k {self.bit_rate}kbps {f' ({issue_str})' if issue_str else ''}{COLORS['reset']}"
+        return f"{color}{self.file_path.name} {self.sample_rate}k {self.bit_rate}kbps {f' ({issue_str})'}{COLORS['reset']}"
 
 
 
@@ -95,6 +96,16 @@ class Track:
         """ Returns True if the track has no issues. """
         return self.status[0]
 
+    @property
+    def encoded_size(self):
+        """Estimates the encoded file size in MB based on bit rate and duration."""
+        if not self.duration:
+            return 0  # Avoid division errors if duration isn't set
+
+        total_size_bytes = (self.bit_rate * 1000 * self.duration) // 8  # Convert to bytes
+        return total_size_bytes  # Convert to MB
+
+
     def encoding_is_valid(self):
         """ Checks if encoding parameters are correctly set. """
         return all([
@@ -112,18 +123,6 @@ class Track:
         mime_type, _ = mimetypes.guess_type(self.file_path)
         return mime_type.split("/")[-1] if mime_type and "audio" in mime_type else None
 
-    def OLD_extract_metadata(self):
-        """ Extracts metadata from MP3 files. """
-        try:
-            audio = MP3(self.file_path, ID3=ID3)
-            tags = audio.tags
-            if tags:
-                self.title = tags.get("TIT2").text[0] if tags.get("TIT2") else None
-                self.author = tags.get("TPE1").text[0] if tags.get("TPE1") else None
-                self.isbn = tags.get("TXXX:isbn").text[0] if tags.get("TXXX:isbn") else None
-        except Exception as e:
-            logging.debug(f"Warning: Could not read metadata from {self.file_path}: {e}")
-
     def _analyze_audio_properties(self):
         """Runs only the specified audio tests."""
         if not self.tests:
@@ -140,12 +139,16 @@ class Track:
 
         if "metadata" in self.tests or "convert" in self.tests:
             audio_data = extract_audio_metadata(self.file_path)
+            if not audio_data:
+                raise ValueError(f"Invalid Track {self.file_path}")
+
             sample_rate = audio_data["sample_rate"]
-            bit_rate = int(audio_data["bit_rate"]) // 1000 if "bit_rate" in audio_data and audio_data["bit_rate"] is not None else None
+            bit_rate = int(audio_data["bit_rate"]) if "bit_rate" in audio_data and audio_data["bit_rate"] is not None else None
             channels = audio_data["channels"]
             self.duration = audio_data["duration"]
-            self.bitrate = min(bit_rate, self.bit_rate)
-            self.sample_rate = min(sample_rate, self.sample_rate)
+            self.bitrate = min(filter(None, [bit_rate, self.bit_rate]), default=96000)
+            self.sample_rate = min(filter(None, [sample_rate, self.sample_rate]), default=41000)
+            logging.debug(f"audio metadata extracted : {audio_data}")
         else:
             logging.warning(f"No metadata extracted. Impossible to continue.")
 
@@ -156,7 +159,7 @@ class Track:
 
         logging.info(f"Analyzed file {self.file_path.parent.name}/{self.file_path.name}")
 
-    def convert(self, destination_path):
+    def convert(self, destination_path, bit_rate):
         # props = self._analyze_audio_properties()
         # if not props:
         #     logging.warning(f"Skipping {self.file_path.name}, unable to retrieve audio properties.")
@@ -187,7 +190,7 @@ class Track:
                     .output(
                         file_path_string, 
                         ar=self.sample_rate, 
-                        ab=f"{self.bit_rate}k", 
+                        ab=f"{bit_rate}k", 
                         ac=1, 
                         format='mp3', 
                         acodec='libmp3lame', 

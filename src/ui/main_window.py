@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from utils.webcam import Webcam
 
+
 from utils.custom_logging import setup_logging
 from ui.masteruiwrapper import MasterUIWrapper
 from settings import save_settings
@@ -22,25 +23,27 @@ class VoxblockUI:
         self.settings = settings
         # Initialize UI state variables
         self.input_folder_var = tk.StringVar(value=settings.get('input_folder', None))
-        # self.output_folder_files_field = tk.StringVar(value=settings.get('output_folder_files'))
-        # self.sku_field = tk.StringVar(value=settings.get('sku', ''))
-        # self.title_field = tk.StringVar(value=settings.get('title', ''))
-        # self.author_field = tk.StringVar(value=settings.get('author', ''))
-        # self.expected_file_count_field = tk.IntVar(value=settings.get('expected_file_count', 0))
         self.find_isbn_folder_var = tk.BooleanVar(value=settings.get('find_isbn_folder', False))
-        #self.encode_var = tk.BooleanVar(value=False)
+        self.skip_encoding_var = tk.BooleanVar(value=settings.get('skip_encoding', False))
         self.lookup_csv_var = tk.BooleanVar(value=settings.get('lookup_csv', False))
-
+        self.infer_data_var = tk.BooleanVar(value=settings.get('infer_data', False))
         self.usb_drive_check_on_mount = tk.BooleanVar(value=settings.get('usb_drive_check_on_mount', False))
-        self.usb_drive_tests_silence = tk.BooleanVar(value=settings.get('usb_drive_tests_silence', False))
-        self.usb_drive_tests_loudness = tk.BooleanVar(value=settings.get('usb_drive_tests_loudness', False))
-        self.usb_drive_tests_metadata = tk.BooleanVar(value=settings.get('usb_drive_tests_metadata', False))
-        self.usb_drive_tests_frames = tk.BooleanVar(value=settings.get('usb_drive_tests_frames', False))
+        self.usb_drive_tests_var = tk.StringVar(value=settings.get('usb_drive_tests', ""))  # Comma-separated string
+
+        # Define available tests dynamically
+        self.available_tests = ["Silence", "Loudness", "Metadata", "Frames", "Speed"]
+        self._checkbox_vars = {test: tk.BooleanVar(value=(test in self.usb_drive_tests_var.get().split(","))) for test in self.available_tests}
+
+        # Attach trace_add to sync checkboxes when changed
+        for test, var in self._checkbox_vars.items():
+            var.trace_add("write", self._sync_checkboxes_to_string)
+
 
         # Wrap the master object with the UI wrapper
-        self.master_ui = MasterUIWrapper(self, master)
+        self.master_ui = MasterUIWrapper(self, master, settings)
         
         self.create_widgets()
+        self._sync_string_to_checkboxes()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -59,12 +62,7 @@ class VoxblockUI:
         tk.Checkbutton(self.root, text="Find input from ISBN", variable=self.find_isbn_folder_var).grid(row=0, column=3, sticky='w')
 
         ############ ROW 1
-        # Output Folder
-        # tk.Label(self.root, text="Output Folder:").grid(row=1, column=0, sticky='w')
-        # self.output_folder_entry = tk.Entry(self.root, textvariable=self.master_ui._vars["output_folder"])
-        # self.output_folder_entry.grid(row=1, column=1, sticky='e')
-        # tk.Button(self.root, text="Browse", command=lambda: self.browse_folder(self.master_ui._vars["output_folder"])).grid(row=1, column=2)
-        tk.Checkbutton(self.root, text="Skip encoding", variable=self.master_ui._vars["skip_encoding"]).grid(row=1, column=3, sticky='w')
+        tk.Checkbutton(self.root, text="Skip encoding", variable=self.skip_encoding_var).grid(row=1, column=3, sticky='w')
 
         ############ ROW 3
         # ISBN Entry
@@ -89,6 +87,9 @@ class VoxblockUI:
         tk.Label(self.root, text="Title:").grid(row=5, column=0, sticky='w')
         self.title_entry = tk.Entry(self.root, textvariable=self.master_ui._vars["title"], state='normal')
         self.title_entry.grid(row=5, column=1, sticky='w')
+        # Radio button for CSV lookup
+        self.infer_data_field = tk.Checkbutton(self.root, text="Infer data", variable=self.infer_data_var)
+        self.infer_data_field.grid(row=5, column=3, sticky='w')
 
         ############ ROW 6
         # Author Entry
@@ -121,12 +122,14 @@ class VoxblockUI:
         self.usb_listbox.grid(row=0, column=0, rowspan=10, sticky='w')
 
         tk.Checkbutton(self.usbdrives_frame, text="Check on mount", variable=self.usb_drive_check_on_mount).grid(row=0, column=1, sticky='w')
-        tk.Checkbutton(self.usbdrives_frame, text="Silence", variable=self.usb_drive_tests_silence).grid(row=1, column=1, sticky='w')
-        tk.Checkbutton(self.usbdrives_frame, text="Loudness", variable=self.usb_drive_tests_loudness).grid(row=2, column=1, sticky='w')
-        tk.Checkbutton(self.usbdrives_frame, text="Metadata", variable=self.usb_drive_tests_metadata).grid(row=3, column=1, sticky='w')
-        tk.Checkbutton(self.usbdrives_frame, text="Frames", variable=self.usb_drive_tests_frames).grid(row=4, column=1, sticky='w')
+        # tk.Checkbutton(self.usbdrives_frame, text="Silence", variable=self.usb_drive_tests_silence).grid(row=1, column=1, sticky='w')
+        # tk.Checkbutton(self.usbdrives_frame, text="Loudness", variable=self.usb_drive_tests_loudness).grid(row=2, column=1, sticky='w')
+        # tk.Checkbutton(self.usbdrives_frame, text="Metadata", variable=self.usb_drive_tests_metadata).grid(row=3, column=1, sticky='w')
+        # tk.Checkbutton(self.usbdrives_frame, text="Frames", variable=self.usb_drive_tests_frames).grid(row=4, column=1, sticky='w')
+        # tk.Checkbutton(self.usbdrives_frame, text="Speed", variable=self.usb_drive_tests_speed).grid(row=5, column=1, sticky='w')
 
-        #self.write_button = tk.Button(self.usbdrives_frame, text="Write Disk Image", command=self.write_disk_image)
+        for i, test in enumerate(self.available_tests):
+            tk.Checkbutton(self.usbdrives_frame, text=test, variable=self._checkbox_vars[test]).grid(row=i+1, column=1, sticky='w')
 
 
         ############ ROW 10
@@ -134,25 +137,6 @@ class VoxblockUI:
         self.video_label.grid(row=10, column=0, columnspan=2)
 
 
-        
-
-        
-        # # Create a frame to contain the labels and entries
-        # self.checkmaster_frame = tk.LabelFrame(self.root, borderwidth=2, relief="groove", text="Details")
-        # self.checkmaster_frame.grid(row=9, column=3, columnspan=1, padx=10, pady=10, sticky="nsew")
-
-        # # ISBN Entry
-        # tk.Label(self.checkmaster_frame, text="ISBN:").grid(row=0, column=0, sticky='w')
-        # self.mc_isbn_entry = tk.Entry(self.checkmaster_frame, textvariable=self.master_ui_check._vars["isbn"])
-        # self.mc_isbn_entry.grid(row=0, column=1, sticky='w')
-
-        # tk.Label(self.checkmaster_frame, text="COUNT:").grid(row=1, column=0, sticky='w')
-        # self.mc_file_count = tk.Entry(self.checkmaster_frame, textvariable=self.master_ui_check._vars["file_count"])
-        # self.mc_file_count.grid(row=1, column=1, sticky='w')
-
-        # tk.Label(self.checkmaster_frame, text="SKU:").grid(row=2, column=0, sticky='w')
-        # self.mc_sku_entry = tk.Entry(self.checkmaster_frame, textvariable=self.master_ui_check._vars["sku"])
-        # self.mc_sku_entry.grid(row=2, column=1, sticky='w')
 
         ############ ROW 13
         # FEEDBACK OUTPUT
@@ -160,14 +144,12 @@ class VoxblockUI:
         self.log_text.grid(row=13, column=0, columnspan=4)
         setup_logging(self.log_text)
 
-    # def toggle_encode(self):
-    #     new_state = "normal" if self.master_ui._vars["encode"].get() else "disabled"
-
-    #     self.author_entry.config(state=new_state)
-    #     self.title_entry.config(state=new_state)
-    #     self.file_count.config(state=new_state)
 
     
+    def refresh_ui(self):
+        """Refresh the UI after a Master instance is replaced."""
+        self.root.update_idletasks()
+
     def toggle_csvlookup(self):
         new_state = "readonly" if self.lookup_csv_var.get() else "normal"
         logging.debug(f"CSV changed to {new_state}")
@@ -241,6 +223,18 @@ class VoxblockUI:
         if folder_selected:
             field.set(folder_selected)  # Update UI field with selected folder
 
+    def _sync_checkboxes_to_string(self, *_):
+        """Update the StringVar to match selected checkboxes."""
+        selected_tests = [test for test, var in self._checkbox_vars.items() if var.get()]
+        self.usb_drive_tests_var.set(",".join(selected_tests))
+
+    def _sync_string_to_checkboxes(self, *_):
+        """Update checkboxes based on the stored StringVar."""
+        selected_tests = self.usb_drive_tests_var.get().split(",")
+        for test, var in self._checkbox_vars.items():
+            var.set(test in selected_tests)
+
+
     def run(self):
         """Runs the Tkinter main loop."""
         self.root.mainloop()
@@ -251,12 +245,14 @@ class VoxblockUI:
         self.settings['input_folder'] = self.input_folder_var.get()
         self.settings['find_isbn_folder'] = self.find_isbn_folder_var.get()
         self.settings['lookup_csv'] = self.lookup_csv_var.get()
+        self.settings['infer_data'] = self.infer_data_var.get()
+        self.settings['skip_encoding'] = self.skip_encoding_var.get()
 
         self.settings['usb_drive_check_on_mount'] = self.usb_drive_check_on_mount.get()
-        self.settings['usb_drive_tests_silence'] = self.usb_drive_tests_silence.get()
-        self.settings['usb_drive_tests_loudness'] = self.usb_drive_tests_loudness.get()
-        self.settings['usb_drive_tests_metadata'] = self.usb_drive_tests_metadata.get()
-        self.settings['usb_drive_tests_frames'] = self.usb_drive_tests_frames.get()
+        self.settings['usb_drive_tests'] = self.usb_drive_tests_var.get()  # Save as a string
+
+
+        
 
         self.settings['past_master']={
             'isbn': self.master_ui._vars["isbn"].get(),
@@ -268,4 +264,4 @@ class VoxblockUI:
         save_settings(self.settings)  # Pass app.settings instead of app
         self.root.destroy()
 
-    
+

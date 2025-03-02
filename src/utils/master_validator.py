@@ -14,7 +14,7 @@ class MasterValidator:
     Validates a master structure to ensure it follows the required format on a USB drive.
     """
 
-    def __init__(self, usb_drive, expected_count=None, expected_isbn=None):
+    def __init__(self, usb_drive, tests=None, expected_count=None, expected_isbn=None):
         """
         :param usb_drive: USBDrive instance representing the mounted USB device.
         :param expected_count: Expected number of track files.
@@ -27,7 +27,8 @@ class MasterValidator:
         self.file_count = None
         self.is_clean = None
         self.errors = []
-        logging.info(f"MasterValidator created")
+        self.tests = tests
+        logging.info(f"MasterValidator created from {self.usb_drive} with tests={tests}")
         self.validate()
 
     def validate(self):
@@ -39,7 +40,7 @@ class MasterValidator:
         config = Config()  # Assuming Config can accept a debug flag
 
         logging.debug(f"creating candidate master {self.usb_drive.mountpoint}")
-        self.candidate_master = Master.from_device(config, settings, self.usb_drive.mountpoint) #from_device defines the checks to be made
+        self.candidate_master = Master.from_device(config, settings, self.usb_drive.mountpoint, self.tests) #from_device defines the checks to be made
 
         self.check_path_exists()
         self.check_tracks_folder()
@@ -57,8 +58,6 @@ class MasterValidator:
         logging.info(f"Validation performed, duration: {self.candidate_master.duration}")
         logging.info(f"Validation performed, USB is_clean: {self.is_clean}")
         logging.info(f"Validation performed, USB is_single_volume: {self.usb_drive.properties.get("is_single_volume")}")
-        logging.info(f"Validation performed, Candiate: {self.candidate_master.master_tracks.are_valid}")
-        logging.info(f"Validation performed, Candiate: {self.candidate_master.master_tracks.invalid_tracks}")
         
         return len(self.errors) == 0, self.errors  # Return validation status and errors
 

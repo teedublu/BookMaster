@@ -13,7 +13,7 @@ class MasterConfig:
         self.input_formats = ["mp3", "wav"]
         self.output_format = {
             "format": "mp3",
-            "bit_rate": "192k",
+            "bit_rate": "96000",
             "sample_rate": 44100,
             "channels": 2,
             "loudness": -14

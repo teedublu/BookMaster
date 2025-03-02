@@ -32,7 +32,7 @@ class Config:
         # Default configuration
         self.default_config = {
             "encoding": {
-                "bit_rate": "192k",
+                "bit_rate": "192000",
                 "sample_rate": 44100,
                 "channels": 1
             }
