@@ -70,7 +70,7 @@ def detect_silence(file_path, params):
     return []
 
 
-def extract_audio_metadata(file_path):
+def extract_metadata(file_path):
     """
     Extracts audio metadata including duration, sample rate, bit rate, channels, and tags.
 

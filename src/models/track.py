@@ -12,7 +12,7 @@ from config.config import COLORS
 import logging
 import traceback
 
-from utils.audio_helper import analyze_loudness, detect_silence, extract_audio_metadata, check_frame_errors
+from utils.audio_helper import analyze_loudness, detect_silence, extract_metadata, check_frame_errors
 
 
 class Track:
@@ -24,6 +24,7 @@ class Track:
         self.file_size = self.file_path.stat().st_size
         self.file_type = self._determine_file_type()
         self.audio = None
+        self.track_name = None
         self.title = master.title
         self.author = master.author
         self.isbn = master.isbn
@@ -39,15 +40,18 @@ class Track:
         self.sample_rate = int(params["encoding"]["sample_rate"])
         self.bit_rate = int(params["encoding"]["bit_rate"])  # bps
         self.channels = int(params["encoding"]["channels"])  # Mono = 1, Stereo = 2
+
+        self.metadata = extract_metadata(self.file_path)
+        self.apply_metadata()
+
         self.tests = tests
         self.output_file = f"{str(self.index).zfill(3)}_{slugify(str(self.isbn)[-5:])}{slugify(str(self.sku)[-4:]).upper()}"[:13] + ".mp3"
-        self.metadata = extract_audio_metadata(self.file_path)
-
         logging.debug(f"File index {file_index}, is called {file_path.parent.name}/{file_path.name} of type {self.file_type} metadata: {self.metadata}")
         # self.update_mp3_metadata()
+
         self._analyze_audio_properties()  # Perform all ffmpeg-related analysis first
-        if self.file_type == "mp3":
-            self._extract_metadata()  # Extract metadata after audio analysis  
+        # if self.file_type == "mp3":
+        #     self._extract_metadata()  # Extract metadata after audio analysis  
 
         if "convert" in self.tests:
             self._analyze_audio_properties()
@@ -123,6 +127,29 @@ class Track:
         mime_type, _ = mimetypes.guess_type(self.file_path)
         return mime_type.split("/")[-1] if mime_type and "audio" in mime_type else None
 
+    def apply_metadata(self):
+        """ Applies extracted metadata to the Track object, ensuring safe value assignment.        """
+        metadata = self.metadata
+        # Extract values safely
+        sample_rate = metadata.get("sample_rate")
+        bit_rate = int(metadata["bit_rate"]) if "bit_rate" in metadata and metadata["bit_rate"] is not None else None
+        channels = metadata.get("channels")
+        duration = metadata.get("duration")
+        album = metadata.get("album")
+        title = metadata.get("title")
+
+        # Set values, ensuring existing values aren't overridden with None
+        self.duration = duration if duration is not None else self.duration
+        self.bit_rate = min(filter(None, [bit_rate, self.bit_rate]), default=96000)
+        self.sample_rate = min(filter(None, [sample_rate, self.sample_rate]), default=41000)
+        self.channels = channels if channels is not None else self.channels
+
+        # Assign album and title
+        self.title = self.title or album
+        self.track_name = self.track_name or title
+
+        print (self)
+
     def _analyze_audio_properties(self):
         """Runs only the specified audio tests."""
         if not self.tests:
@@ -137,26 +164,22 @@ class Track:
         if "silence" in self.tests:
             self.silences = detect_silence(self.file_path, self.params)
 
-        if "metadata" in self.tests or "convert" in self.tests:
-            audio_data = extract_audio_metadata(self.file_path)
-            if not audio_data:
-                raise ValueError(f"Invalid Track {self.file_path}")
-
-            sample_rate = audio_data["sample_rate"]
-            bit_rate = int(audio_data["bit_rate"]) if "bit_rate" in audio_data and audio_data["bit_rate"] is not None else None
-            channels = audio_data["channels"]
-            self.duration = audio_data["duration"]
-            self.bitrate = min(filter(None, [bit_rate, self.bit_rate]), default=96000)
-            self.sample_rate = min(filter(None, [sample_rate, self.sample_rate]), default=41000)
-            logging.debug(f"audio metadata extracted : {audio_data}")
-        else:
-            logging.warning(f"No metadata extracted. Impossible to continue.")
-
-        
-
         if "frame_errors" in self.tests:
             self.frame_errors = check_frame_errors(self.file_path)
 
+        # if "convert" in self.tests: # shouldnt need this anymore
+        #     audio_data = extract_metadata(self.file_path)
+        #     if not audio_data:
+        #         raise ValueError(f"Invalid Track {self.file_path}")
+
+        #     sample_rate = audio_data["sample_rate"]
+        #     bit_rate = int(audio_data["bit_rate"]) if "bit_rate" in audio_data and audio_data["bit_rate"] is not None else None
+        #     channels = audio_data["channels"]
+        #     self.duration = audio_data["duration"]
+        #     self.bitrate = min(filter(None, [bit_rate, self.bit_rate]), default=96000)
+        #     self.sample_rate = min(filter(None, [sample_rate, self.sample_rate]), default=41000)
+        #     logging.debug(f"audio metadata extracted : {audio_data}")
+        
         logging.info(f"Analyzed file {self.file_path.parent.name}/{self.file_path.name}")
 
     def convert(self, destination_path, bit_rate):

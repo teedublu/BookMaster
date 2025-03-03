@@ -330,7 +330,7 @@ class Master:
                     self.logger.warning(f"Overwriting existing file: {destination}")
 
                 shutil.copy(str(track.file_path), str(destination))
-                self.logger.info(f"Copied {track.file_path} -> {destination}")
+                self.logger.info(f"Copied {track.file_path.parent.name}/{track.file_path.name} -> {destination.parent.name}/{destination.name}")
 
         else:
             self.logger.error(f"Missing process_tracks can not proceed ")
@@ -393,9 +393,15 @@ class Master:
         metadata_tags = first_track.metadata.get("tags", {})
 
         # Infer title
+<<<<<<< Updated upstream
         if not self.title and "album" in metadata_tags:
             self.title = metadata_tags["album"].strip()
             self.logger.info(f"Inferred title: {self.title}")
+=======
+        if not self.title and "title" in metadata_tags:
+            self.title = metadata_tags["album"].strip()
+            self.logger.info(f"Inferred title: {self.title} in {metadata_tags}")
+>>>>>>> Stashed changes
 
         # Infer author
         if not self.author:
