@@ -41,7 +41,6 @@ class Master:
         self.master_path = self.output_path / self.sku / "master"
         self.processed_path = self.output_path / self.sku / "processed"
         self.image_path =  self.output_path / self.sku / "image"
-        self.usb_drive_tests = []
         self.processed_path.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
         self.image_path.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
 
@@ -107,7 +106,6 @@ class Master:
             f"\nTracks:\n{tracks_info}"
         )
 
-
     @property
     def checksum(self):
         """Computes a SHA-256 checksum for all files in the master directory."""
@@ -116,12 +114,11 @@ class Master:
             return None
         
         # Collect all files inside the directory recursively
-        file_paths = sorted(self.master_structure.rglob("*"))  # Get all files inside the directory
+        file_paths = natsorted(self.master_structure.rglob("*"))  # Get all files inside the directory
         checksum_value = compute_sha256(file_paths)
         self.logger.info(f"Computed master tracks {file_paths} checksum: {checksum_value}")
         return checksum_value  
 
-    
     def get_fields(self):
         """Returns a dictionary of all property values for UI synchronization."""
         return {
@@ -346,12 +343,8 @@ class Master:
         self.logger.info("Master structure setup complete.")
 
     def calculate_encoding_for_1gb(self):
-        """
-        Determines if the total size of the tracks fits on a 1GB drive.
-        If not, calculates the required encoding bitrate to make it fit.
-        
-        Returns:
-            int: The selected bitrate in .
+        """Determines if the total size of the tracks fits on a 1GB drive.
+        If not, calculates the required encoding bitrate to make it fit. 
         """
 
         current_size_bytes = self.input_tracks.total_size_after_encoding  # Total encoded size
@@ -371,16 +364,10 @@ class Master:
         adjusted_bit_rate = max(MIN_BITRATE, min(required_bit_rate, MAX_BITRATE))
 
         if adjusted_bit_rate == current_bit_rate:
-            self.logger.warning(
-                f"Tracks exceed 1GB ({current_size_bytes / (1024**2):.2f} MB), "
-                f"but reducing bitrate further may cause quality loss."
-            )
+            self.logger.warning(f"Tracks exceed 1GB ({current_size_bytes / (1024**2):.2f} MB), but reducing bitrate further may cause quality loss.")
         
         else:
-            self.logger.warning(
-                f"Tracks exceed 1GB ({current_size_bytes / (1024**2):.2f} MB). "
-                f"Reducing bitrate from {current_bit_rate} to {adjusted_bit_rate}."
-            )
+            self.logger.warning(f"Tracks exceed 1GB ({current_size_bytes / (1024**2):.2f} MB). Reducing bitrate from {current_bit_rate} to {adjusted_bit_rate}.")
 
         return adjusted_bit_rate
 
@@ -406,8 +393,8 @@ class Master:
         metadata_tags = first_track.metadata.get("tags", {})
 
         # Infer title
-        if not self.title and "title" in metadata_tags:
-            self.title = metadata_tags["title"].strip()
+        if not self.title and "album" in metadata_tags:
+            self.title = metadata_tags["album"].strip()
             self.logger.info(f"Inferred title: {self.title}")
 
         # Infer author
@@ -426,7 +413,7 @@ class Master:
     def generate_sku(self):
         """Generates SKU in the format BK-XXXXX-ABCD where AB is from author, CD from title."""
         if not self.isbn:
-            self.isbn = str(random.randint(10000, 99999))
+            self.isbn = str(random.randint(1000000000000, 9999999999999))
         
         # Extract author initials (AB)
         author_abbr = "XX"
@@ -447,5 +434,5 @@ class Master:
                 title_abbr = (words[0] + "X").upper()  # Only one word, pad with X
 
 
-        return f"BK-{self.isbn}-{author_abbr}{title_abbr}"
+        return f"BK-{self.isbn[-5:]}-{author_abbr}{title_abbr}"
 
