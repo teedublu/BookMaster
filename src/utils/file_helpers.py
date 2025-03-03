@@ -5,6 +5,15 @@ import hashlib
 import subprocess
 EXCLUDED_DIRS = {".fseventsd", ".Spotlight-V100", ".Trashes", ".DS_Store"}
 
+def parse_time_to_minutes(time_str):
+    """Convert HH:MM to total minutes as a float."""
+    try:
+        hours, minutes = map(float, time_str.split(":"))
+        return hours * 60 + minutes  # Convert to total minutes
+    except ValueError:
+        logging.error(f"Invalid time format: {time_str}")
+        return None
+
 def compute_sha256(file_paths):
     """
     Computes a SHA-256 checksum for a list of files, excluding system files and directories.

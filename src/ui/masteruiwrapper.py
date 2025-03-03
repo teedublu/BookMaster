@@ -5,7 +5,7 @@ from tkinter import messagebox, filedialog
 from tkinter.scrolledtext import ScrolledText
 from utils.custom_logging import setup_logging, TextHandler
 from models import Master  # Import Master class
-from utils import find_input_folder_from_isbn
+from utils import find_input_folder_from_isbn, parse_time_to_minutes
 from utils import MasterValidator
 class MasterUIWrapper:
     """
@@ -110,7 +110,6 @@ class MasterUIWrapper:
     def _on_isbn_change(self, *args):
         new_isbn = self._vars["isbn"].get()
         
-
         """Triggered when ISBN changes. Looks up book details if ISBN is 13 digits."""
         if len(new_isbn) != 13 :
             logging.debug(f"Invalid ISBN {new_isbn} len={len(new_isbn)}")
@@ -129,13 +128,14 @@ class MasterUIWrapper:
             self._vars["duration"].set(0.0)
             return
 
-        logging.debug(f"Data found for {new_isbn}")
+        logging.debug(f"Data found for {new_isbn} {row}")
 
 
         self._vars["sku"].set(row.get('SKU', ""))
         self._vars["title"].set(row.get('Title', ""))
         self._vars["author"].set(row.get('Author', ""))
         self._vars["file_count_expected"].set(row.get('ExpectedFileCount', 0))
+        self._vars["duration"].set(parse_time_to_minutes(row.get('Duration')))
         
 
 

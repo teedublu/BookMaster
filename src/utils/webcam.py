@@ -13,6 +13,7 @@ class Webcam:
         self.running = False
         self.thread = None
         self.img_tk = None  # Store the current image to avoid Tkinter resizing issues
+        self.last_detected_isbn = None # dont fire on repeateded detections of same ISBN
 
         # Set a fixed size for the video label
         self.fixed_width = 320
@@ -62,8 +63,8 @@ class Webcam:
             barcodes = decode(frame)
             if barcodes:
                 barcode_data = barcodes[0].data.decode('utf-8')
-                if len(barcode_data) == 13 and barcode_data.isdigit():
-                    print (barcode_data)
+                if len(barcode_data) == 13 and barcode_data.isdigit() and (self.last_detected_isbn != barcode_data):
+                    self.last_detected_isbn = barcode_data
                     self.callback(barcode_data)
                 #self.stop()  # Stop after detecting first barcode (optional)
 
