@@ -344,7 +344,7 @@ class Master:
         current_bit_rate = int(self.config.params["encoding"]["bit_rate"])  # e.g., 192 for 192
 
         if current_size_bytes <= MAX_DRIVE_SIZE:
-            self.logger.info(f"Tracks fit within 1GB ({current_size_bytes / (1024**2):.2f} MB). No encoding changes required.")
+            self.logger.info(f"Tracks fit within 1GB {current_size_bytes} ({current_size_bytes / (1024**2):.2f} MB). No encoding changes required.")
             return current_bit_rate
 
         # Calculate required bitrate to fit within 1GB

@@ -51,8 +51,8 @@ def detect_silence(file_path, params):
     """
     try:
         result = ffmpeg.input(str(file_path)) \
-            .filter("silencedetect", noise=f"{params.get('silence_threshold', -30)}dB", 
-                    d=params.get("min_silence_duration", 0.5)) \
+            .filter("silencedetect", noise=f"{params.get('silence_threshold', -85)}dB", 
+                    d=params.get("min_silence_duration", 1)) \
             .output("null", f="null").global_args("-hide_banner") \
             .run(capture_stderr=True)
 

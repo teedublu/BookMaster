@@ -29,7 +29,7 @@ class Track:
         self.author = master.author
         self.isbn = master.isbn
         self.sku = master.sku
-        self.duration = None
+        # self.duration = None
         self.loudness = None
         self.index = file_index
         self.silences = []
@@ -67,13 +67,24 @@ class Track:
         color = COLORS["green"] if is_valid else COLORS["yellow"] if issue_str.startswith("Silence") else COLORS["red"]
 
         # Return formatted output
-        return f"{color}{self.file_path.name} {self.sample_rate}k {self.bit_rate}kbps {f' ({issue_str})'}{COLORS['reset']}"
+        return f"{color}{self.file_path.name} {self.sample_rate}k {self.bit_rate//1000}kbps {f' ({issue_str})'}{COLORS['reset']}"
 
 
 
     def __repr__(self):
         """ Returns a detailed representation of the track for debugging. """
         return f"Track(filename={self.file_path.name}, is_valid={self.is_valid} , sample_rate={self.sample_rate}, bit_rate={self.bit_rate} frame_errors={self.frame_errors}, silences={len(self.silences)})"
+
+    @property
+    def duration(self):
+        if not self.metadata:
+            logging.warning(f"Requested duration but no metadata available for {self}")
+            return None
+        if not self.metadata.get("duration"):
+            logging.warning(f"Requested duration but metadata does not contain duration for {self}")
+            return None
+        
+        return self.metadata.get("duration")
 
     @property
     def status(self):
@@ -135,7 +146,7 @@ class Track:
         title = metadata.get("title")
 
         # Set values, ensuring existing values aren't overridden with None
-        self.duration = duration if duration is not None else self.duration
+        # self.duration = duration if duration is not None else self.duration NOW set via @property
         self.bit_rate = min(filter(None, [bit_rate, self.bit_rate]), default=96000)
         self.sample_rate = min(filter(None, [sample_rate, self.sample_rate]), default=41000)
         self.channels = channels if channels is not None else self.channels
@@ -162,19 +173,6 @@ class Track:
 
         if "frame_errors" in self.tests:
             self.frame_errors = check_frame_errors(self.file_path)
-
-        # if "convert" in self.tests: # shouldnt need this anymore
-        #     audio_data = extract_metadata(self.file_path)
-        #     if not audio_data:
-        #         raise ValueError(f"Invalid Track {self.file_path}")
-
-        #     sample_rate = audio_data["sample_rate"]
-        #     bit_rate = int(audio_data["bit_rate"]) if "bit_rate" in audio_data and audio_data["bit_rate"] is not None else None
-        #     channels = audio_data["channels"]
-        #     self.duration = audio_data["duration"]
-        #     self.bitrate = min(filter(None, [bit_rate, self.bit_rate]), default=96000)
-        #     self.sample_rate = min(filter(None, [sample_rate, self.sample_rate]), default=41000)
-        #     logging.debug(f"audio metadata extracted : {audio_data}")
         
         logging.info(f"Analyzed file {self.file_path.parent.name}/{self.file_path.name}")
 

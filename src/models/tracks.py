@@ -71,7 +71,7 @@ class Tracks:
     @property
     def total_size_after_encoding(self):
         """ Returns the total duration of all files. """
-        return sum(file.file_size for file in self.files if file.encoded_size)
+        return sum(file.encoded_size for file in self.files if file.encoded_size)
     
     @property
     def are_valid(self):
