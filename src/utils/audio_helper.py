@@ -104,7 +104,7 @@ def extract_metadata(file_path):
         if audio_stream:
             try:
                 results["sample_rate"] = int(audio_stream.get("sample_rate", 0)) or None
-                results["bit_rate"] = int(audio_stream.get("bit_rate", 0)) // 1000 if audio_stream.get("bit_rate") else None
+                results["bit_rate"] = int(audio_stream.get("bit_rate", 0)) if audio_stream.get("bit_rate") else None
                 results["channels"] = int(audio_stream.get("channels", 0)) or None
             except (ValueError, TypeError):
                 logging.warning(f"Warning: Issue parsing stream properties for {file_path}")

@@ -190,7 +190,7 @@ class Track:
         filter_complex = (
             f"[a0]volume=1.0[a1]; " # existing track
             f"anoisesrc=r=44100:c=pink:a=0.0001:d={self.duration}[a2]; " # pink noise track of duration = inoput track
-            f"[a1][a2]amix=inputs=2:duration=first:dropout_transition=3[a3]; " # mis together with fade of pink at end
+            f"[a1][a2]amix=inputs=2:duration=first:dropout_transition=3[a3]; " # mix together with fade of pink at end
             f"[a3]loudnorm=I={self.target_lufs}:LRA=11:TP=-1.5[out]" # normalise loundness
         )
         # important to understand the full range of options available for loudnorm before applying widely
@@ -209,7 +209,7 @@ class Track:
                     .output(
                         file_path_string, 
                         ar=self.sample_rate, 
-                        ab=f"{bit_rate}k", 
+                        ab=f"{bit_rate//1000}k", 
                         ac=1, 
                         format='mp3', 
                         acodec='libmp3lame', 
