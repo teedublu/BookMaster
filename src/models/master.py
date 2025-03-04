@@ -151,13 +151,8 @@ class Master:
         return instance
 
     def create(self, input_folder, usb_drive=None):
-        logging.info (f"Processed path is {self.processed_path} sku is {self.sku}")
-
-        try:
-            self.load_input_tracks(input_folder)
-        except:
-            self.logger.error(f"Failed to load Tracks: {input_folder}")
-            return
+        
+        self.load_input_tracks(input_folder)
             
 
         if not self.sku:
@@ -166,6 +161,8 @@ class Master:
             else:
                 self.logger.error(f"Missing ISBN and SKU. {self}")
                 return
+
+        logging.info (f"Creating master with isbn {self.isbn} sku {self.sku}")
 
         # take input files and process
         self.process_tracks()
@@ -191,11 +188,7 @@ class Master:
     def load_input_tracks(self, input_folder):
         """Loads the raw input tracks provided by the publisher."""
         logging.info(f"Loading input files into Tracks from {input_folder}.")
-        try:
-            self.input_tracks = Tracks(self, input_folder, self.params, ["metadata","frame_errors"])
-        except:
-            raise ValueError
-            self.logger.error(f"Failed to load Tracks: {input_folder}")
+        self.input_tracks = Tracks(self, input_folder, self.params, ["metadata","frame_errors"])
     
     def load_master_from_drive(self, drive_path, tests=None):
         """Loads a previously created Master from a removable drive."""
@@ -393,15 +386,9 @@ class Master:
         metadata_tags = first_track.metadata.get("tags", {})
 
         # Infer title
-<<<<<<< Updated upstream
         if not self.title and "album" in metadata_tags:
             self.title = metadata_tags["album"].strip()
-            self.logger.info(f"Inferred title: {self.title}")
-=======
-        if not self.title and "title" in metadata_tags:
-            self.title = metadata_tags["album"].strip()
             self.logger.info(f"Inferred title: {self.title} in {metadata_tags}")
->>>>>>> Stashed changes
 
         # Infer author
         if not self.author:

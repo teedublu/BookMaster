@@ -8,6 +8,8 @@ from mutagen.id3 import ID3, TIT2, TPE1, TXXX
 from .track import Track
 import logging
 from natsort import natsorted
+from itertools import chain
+
 class Tracks:
     """
     Manages a collection of File objects and provides aggregate properties.
@@ -27,20 +29,23 @@ class Tracks:
         return f"--{self.directory}\n{children}"
 
     def _load_files(self):
-        """Loads all audio files from the directory and creates Track objects."""
+        """Loads all valid audio files from the directory and creates Track objects."""
         
         if not self.directory.exists() or not self.directory.is_dir():
             raise ValueError(f"Tracks directory missing or inaccessible: {self.directory}")
 
         logging.debug(f"Loading Tracks from {self.directory.parent.name}/{self.directory.name}")
 
-        files = list(natsorted(self.directory.glob("*.*"), key=lambda f: f.name))
+        # Get valid extensions from config (e.g., ['.mp3', '.wav'])
+        valid_extensions = self.master.settings.get("valid_extensions", ['.mp3', '.wav'])
+
+        # Use multiple glob calls and merge results
+        files = list(chain.from_iterable(self.directory.glob(f"*{ext}") for ext in valid_extensions))
+        files = natsorted(files, key=lambda f: f.name)  # Sort naturally
+
         self.files = []
 
         for index, file in enumerate(files, start=1):
-            if file.name.startswith("."):
-                continue  # Ignore hidden files
-
             try:
                 track = Track(self.master, file, index, self.params, self.tests)
                 self.files.append(track)

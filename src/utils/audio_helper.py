@@ -115,6 +115,7 @@ def extract_metadata(file_path):
         # Merge additional tags from all streams
         for stream in probe.get("streams", []):
             if "tags" in stream:
+                print (stream["tags"])
                 results["tags"].update(stream["tags"])  # Merge tags from multiple streams
 
     except ffmpeg.Error as e:
@@ -126,7 +127,7 @@ def extract_metadata(file_path):
         logging.debug(f"Error extracting metadata for {file_path} at {tb.filename}:{tb.lineno}: {e}")
         raise ValueError
 
-    logging.info(f"Metadata for {file_path.parent.name}/{file_path.name}: {results}.")
+    logging.info(f"Metadata for {file_path.parent.name}/{file_path.name}: {results} from {audio_stream}.")
     return results
 
 

@@ -40,22 +40,18 @@ class Track:
         self.sample_rate = int(params["encoding"]["sample_rate"])
         self.bit_rate = int(params["encoding"]["bit_rate"])  # bps
         self.channels = int(params["encoding"]["channels"])  # Mono = 1, Stereo = 2
-
         self.metadata = extract_metadata(self.file_path)
-        self.apply_metadata()
-
         self.tests = tests
         self.output_file = f"{str(self.index).zfill(3)}_{slugify(str(self.isbn)[-5:])}{slugify(str(self.sku)[-4:]).upper()}"[:13] + ".mp3"
-        logging.debug(f"File index {file_index}, is called {file_path.parent.name}/{file_path.name} of type {self.file_type} metadata: {self.metadata}")
-        # self.update_mp3_metadata()
-
-        self._analyze_audio_properties()  # Perform all ffmpeg-related analysis first
-        # if self.file_type == "mp3":
-        #     self._extract_metadata()  # Extract metadata after audio analysis  
-
+        
         if "convert" in self.tests:
+            self.apply_metadata()
             self._analyze_audio_properties()
             self.convert(self.master.processed_path)
+        else:
+            self._analyze_audio_properties()  # Perform all ffmpeg-related analysis first
+
+        logging.debug(f"File index {file_index}, is called {file_path.parent.name}/{file_path.name} of type {self.file_type} metadata: {self.metadata}")
 
 
     def __str__(self):
@@ -148,7 +144,7 @@ class Track:
         self.title = self.title or album
         self.track_name = self.track_name or title
 
-        print (self)
+        logging.debug(f"Metadata applied to Track giving {self}.")
 
     def _analyze_audio_properties(self):
         """Runs only the specified audio tests."""
