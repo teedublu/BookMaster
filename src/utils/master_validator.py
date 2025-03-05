@@ -23,6 +23,7 @@ class MasterValidator:
         self.usb_drive = usb_drive
         self.expected_count = expected_count
         self.expected_isbn = expected_isbn
+        self.usb_drive_tests_var = None
         self.file_isbn = None
         self.file_count = None
         self.is_clean = None
@@ -41,13 +42,14 @@ class MasterValidator:
 
         logging.debug(f"creating candidate master {self.usb_drive.mountpoint}")
         self.candidate_master = Master.from_device(config, settings, self.usb_drive.mountpoint, self.tests) #from_device defines the checks to be made
+        
+        self.candidate_master.lookup_isbn("9781915443168")
 
         self.check_path_exists()
         self.check_tracks_folder()
         self.check_bookinfo_id()
         self.check_checksum()
 
-        print (self.candidate_master)
         
         self.is_clean = self.ensure_metadata_never_index() & remove_system_files(self.usb_drive.mountpoint)
         
@@ -91,47 +93,51 @@ class MasterValidator:
 
     def check_tracks_folder(self):
         """Check if the 'tracks' folder exists and contains the correct number of files."""
-        tracks_path = os.path.join(self.usb_drive.mountpoint, "tracks")
 
-        if not os.path.isdir(tracks_path):
+        tracks_path = Path(self.usb_drive.mountpoint) / "tracks"
+
+        if not tracks_path.is_dir():
             self.errors.append("Missing expected 'tracks' folder.")
             return
 
-        # Count only the files (ignore directories)
-        track_files = [f for f in os.listdir(tracks_path) if os.path.isfile(os.path.join(tracks_path, f))]
-        self.track_count = len(track_files)
+        # Count only files (ignoring subdirectories)
+        self.file_count = sum(1 for f in tracks_path.iterdir() if f.is_file())
 
-        if self.track_count != self.expected_count:
-            if self.expected_count: #only check if passed explicit value
-                self.errors.append(f"Expected {self.expected_count} track files, but found {self.track_count} in '{tracks_path}'.")
+        if self.candidate_master and self.file_count != self.candidate_master.file_count_expected:
+            self.errors.append(f"Expected {self.candidate_master.file_count_expected} track files, but found {self.file_count} in '{tracks_path}'.")
+        else:
+            logging.info(f"Found {self.file_count} (expecting {self.file_count_expected}) in {tracks_path}.")
+
 
     def check_bookinfo_id(self):
         """Check that the ISBN in 'bookinfo/id.txt' matches the expected value."""
-        bookinfo_path = os.path.join(self.usb_drive.mountpoint, "bookinfo")
-        id_txt_path = os.path.join(bookinfo_path, "id.txt")
+        
+        id_txt_path = Path(self.usb_drive.mountpoint) / "bookinfo" / "id.txt"
 
-        if not os.path.isdir(bookinfo_path):
+        if not id_txt_path.parent.is_dir():
             self.errors.append("Missing 'bookinfo' directory.")
             return
 
-        if not os.path.isfile(id_txt_path):
+        if not id_txt_path.exists():
             self.errors.append("Missing 'id.txt' in 'bookinfo' directory.")
             return
 
-        # Read ISBN from file
-        with open(id_txt_path, "r", encoding="utf-8") as f:
-            self.file_isbn = f.read().strip()
+        # Read and strip the ISBN
+        self.file_isbn = id_txt_path.read_text(encoding="utf-8").strip()
 
-        if self.file_isbn != self.expected_isbn:
-            if self.expected_isbn: #only check if passed explicit value
-                self.errors.append(f"ISBN mismatch: Expected {self.expected_isbn}, but found {self.file_isbn} in 'id.txt'.")
+        # Validate ISBN if expected ISBN is provided
+        if self.candidate_master and self.file_isbn != self.candidate_master.isbn:
+            self.errors.append(f"ISBN mismatch: Expected {self.candidate_master.isbn}, but found {self.file_isbn} in 'id.txt'.")
+        else:
+            logging.info(f"Found ID {self.file_isbn} (expecting {self.candidate_master.isbn}) in {id_txt_path.parent}.")
+
 
     def check_checksum(self):
         """Check that the checksum.txt file exists and matches computed checksums."""
-        checksum_path = os.path.join(self.usb_drive.mountpoint, "checksum.txt")
+        checksum_path = os.path.join(self.usb_drive.mountpoint, "bookinfo", "checksum.txt")
 
         if not os.path.isfile(checksum_path):
-            self.errors.append("Missing 'checksum.txt' in the root of the USB drive.")
+            self.errors.append("Missing 'checksum.txt' in the /bookInfo folder on the USB drive.")
             return
 
         # Read expected checksums

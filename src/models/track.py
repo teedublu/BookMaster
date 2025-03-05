@@ -23,19 +23,19 @@ class Track:
         self.file_path = Path(file_path)
         self.file_size = self.file_path.stat().st_size
         self.file_type = self._determine_file_type()
+        self.master = master
         self.audio = None
         self.track_name = None
         self.title = master.title
         self.author = master.author
         self.isbn = master.isbn
         self.sku = master.sku
-        # self.duration = None
         self.loudness = None
         self.index = file_index
         self.silences = []
         self.frame_errors = 0
         self.params = params  # Store the parameter object
-        self.master = master
+        
         self.target_lufs = int(params["encoding"]["target_lufs"])
         self.sample_rate = int(params["encoding"]["sample_rate"])
         self.bit_rate = int(params["encoding"]["bit_rate"])  # bps
@@ -43,13 +43,13 @@ class Track:
         self.metadata = extract_metadata(self.file_path)
         self.tests = tests
         self.output_file = f"{str(self.index).zfill(3)}_{slugify(str(self.isbn)[-5:])}{slugify(str(self.sku)[-4:]).upper()}"[:13] + ".mp3"
-        
-        if "convert" in self.tests:
-            self.apply_metadata()
-            self._analyze_audio_properties()
-            self.convert(self.master.processed_path)
-        else:
-            self._analyze_audio_properties()  # Perform all ffmpeg-related analysis first
+        self.apply_tests()
+        # if "convert" in self.tests:
+        #     self.apply_metadata()
+        #     self.apply_tests()
+        #     self.convert(self.master.processed_path)
+        # else:
+        #     self.apply_tests()  # Perform all ffmpeg-related analysis first
 
         logging.debug(f"File index {file_index}, is called {file_path.parent.name}/{file_path.name} of type {self.file_type} metadata: {self.metadata}")
 
@@ -67,7 +67,7 @@ class Track:
         color = COLORS["green"] if is_valid else COLORS["yellow"] if issue_str.startswith("Silence") else COLORS["red"]
 
         # Return formatted output
-        return f"{color}{self.file_path.name} {self.sample_rate}k {self.bit_rate//1000}kbps {f' ({issue_str})'}{COLORS['reset']}"
+        return f"{color}{self.title} by {self.author} :{self.sku}_ {self.file_path.name} {self.sample_rate}k {self.bit_rate//1000}kbps {f' ({issue_str})'}{COLORS['reset']}"
 
 
 
@@ -85,6 +85,26 @@ class Track:
             return None
         
         return self.metadata.get("duration")
+
+    @property
+    def title(self):
+        """Safely returns the title from Master if available, otherwise falls back to metadata."""
+        return getattr(self.master, "title", None) or (self.metadata or {}).get("title", "")
+
+    @title.setter
+    def title(self, value):
+        """Sets the title in Master while ensuring it's properly updated."""
+        self.master.title = value
+
+    @property
+    def author(self):
+        """Safely returns the author from Master if available, otherwise falls back to metadata."""
+        return getattr(self.master, "author", None) or (self.metadata or {}).get("author", "")
+
+    @author.setter
+    def author(self, value):
+        """Sets the author in Master while ensuring it's properly updated."""
+        self.master.author = value
 
     @property
     def status(self):
@@ -113,7 +133,7 @@ class Track:
         if not self.duration:
             return 0  # Avoid division errors if duration isn't set
 
-        total_size_bytes = (self.bit_rate * 1000 * self.duration) // 8  # Convert to bytes
+        total_size_bytes = (self.bit_rate * self.duration) // 8  # Convert to bytes
         return total_size_bytes  # Convert to MB
 
 
@@ -157,29 +177,28 @@ class Track:
 
         logging.debug(f"Metadata applied to Track giving {self}.")
 
-    def _analyze_audio_properties(self):
+    def apply_tests(self):
         """Runs only the specified audio tests."""
-        if not self.tests:
+        test_list = self.tests.split(",") if isinstance(self.tests, str) else []
+        tests = [t.lower().strip() for t in test_list]  # Convert to a list for reusability
+
+        if not tests:
             logging.debug(f"No audio tests requested.")
             return
 
-        logging.info(f"Performing audio tests {self.tests}.")
+        logging.info(f"Performing audio tests {self.tests}. {"silence" in tests}")
 
-        if "loudness" in self.tests:
+        if "loudness" in tests:
             self.loudness = analyze_loudness(self.file_path)
 
-        if "silence" in self.tests:
+        if ("silence" in tests):
             self.silences = detect_silence(self.file_path, self.params)
 
-        if "frame_errors" in self.tests:
+        if "frame_errors" in tests:
             self.frame_errors = check_frame_errors(self.file_path)
-        
-        logging.info(f"Analyzed file {self.file_path.parent.name}/{self.file_path.name}")
 
     def convert(self, destination_path, bit_rate):
-        # props = self._analyze_audio_properties()
-        # if not props:
-        #     logging.warning(f"Skipping {self.file_path.name}, unable to retrieve audio properties.")
+        # takes input_file and converts into processed path
         if not self.duration:
             raise ValueError (f"Track missing duration {str(self)} can not convert")
         
@@ -212,8 +231,7 @@ class Track:
                         format='mp3', 
                         acodec='libmp3lame', 
                         filter_complex=filter_complex, 
-                        map="[out]",
-                        map_metadata="-1"
+                        map="[out]"
                     )
                     .run(quiet=True, overwrite_output=True)
                 )
@@ -225,12 +243,14 @@ class Track:
 
         # although metatags can be written in ffmpeg, want to strip out all which this function does (ffmpeg seems to insist on encoder)
         
-        logging.info(f"Point Track to newly converted file {file_path.parent.name}/{file_path.name}")
-        self.file_path = Path(file_path_string)
+        # logging.info(f"Point Track to newly converted file {file_path.parent.name}/{file_path.name}")
+        # self.file_path = Path(file_path_string)
         self.update_mp3_metadata()
 
     def update_mp3_metadata(self):
-
+        logging.debug(f"Now clean all tags except the required ones")
+        logging.debug(f"{self}")
+        return
         self.audio = MP3(self.file_path, ID3=ID3)
 
         # Delete all existing ID3 tags
@@ -246,5 +266,5 @@ class Track:
 
         # Save the changes
         self.audio.save()
-        logging.info(f"ID3 tags saved to {self.file_path.name} {self.title} {self.author} {self.isbn}")
+        logging.info(f"ID3 tags saved to {self.file_path.name} title:{self.title} author:{self.author} isbn:{self.isbn}")
         

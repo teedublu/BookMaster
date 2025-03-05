@@ -21,18 +21,21 @@ class VoxblockUI:
         self.usb_hub = usb_hub
         self.usb_hub.callback = self.update_usb_list
         self.settings = settings
-        # Initialize UI state variables
+        # Initialize UI state variables that are not passed to Master and used only in UI to prepare
+        # eg variable=self.lookup_csv_var
+        # versus variable=self.master_ui._vars["infer_data"]
         self.input_folder_var = tk.StringVar(value=settings.get('input_folder', None))
         self.find_isbn_folder_var = tk.BooleanVar(value=settings.get('find_isbn_folder', False))
-        self.skip_encoding_var = tk.BooleanVar(value=settings.get('skip_encoding', False))
         self.lookup_csv_var = tk.BooleanVar(value=settings.get('lookup_csv', False))
-        self.infer_data_var = tk.BooleanVar(value=settings.get('infer_data', False))
         self.usb_drive_check_on_mount = tk.BooleanVar(value=settings.get('usb_drive_check_on_mount', False))
         self.usb_drive_tests_var = tk.StringVar(value=settings.get('usb_drive_tests', ""))  # Comma-separated string
 
         # Define available tests dynamically
         self.available_tests = ["Silence", "Loudness", "Metadata", "Frames", "Speed"]
-        self._checkbox_vars = {test: tk.BooleanVar(value=(test in self.usb_drive_tests_var.get().split(","))) for test in self.available_tests}
+        self._checkbox_vars = {
+            test: tk.BooleanVar(value=(test in self.usb_drive_tests_var.get().split(","))) 
+            for test in self.available_tests
+        }
 
         # Attach trace_add to sync checkboxes when changed
         for test, var in self._checkbox_vars.items():
@@ -62,7 +65,7 @@ class VoxblockUI:
         tk.Checkbutton(self.root, text="Find input from ISBN", variable=self.find_isbn_folder_var).grid(row=0, column=3, sticky='w')
 
         ############ ROW 1
-        tk.Checkbutton(self.root, text="Skip encoding", variable=self.skip_encoding_var).grid(row=1, column=3, sticky='w')
+        tk.Checkbutton(self.root, text="Skip encoding", variable=self.master_ui._vars["skip_encoding"]).grid(row=1, column=3, sticky='w')
 
         ############ ROW 3
         # ISBN Entry
@@ -88,7 +91,7 @@ class VoxblockUI:
         self.title_entry = tk.Entry(self.root, textvariable=self.master_ui._vars["title"], state='normal')
         self.title_entry.grid(row=5, column=1, sticky='w')
         # Radio button for CSV lookup
-        self.infer_data_field = tk.Checkbutton(self.root, text="Infer data", variable=self.infer_data_var)
+        self.infer_data_field = tk.Checkbutton(self.root, text="Infer data", variable=self.master_ui._vars["infer_data"])
         self.infer_data_field.grid(row=5, column=3, sticky='w')
 
         ############ ROW 6
@@ -105,7 +108,7 @@ class VoxblockUI:
 
         ############ ROW 8
         # Create Button
-        self.create_master_button = tk.Button(self.root, text="Create Master", command=self.master_ui.create)
+        self.create_master_button = tk.Button(self.root, text="Create Master", command=self.create)
         self.create_master_button.grid(row=8, column=0, columnspan=2)
         # Create Button
         self.check_master_button = tk.Button(self.root, text="Check Master", command=self.master_ui.check)
@@ -129,7 +132,7 @@ class VoxblockUI:
         # tk.Checkbutton(self.usbdrives_frame, text="Speed", variable=self.usb_drive_tests_speed).grid(row=5, column=1, sticky='w')
 
         for i, test in enumerate(self.available_tests):
-            tk.Checkbutton(self.usbdrives_frame, text=test, variable=self._checkbox_vars[test]).grid(row=i+1, column=1, sticky='w')
+            tk.Checkbutton(self.usbdrives_frame, text=test, variable=self._checkbox_vars[test], command=self.update_selected_tests).grid(row=i+1, column=1, sticky='w')
 
 
         ############ ROW 10
@@ -144,15 +147,23 @@ class VoxblockUI:
         self.log_text.grid(row=13, column=0, columnspan=4)
         setup_logging(self.log_text)
 
+    def create(self):
+        self.master_ui.create()
 
-    
     def refresh_ui(self):
         """Refresh the UI after a Master instance is replaced."""
         self.root.update_idletasks()
 
+    def update_selected_tests(self):
+        """Updates self.usb_drive_tests_var when checkboxes change."""
+        selected_tests = [test for test, var in self._checkbox_vars.items() if var.get()]
+        self.usb_drive_tests_var.set(",".join(selected_tests))  # Update StringVar
+        self.settings["usb_drive_tests"] = self.usb_drive_tests_var.get()  # Sync with settings
+        print(f"Updated tests: {self.usb_drive_tests_var.get()}")  # Debugging output
+
     def toggle_csvlookup(self):
         new_state = "readonly" if self.lookup_csv_var.get() else "normal"
-        logging.debug(f"CSV changed to {new_state}")
+        # logging.debug(f"CSV changed to {new_state}")
         self.title_entry.config(state=new_state)
         self.author_entry.config(state=new_state)
         self.sku_entry.config(state=new_state)
@@ -239,28 +250,27 @@ class VoxblockUI:
         """Runs the Tkinter main loop."""
         self.root.mainloop()
 
-    # Handle app close
-    def on_closing(self):
-        """Saves settings and exits the application."""
+    def update_settings(self):
+        """Updates settings from UI variables."""
         self.settings['input_folder'] = self.input_folder_var.get()
         self.settings['find_isbn_folder'] = self.find_isbn_folder_var.get()
         self.settings['lookup_csv'] = self.lookup_csv_var.get()
-        self.settings['infer_data'] = self.infer_data_var.get()
-        self.settings['skip_encoding'] = self.skip_encoding_var.get()
+        self.settings['infer_data'] = self.master_ui._vars["infer_data"].get()
+        self.settings['skip_encoding'] = self.master_ui._vars["skip_encoding"].get()
 
         self.settings['usb_drive_check_on_mount'] = self.usb_drive_check_on_mount.get()
         self.settings['usb_drive_tests'] = self.usb_drive_tests_var.get()  # Save as a string
 
-
-        
-
-        self.settings['past_master']={
+        self.settings['past_master'] = {
             'isbn': self.master_ui._vars["isbn"].get(),
             'sku': self.master_ui._vars["sku"].get(),
             'author': self.master_ui._vars["author"].get(),
             'title': self.master_ui._vars["title"].get()
         }
 
+    def on_closing(self):
+        """Saves settings and exits the application."""
+        self.update_settings()  # Ensure settings are updated before saving
         save_settings(self.settings)  # Pass app.settings instead of app
         self.root.destroy()
 

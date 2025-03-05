@@ -6,6 +6,7 @@ from tkinter.scrolledtext import ScrolledText
 from utils.custom_logging import setup_logging, TextHandler
 from models import Master  # Import Master class
 from utils import find_input_folder_from_isbn, parse_time_to_minutes
+from utils import remove_folder, compute_sha256, get_first_audiofile, get_metadata_from_audio, generate_sku, generate_isbn
 from utils import MasterValidator
 class MasterUIWrapper:
     """
@@ -70,17 +71,41 @@ class MasterUIWrapper:
     def check(self):
         """Validates Master and updates UI."""
         tests = self.main_window.usb_drive_tests_var.get()
-        self.validator = MasterValidator(self.main_window.usb_hub.first_available_drive, tests=tests)
-
+        drive = self.main_window.usb_hub.first_available_drive
+        if drive:
+            self.validator = MasterValidator(self.main_window.usb_hub.first_available_drive, tests=tests)
+        else:
+            logging.warning(f"No drive available to test")
+ 
 
     def create(self):
-        self.settings["isbn"] = self._vars["isbn"].get()
-        self.settings["sku"] = self._vars["sku"].get()
-        self.settings["title"] = self._vars["title"].get()
-        self.settings["author"] = self._vars["author"].get()
-        self.settings["file_count_expected"] = self._vars["file_count_expected"].get()
+        # Dont pass properties of Master as settings
+        
 
-        self.master = Master(self.config, self.settings) #### Pass isb and sku here not via past master
+
+        title = self._vars["title"].get()
+        author = self._vars["author"].get()
+        sku = self._vars["sku"].get()
+        isbn = self._vars["isbn"].get()
+        input_tracks = self._vars["author"].get()
+        if not title or author:
+            audio_file = get_first_audiofile(self.main_window.input_folder_var.get())
+            author, title = get_metadata_from_audio(audio_file)
+        
+        if not isbn:
+            isbn = generate_isbn()
+
+        if not sku:
+            sku = generate_sku(author, title, isbn)
+
+        self.settings["isbn"] = isbn
+        self.settings["sku"] = sku
+        self.settings["title"] = title
+        self.settings["author"] = author
+        self.settings["file_count_expected"] = self._vars["file_count_expected"].get()
+        self.settings["skip_encoding"] = self._vars["skip_encoding"].get()
+
+        self.master = Master(self.config, self.settings) #### Pass isbn and sku here not via past master
         input_folder = self.main_window.input_folder_var.get()
 
         if self.main_window.find_isbn_folder_var.get():
@@ -96,15 +121,19 @@ class MasterUIWrapper:
         self.master.create(input_folder, usb_drive)
 
     def _on_var_change(self, key):
-        """Creates a callback function for trace_add"""
+        """Creates a callback function for trace_add to sync UI changes with Master."""
         def callback(*args):
             new_value = self._vars[key].get()
-            logging.debug(f"Updated Master {key} -> {new_value}")
-            setattr(self.master, key, new_value)
+            if getattr(self.master, key, None) != new_value:  # Prevent infinite loops
+                logging.debug(f"Syncing UI change: {key} -> {new_value}")
+                setattr(self.master, key, new_value)
+
+            # Trigger additional callbacks if needed
             if key in self._callbacks:
                 self._callbacks[key](new_value)
 
         return callback
+
 
     # Inline lookup function
     def _on_isbn_change(self, *args):
@@ -140,9 +169,15 @@ class MasterUIWrapper:
 
 
     def update_ui_from_master(self):
-        """Syncs Tkinter variables with Master instance properties."""
+        """Ensures UI reflects the current state of Master."""
         for key in self._vars:
-            self._vars[key].set(getattr(self.master, key))
+            master_value = getattr(self.master, key, None)
+            ui_value = self._vars[key].get()
+            
+            if master_value != ui_value:  # Prevent redundant updates
+                logging.debug(f"Syncing Master change to UI: {key} -> {master_value}")
+                self._vars[key].set(master_value)
+
 
     def update_master_from_ui(self):
         """Syncs Master instance properties with Tkinter variables."""

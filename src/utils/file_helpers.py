@@ -3,7 +3,98 @@ from pathlib import Path
 import logging
 import hashlib
 import subprocess
+import random
+import ffmpeg
+import re
+from mutagen.mp3 import MP3
+from mutagen.id3 import ID3
+from mutagen.wave import WAVE
+import logging
+from itertools import chain
+
 EXCLUDED_DIRS = {".fseventsd", ".Spotlight-V100", ".Trashes", ".DS_Store"}
+
+
+def probe_metadata(audio_file):
+    """Uses ffmpeg-python to extract metadata from an audio file."""
+    try:
+        metadata = ffmpeg.probe(audio_file, select_streams='a', show_entries="format_tags")
+        return metadata.get("format", {}).get("tags", {})
+    except Exception as e:
+        logging.error(f"Error probing metadata for {audio_file}: {e}")
+        return {}
+
+def get_metadata_from_audio(audio_file):
+    """Extracts author and title metadata from MP3 and WAV files using ffmpeg-python for WAV."""
+    try:
+        if audio_file.lower().endswith(".mp3"):
+            audio = MP3(audio_file, ID3=ID3)
+            tags = audio.tags
+            logging.debug(f"Getting tags from {audio_file}, {tags}")
+
+            if tags:
+                author = tags.get("TPE1", [""])[0]  # MP3: Performer/Author
+                title = tags.get("TIT2", [""])[0]   # MP3: Track Title
+                return author, title
+
+        elif audio_file.lower().endswith(".wav"):
+            tags = probe_metadata(audio_file)  # Use ffmpeg-python for WAV metadata
+            logging.debug(f"Getting tags from {audio_file}, {tags}")
+
+            if tags:
+                author = tags.get("artist", "")  # WAV: Artist (Author)
+                title = tags.get("title", "")   # WAV: Title
+                logging.debug(f"Found tags {author}, {title}")
+                return author, title
+
+    except Exception as e:
+        logging.error(f"Error reading metadata from {audio_file}: {e}")
+
+    return None, None  # Return None if metadata is missing or invalid
+
+
+def generate_isbn():
+    return str(random.randint(1000000000000, 9999999999999))
+
+def generate_sku(author, title, isbn):
+    """Generates SKU in the format BK-XXXXX-ABCD where AB is from author, CD from title."""
+    logging.debug(f"Creating sku from {author}, {title}, {isbn}")
+    # Extract author initials (AB)
+    author_abbr = "XX"
+    if author:
+        author_parts = author.split()
+        if len(author_parts) > 1:
+            author_abbr = author_parts[-1][:2].upper()  # Last name first two letters
+        else:
+            author_abbr = author_parts[0][:2].upper()  # Only one name
+
+    # Extract title initials (CD)
+    title_abbr = "YY"
+    if title:
+        words = re.findall(r"\b\w", title)  # Get first letter of each word
+        if len(words) >= 2:
+            title_abbr = (words[0] + words[1]).upper()  # First two letters from title
+        elif words:
+            title_abbr = (words[0] + "X").upper()  # Only one word, pad with X
+
+    return f"BK-{isbn[-5:]}-{author_abbr}{title_abbr}"
+
+
+def get_first_audiofile(input_folder, valid_formats=["*.mp3", "*.wav"]):
+    """Returns the first valid audio file found in the given folder, or None if no valid files exist."""
+    folder_path = Path(input_folder)
+
+    if not folder_path.is_dir():
+        raise ValueError(f"Invalid directory: {input_folder}")
+
+    # Get all valid audio files and sort them naturally
+    audio_files = sorted(chain.from_iterable(folder_path.glob(ext) for ext in valid_formats))
+
+    logging.debug(f"Getting first file from {input_folder}, found: {audio_files}")
+
+    return str(audio_files[0]) if audio_files else None  # Return first audio file or None
+
+
 
 def parse_time_to_minutes(time_str):
     """Convert HH:MM to total minutes as a float."""

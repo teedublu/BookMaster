@@ -49,23 +49,29 @@ def detect_silence(file_path, params):
     Returns:
         list: List of silence start times (float), or an empty list if no silence detected.
     """
+    silence_threshold = params.get('silence_threshold', -85)
+    min_silence_duration = params.get("min_silence_duration", 1)
+
     try:
+        logging.debug(f"Checking {file_path} for silence")
         result = ffmpeg.input(str(file_path)) \
-            .filter("silencedetect", noise=f"{params.get('silence_threshold', -85)}dB", 
-                    d=params.get("min_silence_duration", 1)) \
+            .filter("silencedetect", noise=f"{silence_threshold}dB", 
+                    d=min_silence_duration) \
             .output("null", f="null").global_args("-hide_banner") \
             .run(capture_stderr=True)
 
         output = result[1].decode("utf-8")
-        logging.debug(f"FFmpeg Output (Silence Detection): {output==None}")
+        logging.debug(f"FFmpeg Output (Silence Detection {silence_threshold}||{min_silence_duration}): {output==None}")
 
         # Extract silence periods using regex
         silence_matches = re.findall(r"silence_start:\s*([\d\.]+)", output)
-        return [float(match) for match in silence_matches]
+        silences = [float(match) for match in silence_matches]
+        logging.debug(f"Checking {file_path} for silence: {silences}")
+        return silences
 
     except Exception as e:
         tb = traceback.extract_tb(e.__traceback__)[-1]
-        logging.debug(f"Warning: Could not analyze silence for {file_path} at {tb.filename}:{tb.lineno}: {e}")
+        logging.warning(f"Warning: Could not analyze silence for {file_path} at {tb.filename}:{tb.lineno}: {e}")
 
     return []
 
@@ -127,7 +133,7 @@ def extract_metadata(file_path):
         logging.debug(f"Error extracting metadata for {file_path} at {tb.filename}:{tb.lineno}: {e}")
         raise ValueError
 
-    logging.info(f"Metadata for {file_path.parent.name}/{file_path.name}: {results} from {audio_stream}.")
+    logging.debug(f"Metadata for {file_path.parent.name}/{file_path.name}: {results}")
     return results
 
 

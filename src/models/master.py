@@ -4,10 +4,9 @@ import logging
 import ffmpeg
 import hashlib
 import shutil
-import random
 import re
 from natsort import natsorted
-from utils import remove_folder, compute_sha256
+from utils import remove_folder, compute_sha256, get_first_audiofile, get_metadata_from_audio, generate_sku, generate_isbn, parse_time_to_minutes
 from .tracks import Tracks
 from .diskimage import DiskImage
 from constants import MAX_DRIVE_SIZE
@@ -24,18 +23,19 @@ class Master:
         self.processed_tracks = None  # Tracks: Encoded and cleaned tracks
         self.master_tracks = None  # Tracks: Loaded from either USB drive or disk image
         self.master_structure = None
-        
         self.usb_drive_tests = settings.get("usb_drive_tests", "").split(",") if settings.get("usb_drive_tests") else []
         self.isbn = settings.get("isbn", "")
         self.sku = settings.get("sku", "")
         self.title = settings.get("title", "")
         self.author = settings.get("author", "")
+        self.infer_data = settings.get("infer_data", False)
+        
         self.duration = 0.0
         self.file_count_expected = 0
         self.file_count_observed = 0
         self.status = ""
-        self.infer_data = settings.get("infer_data", False)
-        self.lookup_csv = settings.get("lookup_csv", False)
+        
+        # self.lookup_csv = settings.get("lookup_csv", False)
         self.skip_encoding = settings.get("skip_encoding", False) # useful for speeding up debugging
         self.output_path = Path(settings.get("output_folder","default_output"))
         self.master_path = self.output_path / self.sku / "master"
@@ -132,7 +132,7 @@ class Master:
             "status": self.status,
             "skip_encoding": self.skip_encoding,
             "infer_data": self.infer_data,
-            "lookup_csv": self.lookup_csv,
+            # "lookup_csv": self.lookup_csv, # this should not be passed UI specific only
             "usb_drive_tests": self.usb_drive_tests
         }
 
@@ -151,19 +151,9 @@ class Master:
         return instance
 
     def create(self, input_folder, usb_drive=None):
-        
-        self.load_input_tracks(input_folder)
-            
-
-        if not self.sku:
-            if self.infer_data:
-                self.infer_metadata_from_tracks()
-            else:
-                self.logger.error(f"Missing ISBN and SKU. {self}")
-                return
 
         logging.info (f"Creating master with isbn {self.isbn} sku {self.sku}")
-
+        self.load_input_tracks(input_folder)
         # take input files and process
         self.process_tracks()
 
@@ -187,8 +177,7 @@ class Master:
     
     def load_input_tracks(self, input_folder):
         """Loads the raw input tracks provided by the publisher."""
-        logging.info(f"Loading input files into Tracks from {input_folder}.")
-        self.input_tracks = Tracks(self, input_folder, self.params, ["metadata","frame_errors"])
+        self.input_tracks = Tracks(self, input_folder, self.params, ["frame_errors"])
     
     def load_master_from_drive(self, drive_path, tests=None):
         """Loads a previously created Master from a removable drive."""
@@ -244,6 +233,7 @@ class Master:
         processed_path = self.processed_path
         
         if self.skip_encoding:
+            logging.debug("Skip encoding requested, finding processed path.")
             self.processed_tracks = None
             if processed_path.exists() and any(processed_path.iterdir()):
                 processed_files = list(processed_path.glob("*.*"))  # Get processed files list
@@ -254,10 +244,11 @@ class Master:
                     logging.warning("Processed files unequal in length to input files. Rejecting.")
                     self.processed_tracks = None
                 else:
-                    logging.info("Skip encoding requested, using processed tracks.")
+                    logging.debug("Found processed path, creating Tracks from processed files.")
                     self.processed_tracks = Tracks(self, processed_path, self.params, [])
                     return
 
+        # if get here then zap anything in processed path and start encoding again
         remove_folder(processed_path, self.settings, self.logger)
         self.logger.info(f"Processing input tracks into: {processed_path.parent.name}/{processed_path.name}")  
         self.encode_tracks()
@@ -274,7 +265,7 @@ class Master:
 
         for track in natsorted(self.input_tracks.files, key=lambda t: t.file_path.name):
             track.convert(self.processed_path, bit_rate)
-            self.logger.info(f"Encoding track: {track.file_path.parent.name}/{track.file_path.name} and moving to -> {self.processed_path}")
+            self.logger.info(f"Encoding track: {track.file_path.parent.name}/{track.file_path.name} and moving to -> {self.processed_path.name}")
 
         self.processed_tracks = Tracks(self, self.processed_path, self.params, ["metadata"]) #metadata required to get duration
         self.logger.info(f"Processed Tracks total size {self.processed_tracks.total_size}")
@@ -307,21 +298,16 @@ class Master:
         (master_path / self.output_structure["count_file"]).write_text(str(len(self.processed_tracks.files)))
         (master_path / self.output_structure["checksum_file"]).write_text(str(self.checksum))
 
-        self.logger.debug(f"Writing metadata {self.isbn} _ {len(self.processed_tracks.files)} _ {self.checksum}")
+        self.logger.debug(f"Writing data to files id->{self.isbn} count->{len(self.processed_tracks.files)} checksum->{self.checksum}")
 
         # If processed tracks exist, copy them into `tracks/`
         if self.processed_tracks:
             tracks_path = master_path / self.output_structure["tracks_path"]
-            self.logger.info(f"Copying processed tracks to {tracks_path}")
+            self.logger.info(f"Copying processed tracks to {tracks_path.parent.name}/{tracks_path.name}")
 
             tracks_path.mkdir(parents=True, exist_ok=True)  # Ensure the folder exists
             for track in self.processed_tracks.files:
                 destination = tracks_path / track.file_path.name
-                
-                # Overwrite file if it exists
-                if destination.exists():
-                    self.logger.warning(f"Overwriting existing file: {destination}")
-
                 shutil.copy(str(track.file_path), str(destination))
                 self.logger.info(f"Copied {track.file_path.parent.name}/{track.file_path.name} -> {destination.parent.name}/{destination.name}")
 
@@ -373,11 +359,11 @@ class Master:
         elif self.input_tracks:
             self.logger.info("Have input tracks...")
 
-    def infer_metadata_from_tracks(self):
+    def infer_metadata_from_tracks(self, input_folder):
         """Derives title, author, and SKU from the first Track's metadata if not already set."""
-        self.logger.info("Inferring data from metadata.")
+        self.logger.info("Inferring Master data from metadata.")
 
-        if not self.input_tracks or not self.input_tracks.files:
+        if not input_folder:
             self.logger.warning("No tracks available to infer metadata.")
             return
 
@@ -385,9 +371,9 @@ class Master:
         first_track = self.input_tracks.files[0]
         metadata_tags = first_track.metadata.get("tags", {})
 
-        # Infer title
-        if not self.title and "album" in metadata_tags:
-            self.title = metadata_tags["album"].strip()
+        # Infer title (Track will have already cleaned album/title/name into a Track.title)
+        if not self.title and "title" in metadata_tags:
+            self.title = metadata_tags["title"].strip()
             self.logger.info(f"Inferred title: {self.title} in {metadata_tags}")
 
         # Infer author
@@ -403,29 +389,26 @@ class Master:
             self.sku = self.generate_sku()
             self.logger.info(f"Generated SKU: {self.sku}")
 
-    def generate_sku(self):
-        """Generates SKU in the format BK-XXXXX-ABCD where AB is from author, CD from title."""
-        if not self.isbn:
-            self.isbn = str(random.randint(1000000000000, 9999999999999))
+    def lookup_isbn(self, new_isbn):
         
-        # Extract author initials (AB)
-        author_abbr = "XX"
-        if self.author:
-            author_parts = self.author.split()
-            if len(author_parts) > 1:
-                author_abbr = author_parts[-1][:2].upper()  # Last name first two letters
-            else:
-                author_abbr = author_parts[0][:2].upper()  # Only one name
+        """Triggered when ISBN changes. Looks up book details if ISBN is 13 digits."""
+        if len(new_isbn) != 13 :
+            logging.debug(f"Invalid ISBN {new_isbn} len={len(new_isbn)}")
+            return
 
-        # Extract title initials (CD)
-        title_abbr = "YY"
-        if self.title:
-            words = re.findall(r"\b\w", self.title)  # Get first letter of each word
-            if len(words) >= 2:
-                title_abbr = (words[0] + words[1]).upper()  # First two letters from title
-            elif words:
-                title_abbr = (words[0] + "X").upper()  # Only one word, pad with X
+        logging.info(f"Master looking up data for {new_isbn}")
 
+        row = self.config.books.get(new_isbn, {})  # Fast lookup from cached dictionary
 
-        return f"BK-{self.isbn[-5:]}-{author_abbr}{title_abbr}"
+        if not row:
+            logging.warning(f"No data found for {new_isbn}")
+            return
+
+        logging.debug(f"Data found for {new_isbn} {row}")
+
+        self.sku = row.get('SKU', "")
+        self.title = row.get('Title', "")
+        self.author = row.get('Author', "")
+        self.file_count_expected = row.get('ExpectedFileCount', 0)
+        self.duration = parse_time_to_minutes(row.get('Duration'))
 
