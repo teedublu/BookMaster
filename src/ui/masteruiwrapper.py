@@ -83,29 +83,29 @@ class MasterUIWrapper:
         
 
 
-        title = self._vars["title"].get()
-        author = self._vars["author"].get()
-        sku = self._vars["sku"].get()
-        isbn = self._vars["isbn"].get()
-        input_tracks = self._vars["author"].get()
-        if not title or author:
+        # title = self._vars["title"].get()
+        # author = self._vars["author"].get()
+        # sku = self._vars["sku"].get()
+        # isbn = self._vars["isbn"].get()
+        # input_tracks = self._vars["author"].get()
+        if not self.master.title or not self.master.author:
             audio_file = get_first_audiofile(self.main_window.input_folder_var.get())
-            author, title = get_metadata_from_audio(audio_file)
+            self.master.author, self.master.title = get_metadata_from_audio(audio_file)
         
-        if not isbn:
-            isbn = generate_isbn()
+        if not self.master.isbn:
+            self.master.isbn = generate_isbn()
 
-        if not sku:
-            sku = generate_sku(author, title, isbn)
+        if not self.master.sku:
+            self.master.sku = generate_sku(self.master.author, self.master.title, self.master.isbn)
 
-        self.settings["isbn"] = isbn
-        self.settings["sku"] = sku
-        self.settings["title"] = title
-        self.settings["author"] = author
-        self.settings["file_count_expected"] = self._vars["file_count_expected"].get()
-        self.settings["skip_encoding"] = self._vars["skip_encoding"].get()
+        # self.settings["isbn"] = isbn
+        # self.settings["sku"] = sku
+        # self.settings["title"] = title
+        # self.settings["author"] = author
+        # self.settings["file_count_expected"] = self._vars["file_count_expected"].get()
+        # self.settings["skip_encoding"] = self._vars["skip_encoding"].get()
 
-        self.master = Master(self.config, self.settings) #### Pass isbn and sku here not via past master
+        # self.master = Master(self.config, self.settings) #### Pass isbn and sku here not via past master
         input_folder = self.main_window.input_folder_var.get()
 
         if self.main_window.find_isbn_folder_var.get():
@@ -118,6 +118,15 @@ class MasterUIWrapper:
         usb_drive = self.main_window.usb_hub.first_available_drive
 
         logging.info(f"Passing '{input_folder}' to create a Master on {usb_drive}")
+
+        self.master.load_input_tracks(input_folder)
+        
+        print ('===============')
+        print (self.master.title)
+
+
+        print (self.master)
+        return
         self.master.create(input_folder, usb_drive)
 
     def _on_var_change(self, key):

@@ -32,7 +32,6 @@ class Master:
         
         self.duration = 0.0
         self.file_count_expected = 0
-        self.file_count_observed = 0
         self.status = ""
         
         # self.lookup_csv = settings.get("lookup_csv", False)
@@ -63,7 +62,8 @@ class Master:
         Returns a string representation of the Master instance, including its tracks,
         structure, and metadata files.
         """
-        tracks_info = str(self.master_tracks) if self.master_tracks else "No tracks loaded"
+        input_tracks_info = str(self.input_tracks) if self.input_tracks else "No Input tracks loaded"
+        master_tracks_info = str(self.master_tracks) if self.master_tracks else "No Master tracks loaded"
         structure_info = "\n".join(f"{key}: {value}" for key, value in self.output_structure.items())
 
         # Paths to metadata files
@@ -103,8 +103,14 @@ class Master:
             f"bookInfo/count.txt: {count_value}\n"
             f"bookInfo/id.txt: {id_value}\n"
             f"bookInfo/checksum.txt: {checksum_value}\n"
-            f"\nTracks:\n{tracks_info}"
+            f"\nInput Tracks:\n{input_tracks_info}"
+            f"\nMaster Tracks:\n{master_tracks_info}"
         )
+
+    @property
+    def file_count_observed(self):
+        """Returns the number of files in Tracks, or 0 if Tracks is None."""
+        return len(self.input_tracks.files) if getattr(self, "input_tracks", None) and hasattr(self.input_tracks, "files") else 0
 
     @property
     def checksum(self):
@@ -178,6 +184,7 @@ class Master:
     def load_input_tracks(self, input_folder):
         """Loads the raw input tracks provided by the publisher."""
         self.input_tracks = Tracks(self, input_folder, self.params, ["frame_errors"])
+
     
     def load_master_from_drive(self, drive_path, tests=None):
         """Loads a previously created Master from a removable drive."""
@@ -191,13 +198,16 @@ class Master:
 
         isbn_file = Path(drive_path) / self.output_structure["id_file"]
         count_file = Path(drive_path) / self.output_structure["count_file"]
+        isbn = str(isbn_file.read_text().strip())
+        count = int(count_file.read_text().strip())
         
         try:
-            self.isbn = isbn_file.read_text().strip()
-            self.file_count_expected = int(count_file.read_text().strip())
+            self.isbn = isbn
+            self.file_count_observed = count
             self.title = self.master_tracks.title
             self.author = self.master_tracks.author
             self.duration = self.master_tracks.duration
+            self.logger.debug(f"Loaded Master with count={count} isbn={isbn} author={self.author} duration={self.duration}")
         except FileNotFoundError:
             self.logger.error("Required metadata files (id.txt, count.txt) missing in bookInfo.")
             raise

@@ -90,7 +90,7 @@ def get_first_audiofile(input_folder, valid_formats=["*.mp3", "*.wav"]):
     # Get all valid audio files and sort them naturally
     audio_files = sorted(chain.from_iterable(folder_path.glob(ext) for ext in valid_formats))
 
-    logging.debug(f"Getting first file from {input_folder}, found: {audio_files}")
+    logging.debug(f"Getting first file, found: {audio_files}")
 
     return str(audio_files[0]) if audio_files else None  # Return first audio file or None
 

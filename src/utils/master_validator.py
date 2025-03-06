@@ -21,11 +21,10 @@ class MasterValidator:
         :param expected_isbn: Expected ISBN value.
         """
         self.usb_drive = usb_drive
-        self.expected_count = expected_count
         self.expected_isbn = expected_isbn
         self.usb_drive_tests_var = None
         self.file_isbn = None
-        self.file_count = None
+        self.file_count_expected = expected_count
         self.is_clean = None
         self.errors = []
         self.tests = tests
@@ -43,7 +42,7 @@ class MasterValidator:
         logging.debug(f"creating candidate master {self.usb_drive.mountpoint}")
         self.candidate_master = Master.from_device(config, settings, self.usb_drive.mountpoint, self.tests) #from_device defines the checks to be made
         
-        self.candidate_master.lookup_isbn("9781915443168")
+        self.candidate_master.lookup_isbn(self.candidate_master.isbn)
 
         self.check_path_exists()
         self.check_tracks_folder()
@@ -99,15 +98,20 @@ class MasterValidator:
         if not tracks_path.is_dir():
             self.errors.append("Missing expected 'tracks' folder.")
             return
+        if not self.candidate_master:
+            self.errors.append("Missing Candidate Master.")
+            return
 
         # Count only files (ignoring subdirectories)
-        self.file_count = sum(1 for f in tracks_path.iterdir() if f.is_file())
+        file_count_expected = sum(1 for f in tracks_path.iterdir() if f.is_file())
+        file_count_observed = self.candidate_master.file_count_observed
 
-        if self.candidate_master and self.file_count != self.candidate_master.file_count_expected:
-            self.errors.append(f"Expected {self.candidate_master.file_count_expected} track files, but found {self.file_count} in '{tracks_path}'.")
+        if file_count_expected != file_count_observed:
+            self.errors.append(f"Expected {file_count_expected} track files, but found {file_count_observed} in '{tracks_path}'.")
         else:
-            logging.info(f"Found {self.file_count} (expecting {self.file_count_expected}) in {tracks_path}.")
+            logging.info(f"Found {file_count_observed} (expecting {self.file_count_expected}) in {tracks_path}.")
 
+        self.file_count_expected = file_count_expected
 
     def check_bookinfo_id(self):
         """Check that the ISBN in 'bookinfo/id.txt' matches the expected value."""

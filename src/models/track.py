@@ -248,7 +248,7 @@ class Track:
         self.update_mp3_metadata()
 
     def update_mp3_metadata(self):
-        logging.debug(f"Now clean all tags except the required ones")
+        logging.debug(f"Now clean all tags except the required ones for {self.title}, {self.author}")
         logging.debug(f"{self}")
         return
         self.audio = MP3(self.file_path, ID3=ID3)
@@ -257,8 +257,9 @@ class Track:
         self.audio.delete()
 
         # Add new tags
-        self.audio["TIT2"] = TIT2(encoding=3, text=self.title)  # Title tag
-        self.audio["TPE1"] = TPE1(encoding=3, text=self.author)  # Artist/Author tag
+        audio["TALB"] = TALB(encoding=3, text=self.title)  # Album = Audiobook Title
+        audio["TPE1"] = TPE1(encoding=3, text=self.author)  # Author
+        audio["TIT2"] = TIT2(encoding=3, text=f"Track {self.file_index} from {self.title}")  # Track Name (e.g., "Chapter X")
 
         # Create a custom TXXX frame for the obfuscated ISBN
         obfuscated_isbn = base64.urlsafe_b64encode(str(self.isbn).encode()).decode()

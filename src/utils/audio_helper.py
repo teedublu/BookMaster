@@ -49,13 +49,13 @@ def detect_silence(file_path, params):
     Returns:
         list: List of silence start times (float), or an empty list if no silence detected.
     """
-    silence_threshold = params.get('silence_threshold', -85)
+    silence_threshold = params.get('silence_threshold', 85)
     min_silence_duration = params.get("min_silence_duration", 1)
 
     try:
         logging.debug(f"Checking {file_path} for silence")
         result = ffmpeg.input(str(file_path)) \
-            .filter("silencedetect", noise=f"{silence_threshold}dB", 
+            .filter("silencedetect", noise=f"-{silence_threshold}dB", 
                     d=min_silence_duration) \
             .output("null", f="null").global_args("-hide_banner") \
             .run(capture_stderr=True)
