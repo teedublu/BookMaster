@@ -119,14 +119,6 @@ class MasterUIWrapper:
 
         logging.info(f"Passing '{input_folder}' to create a Master on {usb_drive}")
 
-        self.master.load_input_tracks(input_folder)
-        
-        print ('===============')
-        print (self.master.title)
-
-
-        print (self.master)
-        return
         self.master.create(input_folder, usb_drive)
 
     def _on_var_change(self, key):

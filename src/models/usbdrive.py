@@ -48,20 +48,29 @@ class USBDrive:
     
 
     def compute_checksum(self):
-        """Computes a SHA-256 checksum for all files in the USB drive."""
+        """Computes a SHA-256 checksum for all files in the USB drive, excluding system files and /bookInfo/checksum.txt."""
         
-        # Get all files inside the directory recursively
-        file_paths = sorted(self.mountpoint.rglob("*")) 
+        EXCLUDED_FILES = {"checksum.txt", ".DS_Store", "Thumbs.db"}
+        EXCLUDED_DIRS = {".Spotlight-V100", ".Trashes", ".fseventsd", ".TemporaryItems"}
+
+        # Get all valid files recursively, excluding system files and directories
+        file_paths = natsorted(
+            [
+                file for file in self.mountpoint.rglob("*") 
+                if file.is_file() 
+                and file.name not in EXCLUDED_FILES  # Exclude specific files
+                and not any(excluded in file.parts for excluded in EXCLUDED_DIRS)  # Exclude hidden/system directories
+            ]
+        )
+        
         try:
-            # checksum_value = compute_sha256(file_paths)
-            # logging.info(f"Computed master tracks checksum: {checksum_value}")
-            # actual_checksums[file] = compute_sha256(file_path)
-            # SKIPING THIS FOR NOW AS CHECKSUM IS NOT WOKRING AND THIS IS SLOW
-            checksum_value = 'ABCDE'
+            checksum_value = compute_sha256(file_paths)
+            logging.info(f"Computed drive checksum: {checksum_value}")
             return checksum_value
         except Exception as e:
-            logging.error(f"Failed to read 'checksum.txt' from disk: {e}")
+            logging.error(f"Failed to compute checksum: {e}")
             return None
+
 
     def load_stored_checksum(self):
         """Loads the expected checksum from /bookinfo/checksum.txt if available."""

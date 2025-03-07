@@ -19,6 +19,7 @@ class Master:
         self.config = config # config of audio settings
         self.settings = settings # UI and file locations
         self.params = getattr(self.config, "params", {})
+        self.output_path = Path(settings.get("output_folder","default_output"))
         self.input_tracks = None  # Tracks: Raw publisher files Tracks
         self.processed_tracks = None  # Tracks: Encoded and cleaned tracks
         self.master_tracks = None  # Tracks: Loaded from either USB drive or disk image
@@ -36,13 +37,7 @@ class Master:
         
         # self.lookup_csv = settings.get("lookup_csv", False)
         self.skip_encoding = settings.get("skip_encoding", False) # useful for speeding up debugging
-        self.output_path = Path(settings.get("output_folder","default_output"))
-        self.master_path = self.output_path / self.sku / "master"
-        self.processed_path = self.output_path / self.sku / "processed"
-        self.image_path =  self.output_path / self.sku / "image"
-        self.processed_path.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
-        self.image_path.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
-
+        
         # HEER FOR NOW BUT SHOULD COME FROM CONFIG
         self.output_structure = {
             "tracks_path": "tracks",
@@ -62,8 +57,13 @@ class Master:
         Returns a string representation of the Master instance, including its tracks,
         structure, and metadata files.
         """
-        input_tracks_info = str(self.input_tracks) if self.input_tracks else "No Input tracks loaded"
-        master_tracks_info = str(self.master_tracks) if self.master_tracks else "No Master tracks loaded"
+        input_tracks_info = str(self.input_tracks) if self.input_tracks else None
+        processed_tracks_info = str(self.processed_tracks) if self.processed_tracks else None
+        master_tracks_info = str(self.master_tracks) if self.master_tracks else None
+
+        tracks_info = input_tracks_info or processed_tracks_info or master_tracks_info or None
+
+
         structure_info = "\n".join(f"{key}: {value}" for key, value in self.output_structure.items())
 
         # Paths to metadata files
@@ -104,13 +104,44 @@ class Master:
             f"bookInfo/id.txt: {id_value}\n"
             f"bookInfo/checksum.txt: {checksum_value}\n"
             f"\nInput Tracks:\n{input_tracks_info}"
+            f"\nProcessed Tracks:\n{processed_tracks_info}"
             f"\nMaster Tracks:\n{master_tracks_info}"
         )
+
+    @property
+    def processed_path(self):
+        processed_path = self.output_path / self.sku / "processed"
+        processed_path.mkdir(parents=True, exist_ok=True) 
+        return processed_path
+
+    @property
+    def master_path(self):
+        master_path = self.output_path / self.sku / "processed"
+        master_path.mkdir(parents=True, exist_ok=True) 
+        return master_path
+
+   
+        self.master_path = self.output_path / self.sku / "master"
+        self.processed_path = self.output_path / self.sku / "processed"
+        self.image_path =  self.output_path / self.sku / "image"
+        self.processed_path.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
+        self.image_path.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
+
 
     @property
     def file_count_observed(self):
         """Returns the number of files in Tracks, or 0 if Tracks is None."""
         return len(self.input_tracks.files) if getattr(self, "input_tracks", None) and hasattr(self.input_tracks, "files") else 0
+    
+    @file_count_observed.setter
+    def file_count_observed(self, value):
+        """
+        Setter for file_count_observed.
+        Updates self.input_tracks.files length if a valid integer is provided.
+        """
+        if not isinstance(value, int) or value < 0:
+            raise ValueError("file_count_observed must be a non-negative integer.")
+        
 
     @property
     def checksum(self):
@@ -122,7 +153,7 @@ class Master:
         # Collect all files inside the directory recursively
         file_paths = natsorted(self.master_structure.rglob("*"))  # Get all files inside the directory
         checksum_value = compute_sha256(file_paths)
-        self.logger.info(f"Computed master tracks {file_paths} checksum: {checksum_value}")
+        self.logger.info(f"Computed master_structure checksum: {checksum_value}")
         return checksum_value  
 
     def get_fields(self):
@@ -162,9 +193,8 @@ class Master:
         self.load_input_tracks(input_folder)
         # take input files and process
         self.process_tracks()
-
          #create structure
-        self.create_structure() # do this after process so converted tracks can be put under /tracks
+        self.create_master_structure() # do this after process so converted tracks can be put under /tracks
 
         # Ensure we pass the correct processed tracks directory
         diskimage = DiskImage(output_path=self.image_path)
@@ -254,8 +284,8 @@ class Master:
                     logging.warning("Processed files unequal in length to input files. Rejecting.")
                     self.processed_tracks = None
                 else:
-                    logging.debug("Found processed path, creating Tracks from processed files.")
                     self.processed_tracks = Tracks(self, processed_path, self.params, [])
+                    logging.debug("Found processed path, created Tracks from processed files.")
                     return
 
         # if get here then zap anything in processed path and start encoding again
@@ -280,7 +310,7 @@ class Master:
         self.processed_tracks = Tracks(self, self.processed_path, self.params, ["metadata"]) #metadata required to get duration
         self.logger.info(f"Processed Tracks total size {self.processed_tracks.total_size}")
 
-    def create_structure(self):
+    def create_master_structure(self):
         """Creates the required directory and file structure for the master."""
         master_path = self.master_path # Use the main output directory
         params = getattr(self.config, "params", {})

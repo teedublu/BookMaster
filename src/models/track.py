@@ -67,7 +67,8 @@ class Track:
         color = COLORS["green"] if is_valid else COLORS["yellow"] if issue_str.startswith("Silence") else COLORS["red"]
 
         # Return formatted output
-        return f"{color}{self.title} by {self.author} :{self.sku}_ {self.file_path.name} {self.sample_rate}k {self.bit_rate//1000}kbps {f' ({issue_str})'}{COLORS['reset']}"
+        issue_str_output = f" (issues: {', '.join(issue_str)})" if issue_str else ""
+        return f"{color}{self.title} by {self.author} :{self.sku}_ {self.file_path.name} {self.sample_rate}k {self.bit_rate//1000}kbps {f' {issue_str_output}'}{COLORS['reset']}"
 
 
 
@@ -110,17 +111,24 @@ class Track:
     def status(self):
         """
         Returns a tuple:
-        - First element: Boolean (True = valid, False = has issues).
+        - First element: Boolean (True if valid, False if there are issues).
         - Second element: A detailed string with issues if any.
         """
-        issues = [
-            "Silence" if self.silences else "",
-            f"Frame errors: {self.frame_errors}" if self.frame_errors > 0 else "",
-            "Encoding issue" if not self.encoding_is_valid() else ""
-        ]
-        issue_str = ", ".join(filter(None, issues))
-        is_valid = len(issues) == 0
-        return (is_valid, issue_str)  # (True = valid, False = has issues)
+        issues = []
+        
+        if self.silences:
+            issues.append("Silence")
+        if self.frame_errors > 0:
+            issues.append(f"Frame errors: {self.frame_errors}")
+        if not self.encoding_is_valid():
+            issues.append("Encoding issue")
+
+        issue_str = ", ".join(issues) if issues else None
+        is_valid = not issues  # True if empty (no issues), False otherwise
+
+        # logging.debug(f"issues={issues}, issue_str={issue_str}, is_valid={is_valid}")
+        return is_valid, issue_str  # (True = valid, False = has issues)
+
 
     @property
     def is_valid(self):
