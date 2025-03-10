@@ -116,17 +116,15 @@ class Master:
 
     @property
     def master_path(self):
-        master_path = self.output_path / self.sku / "processed"
+        master_path = self.output_path / self.sku / "master"
         master_path.mkdir(parents=True, exist_ok=True) 
         return master_path
 
-   
-        self.master_path = self.output_path / self.sku / "master"
-        self.processed_path = self.output_path / self.sku / "processed"
-        self.image_path =  self.output_path / self.sku / "image"
-        self.processed_path.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
-        self.image_path.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
-
+    @property
+    def image_path(self):
+        image_path = self.output_path / self.sku / "image"
+        image_path.mkdir(parents=True, exist_ok=True) 
+        return image_path
 
     @property
     def file_count_observed(self):
@@ -281,7 +279,7 @@ class Master:
 
                 # Compare file count before loading Tracks
                 if len(processed_files) != len(self.input_tracks.files):
-                    logging.warning("Processed files unequal in length to input files. Rejecting.")
+                    logging.warning(f"Processed files ({len(processed_files)}) unequal in length to input files({len(self.input_tracks.files)}). Rejecting.")
                     self.processed_tracks = None
                 else:
                     self.processed_tracks = Tracks(self, processed_path, self.params, [])
@@ -312,6 +310,12 @@ class Master:
 
     def create_master_structure(self):
         """Creates the required directory and file structure for the master."""
+
+        if not self.processed_tracks:
+            self.logger.error(f"Missing process_tracks can not proceed ")
+            raise ValueError(f"Missing process_tracks can not proceed")
+            return
+
         master_path = self.master_path # Use the main output directory
         params = getattr(self.config, "params", {})
 
@@ -341,21 +345,14 @@ class Master:
         self.logger.debug(f"Writing data to files id->{self.isbn} count->{len(self.processed_tracks.files)} checksum->{self.checksum}")
 
         # If processed tracks exist, copy them into `tracks/`
-        if self.processed_tracks:
-            tracks_path = master_path / self.output_structure["tracks_path"]
-            self.logger.info(f"Copying processed tracks to {tracks_path.parent.name}/{tracks_path.name}")
+        tracks_path = master_path / self.output_structure["tracks_path"]
+        self.logger.info(f"Copying processed tracks to {tracks_path.parent.name}/{tracks_path.name}")
 
-            tracks_path.mkdir(parents=True, exist_ok=True)  # Ensure the folder exists
-            for track in self.processed_tracks.files:
-                destination = tracks_path / track.file_path.name
-                shutil.copy(str(track.file_path), str(destination))
-                self.logger.info(f"Copied {track.file_path.parent.name}/{track.file_path.name} -> {destination.parent.name}/{destination.name}")
-
-        else:
-            self.logger.error(f"Missing process_tracks can not proceed ")
-            raise ValueError(f"Missing process_tracks can not proceed")
-            return
-
+        tracks_path.mkdir(parents=True, exist_ok=True)  # Ensure the folder exists
+        for processed_track in self.processed_tracks.files:
+            shutil.copy(str(processed_track.file_path), str(tracks_path))
+            self.logger.info(f"Copied {processed_track.file_path.name} from /{processed_track.file_path.parent.name} -> /{tracks_path.parent.name}/{tracks_path.name}")
+            
         self.master_tracks = Tracks(self, tracks_path, params, [])
 
 
