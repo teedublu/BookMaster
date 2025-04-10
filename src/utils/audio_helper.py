@@ -115,8 +115,8 @@ def detect_silence(file_path, params):
     Returns:
         list: List of silence start times (float), or an empty list if no silence detected.
     """
-    silence_threshold = params.get('silence_threshold', 85)
-    min_silence_duration = params.get("min_silence_duration", 1)
+    silence_threshold = params.get('silence_threshold', 90)
+    min_silence_duration = params.get("min_silence_duration", 0.2)
 
     try:
         logging.debug(f"Checking {file_path} for silence")
@@ -127,7 +127,7 @@ def detect_silence(file_path, params):
             .run(capture_stderr=True)
 
         output = result[1].decode("utf-8")
-        logging.debug(f"FFmpeg Output (Silence Detection {silence_threshold}||{min_silence_duration}): {output==None}")
+        logging.debug(f"FFmpeg Output (Silence Detection {silence_threshold}||{min_silence_duration}): {output}")
 
         # Extract silence periods using regex
         silence_matches = re.findall(r"silence_start:\s*([\d\.]+)", output)

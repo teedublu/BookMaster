@@ -58,8 +58,7 @@ class Track:
         self.silences = self.track_analysis.get("silences", [])
         self.frame_errors = self.track_analysis.get("frame_errors", 0)
 
-        # self.apply_tests()
-
+        
         # if "convert" in self.tests:
         #     self.apply_metadata()
         #     self.apply_tests()
@@ -116,7 +115,7 @@ class Track:
         issues = []
         
         if self.silences:
-            issues.append("Silence")
+            issues.append(f"Silence: {len(self.silences)}")
         if self.frame_errors > 0:
             issues.append(f"Frame errors: {self.frame_errors}")
         if not self.encoding_is_valid():
@@ -187,26 +186,6 @@ class Track:
         self.track_name = self.track_name or title
 
         logging.debug(f"Metadata applied to Track giving {self}.")
-
-    def apply_tests(self):
-        """Runs only the specified audio tests."""
-        test_list = self.tests.split(",") if isinstance(self.tests, str) else []
-        tests = [t.lower().strip() for t in test_list]  # Convert to a list for reusability
-
-        # if not tests:
-        #     logging.debug(f"No audio tests requested.")
-        #     return
-
-        logging.info(f"Performing audio tests {tests}.")
-
-        if "loudness" in tests:
-            self.loudness = analyze_loudness(self.file_path, self.params)
-
-        if ("silence" in tests):
-            self.silences = detect_silence(self.file_path, self.params)
-
-        if "frame_errors" in tests:
-            self.frame_errors = check_frame_errors(self.file_path)
 
     def convert(self, destination_path, bit_rate):
         # takes input_file and converts into processed path
