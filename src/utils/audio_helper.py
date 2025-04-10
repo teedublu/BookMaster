@@ -4,7 +4,7 @@ import re
 import traceback
 from pathlib import Path
 
-def analyze_track(file_path, params):
+def analyze_track(file_path, params, tests):
     """
     Performs a single-pass analysis on an audio file:
     - Extracts metadata
@@ -23,18 +23,26 @@ def analyze_track(file_path, params):
             - silences
             - frame_errors
     """
+    test_list = tests.split(",") if isinstance(tests, str) else []
+    tests = [t.lower().strip() for t in test_list]  # Convert to a list for reusability
+
     results = {}
     results["metadata"] = extract_metadata(file_path)  # FFmpeg probe
+    results["loudness"] = {}
+    results["silences"] = {}
+    results["frame_errors"] = 0
 
-    # Analyze loudness
-    results["loudness"] = analyze_loudness(file_path, params)
+    logging.info(f"Performing audio tests {tests}.")
 
-    # Silence detection
-    results["silences"] = detect_silence(file_path, params)
+    if "loudness" in tests:
+        results["loudness"] = analyze_loudness(file_path, params)
 
-    # Frame errors
-    results["frame_errors"] = check_frame_errors(file_path)
+    if "silence" in tests:
+        results["silences"] = detect_silence(file_path, params)
 
+    if "frame_errors" in tests:
+        results["frame_errors"] = check_frame_errors(file_path)
+    
     return results
 
 

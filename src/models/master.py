@@ -35,11 +35,13 @@ class Master:
         self.master_path.mkdir(parents=True, exist_ok=True) 
 
         self.file_count_expected = expected_count if expected_count else 0
+        
         self._file_count_observed = 0
-
+        self._duration = 0
         self._author = None
         self._title = None
         self._isbn = None
+        
         self.status = ""
         
         # self.lookup_csv = settings.get("lookup_csv", False)
@@ -119,6 +121,10 @@ class Master:
     @property
     def duration(self):
         return self.master_tracks.duration if self.master_tracks else 0
+
+    @duration.setter
+    def duration(self, value):
+        self._duration = value;
 
     @property
     def author(self):

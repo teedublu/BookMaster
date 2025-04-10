@@ -43,18 +43,21 @@ class Track:
 
         self.output_file = f"{str(self.index).zfill(3)}_{slugify(str(self.isbn)[-5:])}{slugify(str(self.sku)[-4:]).upper()}"[:13] + ".mp3"
 
-        self.track_analysis = analyze_track(self.file_path, self.params)
-        print ("=========================")
-        print (self.track_analysis)
-        self.metadata = self.track_analysis["metadata"]
-        self.duration = self.track_analysis["metadata"]["duration"]
-        self.sample_rate = self.track_analysis["metadata"]["sample_rate"]
-        self.bit_rate = self.track_analysis["metadata"]["bit_rate"]
-        self.channels = self.track_analysis["metadata"]["channels"]
-        self.tags = self.track_analysis["metadata"]["tags"]
-        self.loudness = self.track_analysis["loudness"]["input_i"]
-        self.silences = self.track_analysis["silences"]
-        self.frame_errors = self.track_analysis["frame_errors"]
+        self.track_analysis = analyze_track(self.file_path, self.params, self.tests)
+        metadata = self.track_analysis.get("metadata", {})
+        loudness = self.track_analysis.get("loudness", {})
+        self.metadata = metadata
+
+        self.duration = metadata.get("duration",0)
+        self.sample_rate = metadata.get("sample_rate",None)
+        self.bit_rate = metadata.get("bit_rate",None)
+        self.channels = metadata.get("channels",None)
+        self.tags = metadata.get("tags", {})
+
+        self.loudness = loudness.get("input_i",None)
+        self.silences = self.track_analysis.get("silences", [])
+        self.frame_errors = self.track_analysis.get("frame_errors", 0)
+
         # self.apply_tests()
 
         # if "convert" in self.tests:
@@ -94,7 +97,7 @@ class Track:
         Returns True if loudness is within ±10% of the target LUFS value.
         """
         if self.loudness is None:
-            return False  # Can't evaluate
+            return True  # Can't evaluate, test not requested
 
         target_lufs = self.params.get("encoding", {}).get("target_lufs", -19)
         deviation = abs(self.loudness - target_lufs)
@@ -143,13 +146,19 @@ class Track:
 
 
     def encoding_is_valid(self):
-        """ Checks if encoding parameters are correctly set. """
-        return all([
+        """Checks if encoding parameters are valid. Includes loudness only if requested."""
+        tests = self.tests
+        checks = [
             isinstance(self.sample_rate, int) and self.sample_rate > 0,
             isinstance(self.bit_rate, int) and self.bit_rate > 0,
-            isinstance(self.channels, int) and self.channels in (1,),
-            isinstance(self.loudness, (int, float)) and -40 < self.loudness < 0
-        ])
+            isinstance(self.channels, int) and self.channels in (1,)
+        ]
+
+        if tests and "loudness" in [t.lower() for t in tests]:
+            checks.append(isinstance(self.loudness, (int, float)) and -40 < self.loudness < 0)
+
+        return all(checks)
+
 
     def _determine_file_type(self):
         """ Determines the file type based on its MIME type. """
