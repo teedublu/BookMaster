@@ -47,7 +47,12 @@ class Tracks:
 
         for index, file in enumerate(files, start=1):
             try:
-                track = Track(self.master, file, index, self.params, self.tests)
+                track = Track(file, index, self.params, self.tests, **{
+                    "title": self.master.title,
+                    "author": self.master.author,
+                    "isbn": self.master.isbn,
+                    "sku": self.master.sku
+                })
                 self.files.append(track)
             except Exception as e:
                 logging.error(f"Failed to load Track {file.name}: {e}")
@@ -74,7 +79,7 @@ class Tracks:
         return sum(file.encoded_size for file in self.files if file.encoded_size)
     
     @property
-    def are_valid(self):
+    def all_valid(self):
         """ Returns True if the directory contains files that are not MP3 or system files. """
         return all(track.is_valid for track in self.files)
 

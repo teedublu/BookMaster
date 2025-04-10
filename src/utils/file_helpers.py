@@ -11,6 +11,7 @@ from mutagen.id3 import ID3
 from mutagen.wave import WAVE
 import logging
 from itertools import chain
+from natsort import natsorted
 
 EXCLUDED_DIRS = {".fseventsd", ".Spotlight-V100", ".Trashes", ".DS_Store"}
 
@@ -116,7 +117,7 @@ def compute_sha256(file_paths):
     
     logging.debug(f"Creating hash for {len(file_paths)} paths")
 
-    for file_path in file_paths:
+    for file_path in natsorted(file_paths, key=lambda p: str(p)):
         # Check if any part of the path is in EXCLUDED_DIRS (including all parent directories)
         if file_path.is_file() and not any(part in EXCLUDED_DIRS for part in file_path.parts):
             try:

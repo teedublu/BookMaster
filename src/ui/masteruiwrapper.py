@@ -33,7 +33,7 @@ class MasterUIWrapper:
         self.master.author = settings.get("past_master", {}).get("author", "")
         self.settings = settings
         # self.settings_copy = {k: v for k, v in master_instance.settings.items() if k != "past_master"} # remove past_master - UI settings should not be passed to master NEEDS REFACTORING SO settings go to MasterUIWrapper not Master
-        
+        print (self.master.get_fields().items())
         # Create Tkinter variables dynamically
         self._vars = {
             key: self.VARIABLE_TYPES[type(value)](value=value)
@@ -73,7 +73,7 @@ class MasterUIWrapper:
         tests = self.main_window.usb_drive_tests_var.get()
         drive = self.main_window.usb_hub.first_available_drive
         if drive:
-            self.validator = MasterValidator(self.main_window.usb_hub.first_available_drive, tests=tests)
+            self.validator = MasterValidator(self.main_window.usb_hub.first_available_drive, tests=tests, expected_isbn = self.isbn )
         else:
             logging.warning(f"No drive available to test")
  
@@ -175,6 +175,7 @@ class MasterUIWrapper:
             master_value = getattr(self.master, key, None)
             ui_value = self._vars[key].get()
             
+
             if master_value != ui_value:  # Prevent redundant updates
                 logging.debug(f"Syncing Master change to UI: {key} -> {master_value}")
                 self._vars[key].set(master_value)
@@ -191,7 +192,7 @@ class MasterUIWrapper:
         self.master.logger.info(f"Updated USB drive tests: {self.master.usb_drive_tests}")
 
 
-    def select_input_folder(self):
+    def select_input_folderOLD(self):
         """Opens a folder selection dialog, updates the corresponding Tkinter variable, and creates a Master from the input folder."""
         folder_selected = filedialog.askdirectory()
         if folder_selected:

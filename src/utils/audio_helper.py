@@ -4,39 +4,97 @@ import re
 import traceback
 from pathlib import Path
 
-
-def analyze_loudness(file_path):
+def analyze_track(file_path, params):
     """
-    Analyzes loudness levels using FFmpeg.
-
-    Args:
-        file_path (Path): Path to the audio file.
+    Performs a single-pass analysis on an audio file:
+    - Extracts metadata
+    - Analyzes loudness
+    - Detects silence
+    - Checks for frame errors
 
     Returns:
-        float: Integrated loudness in LUFS, or None if not detected.
+        dict with keys:
+            - duration
+            - sample_rate
+            - bit_rate
+            - channels
+            - tags
+            - loudness
+            - silences
+            - frame_errors
     """
+    results = {}
+    results["metadata"] = extract_metadata(file_path)  # FFmpeg probe
+
+    # Analyze loudness
+    results["loudness"] = analyze_loudness(file_path, params)
+
+    # Silence detection
+    results["silences"] = detect_silence(file_path, params)
+
+    # Frame errors
+    results["frame_errors"] = check_frame_errors(file_path)
+
+    return results
+
+
+def analyze_loudness(file_path, params):
+    """
+    Analyzes loudness levels using FFmpeg's loudnorm filter.
+
+    Returns:
+        dict: {
+            input_i: float,
+            input_tp: float,
+            input_lra: float,
+            input_thresh: float,
+            target_offset: float
+        }
+    """
+    target_lufs = params.get("target_lufs", -16)
+
     try:
         result = ffmpeg.input(str(file_path)) \
+            .filter("loudnorm", I=str(target_lufs), TP="-1.5", LRA="11", print_format="summary") \
             .output("null", f="null") \
             .global_args("-hide_banner") \
             .run(capture_stderr=True)
 
-        output = result[1].decode("utf-8")  # Capture stderr where FFmpeg logs output
-        logging.debug(f"FFmpeg Output (Loudness): {output}")
+        output = result[1].decode("utf-8")
+        # logging.debug(f"FFmpeg Output (Loudness): {output}")
 
-        # Extract loudness using regex
-        if "input_i:" in output:
-            try:
-                loudness_str = output.split("input_i:")[1].split("dB")[0].strip()
-                return float(loudness_str) if loudness_str else None
-            except ValueError:
-                logging.debug("Warning: Could not parse loudness value.")
+        # Parse the new-style loudnorm summary
+        metrics = {}
+
+        patterns = {
+            "input_i": r"Input Integrated:\s*(-?\d+\.?\d*)",
+            "input_tp": r"Input True Peak:\s*([+-]?\d+\.?\d*)",
+            "input_lra": r"Input LRA:\s*(\d+\.?\d*)",
+            "input_thresh": r"Input Threshold:\s*(-?\d+\.?\d*)",
+            "target_offset": r"Target Offset:\s*([+-]?\d+\.?\d*)"
+        }
+
+        for key, pattern in patterns.items():
+            match = re.search(pattern, output)
+            metrics[key] = float(match.group(1)) if match else None
+
+        logging.debug(f"Loudness analysis for {file_path}:{metrics}")
+        return metrics
 
     except Exception as e:
         tb = traceback.extract_tb(e.__traceback__)[-1]
         logging.debug(f"Warning: Could not analyze loudness for {file_path} at {tb.filename}:{tb.lineno}: {e}")
 
-    return None
+    return {
+        "input_i": None,
+        "input_tp": None,
+        "input_lra": None,
+        "input_thresh": None,
+        "target_offset": None
+    }
+
+
+
 
 def detect_silence(file_path, params):
     """
@@ -148,7 +206,6 @@ def check_frame_errors(file_path):
     Returns:
         int: Number of detected frame errors.
     """
-    logging.debug(f"Checking frame errors for {file_path.parent.name}/{file_path.name}")
     try:
         error_result = ffmpeg.input(str(file_path)) \
             .output("null", f="null") \
@@ -156,9 +213,9 @@ def check_frame_errors(file_path):
             .run(capture_stderr=True)
 
         frame_err_count = len(error_result[1].decode("utf-8").splitlines())
-        logging.info(f"Frame errors for {file_path.parent.name}/{file_path.name} : {frame_err_count}.")
+        logging.debug(f"Checking {file_path} for frame errors: {frame_err_count}")
         return frame_err_count
 
     except Exception as e:
-        logging.debug(f"Warning: Could not check frame errors for {file_path}: {e}")
+        logging.warning(f"Warning: Could not check frame errors for {file_path}: {e}")
         return -1  # Indicate error state

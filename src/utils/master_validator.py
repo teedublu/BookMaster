@@ -39,10 +39,12 @@ class MasterValidator:
         settings = load_settings()
         config = Config()  # Assuming Config can accept a debug flag
 
-        logging.debug(f"creating candidate master {self.usb_drive.mountpoint}")
+        logging.debug(f"creating candidate master {self.usb_drive.mountpoint} settings={settings} config={config}")
+        settings["past_master"] = {}
+        
         self.candidate_master = Master.from_device(config, settings, self.usb_drive.mountpoint, self.tests) #from_device defines the checks to be made
         
-        self.candidate_master.lookup_isbn(self.candidate_master.isbn)
+        # self.candidate_master.lookup_isbn(self.candidate_master.isbn)
 
         self.check_path_exists()
         self.check_tracks_folder()
@@ -53,12 +55,16 @@ class MasterValidator:
         self.is_clean = self.ensure_metadata_never_index() & remove_system_files(self.usb_drive.mountpoint)
         
         logging.info(f"Validation performed, errors found: {self.errors}")
-        logging.info(f"Validation performed, title: {self.candidate_master.title}")
-        logging.info(f"Validation performed, isbn: {self.candidate_master.isbn}")
-        logging.info(f"Validation performed, sku: {self.candidate_master.sku}")
-        logging.info(f"Validation performed, duration: {self.candidate_master.duration}")
-        logging.info(f"Validation performed, USB is_clean: {self.is_clean}")
-        logging.info(f"Validation performed, USB is_single_volume: {self.usb_drive.properties.get("is_single_volume")}")
+        logging.info(f"|--- title: {self.candidate_master.title}")
+        logging.info(f"|--- isbn: {self.candidate_master.isbn}")
+        logging.info(f"|--- sku: {self.candidate_master.sku}")
+        logging.info(f"|--- duration: {self.candidate_master.duration}")
+        logging.info(f"|--- USB is_clean: {self.is_clean}")
+        logging.info(f"|--- USB is_single_volume: {self.usb_drive.properties.get("is_single_volume")}")
+
+        logging.info (self.candidate_master)
+
+        logging.info (f"Overall status {self.candidate_master.validate()}")
         
         return len(self.errors) == 0, self.errors  # Return validation status and errors
 
@@ -103,15 +109,13 @@ class MasterValidator:
             return
 
         # Count only files (ignoring subdirectories)
-        file_count_expected = sum(1 for f in tracks_path.iterdir() if f.is_file())
-        file_count_observed = self.candidate_master.file_count_observed
+        file_count_observed = sum(1 for f in tracks_path.iterdir() if f.is_file())
+        file_count_expected = self.candidate_master.file_count_expected
 
-        if file_count_expected != file_count_observed:
-            self.errors.append(f"Expected {file_count_expected} track files, but found {file_count_observed} in '{tracks_path}'.")
+        if file_count_observed != file_count_expected:
+            self.errors.append(f"Expected {file_count_expected} track files, but found {file_count_observed} in '{tracks_path}'")
         else:
-            logging.info(f"Found {file_count_observed} (expecting {self.file_count_expected}) in {tracks_path}.")
-
-        self.file_count_expected = file_count_expected
+            logging.info(f"Found {file_count_observed} (expecting {file_count_expected}) in '{tracks_path}'")
 
     def check_bookinfo_id(self):
         """Check that the ISBN in 'bookinfo/id.txt' matches the expected value."""
@@ -135,8 +139,11 @@ class MasterValidator:
         else:
             logging.info(f"Found ID {self.file_isbn} (expecting {self.candidate_master.isbn}) in {id_txt_path.parent}.")
 
-
     def check_checksum(self):
+        """Returns True if expected and actual checksums match."""
+        return self.candidate_master.checksum_expected == self.candidate_master.checksum_actual
+
+    def check_checksumOLD(self):
         """Check that the checksum.txt file exists and matches computed checksums."""
         checksum_path = os.path.join(self.usb_drive.mountpoint, "bookinfo", "checksum.txt")
 
@@ -152,16 +159,16 @@ class MasterValidator:
                 if len(parts) == 2:
                     expected_checksums[parts[1]] = parts[0]
 
-        # Compute actual checksums
-        actual_checksums = {}
+        file_paths = []
         for root, _, files in os.walk(self.usb_drive.mountpoint):
             for file in files:
-                file_path = os.path.join(root, file)
-                if file == "checksum.txt":  # Skip checksum file itself
+                if file == "checksum.txt":
                     continue
-                # actual_checksums[file] = compute_sha256(file_path)
-                # SKIPING THIS FOR NOW AS CHECKSUM IS NOT WOKRING AND THIS IS SLOW
-                actual_checksums[file] = '12345'
+                full_path = Path(root) / file
+                file_paths.append(full_path)
+
+        usb_checksum = compute_sha256(file_paths)
+
 
         # Compare expected vs actual
         for file, expected_hash in expected_checksums.items():

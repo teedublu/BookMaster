@@ -40,6 +40,15 @@ class Config:
 
         self.params = self.load_config()
 
+    def __str__(self):
+        return json.dumps({
+            "config_dir": str(self.config_dir),
+            "config_file": str(self.config_file),
+            "books_csv_path": str(self.books_csv_path),
+            "default_base_dir": str(self.default_base_dir),
+            "default_config": str(self.default_config)
+        }, indent=2)
+
     def load_config(self):
         """Loads the config.json file from the same folder as this script."""
         if not self.config_file.exists():

@@ -15,7 +15,7 @@ class Master:
     """
     Represents the master audiobook collection, managing files and metadata.
     """
-    def __init__(self, config, settings):
+    def __init__(self, config, settings, master_path=None, expected_count=None):
         self.config = config # config of audio settings
         self.settings = settings # UI and file locations
         self.params = getattr(self.config, "params", {})
@@ -30,9 +30,16 @@ class Master:
         self.title = settings.get("title", "")
         self.author = settings.get("author", "")
         self.infer_data = settings.get("infer_data", False)
-        
-        self.duration = 0.0
-        self.file_count_expected = 0
+
+        self.master_path = Path(master_path) if master_path else self.output_path / self.sku / "master"
+        self.master_path.mkdir(parents=True, exist_ok=True) 
+
+        self.file_count_expected = expected_count if expected_count else 0
+        self._file_count_observed = 0
+
+        self._author = None
+        self._title = None
+        self._isbn = None
         self.status = ""
         
         # self.lookup_csv = settings.get("lookup_csv", False)
@@ -108,17 +115,56 @@ class Master:
             f"\nMaster Tracks:\n{master_tracks_info}"
         )
 
+    
+    @property
+    def duration(self):
+        return self.master_tracks.duration if self.master_tracks else 0
+
+    @property
+    def author(self):
+        return self.master_tracks.author if self.master_tracks else 'Unknown'
+
+    @author.setter
+    def author(self, value):
+        # should only be used inbound after which tracks will define the author
+        self._author = value;
+
+    @property
+    def title(self):
+        return self.master_tracks.title if self.master_tracks else 'Unknown'
+
+    @title.setter
+    def title(self, value):
+        # should only be used inbound after which tracks will define the author
+        self._title = value;
+
+    @property
+    def checksum_expected(self):
+        """Returns the checksum stored in bookInfo/checksum.txt, or None if missing."""
+        checksum_file = self.master_path / "bookInfo" / "checksum.txt"
+        if checksum_file.exists():
+            try:
+                return checksum_file.read_text(encoding="utf-8").strip()
+            except Exception as e:
+                self.logger.warning(f"Could not read expected checksum: {e}")
+        return None
+
+    @property
+    def checksum_actual(self):
+        """Computes a SHA-256 checksum of the Master files."""
+        try:
+            all_files = [p for p in self.master_path.rglob("*") if p.is_file()]
+            return compute_sha256(all_files)
+        except Exception as e:
+            self.logger.warning(f"Could not compute actual checksum: {e}")
+            return None
+
+
     @property
     def processed_path(self):
         processed_path = self.output_path / self.sku / "processed"
         processed_path.mkdir(parents=True, exist_ok=True) 
         return processed_path
-
-    @property
-    def master_path(self):
-        master_path = self.output_path / self.sku / "master"
-        master_path.mkdir(parents=True, exist_ok=True) 
-        return master_path
 
     @property
     def image_path(self):
@@ -129,17 +175,9 @@ class Master:
     @property
     def file_count_observed(self):
         """Returns the number of files in Tracks, or 0 if Tracks is None."""
-        return len(self.input_tracks.files) if getattr(self, "input_tracks", None) and hasattr(self.input_tracks, "files") else 0
+        return len(self.master_tracks.files) if getattr(self, "master_tracks", None) and hasattr(self.master_tracks, "files") else 0
     
-    @file_count_observed.setter
-    def file_count_observed(self, value):
-        """
-        Setter for file_count_observed.
-        Updates self.input_tracks.files length if a valid integer is provided.
-        """
-        if not isinstance(value, int) or value < 0:
-            raise ValueError("file_count_observed must be a non-negative integer.")
-        
+
 
     @property
     def checksum(self):
@@ -174,8 +212,8 @@ class Master:
     @classmethod
     def from_device(cls, config, settings, device_path, tests):
         """ Alternative constructor to initialize Master from a device. """
-        instance = cls(config, settings)
-        instance.load_master_from_drive(device_path, tests)
+        instance = cls(config, settings, master_path=device_path)
+        instance.load_master_from_drive(tests)
         return instance
     
     @classmethod
@@ -202,19 +240,14 @@ class Master:
 
         if usb_drive:
             self.logger.info(f"Attempting to write {image_file} to USB {usb_drive}")
-            usb_drive.write_disk_image(image_file)
-
-
-    def check(self):
-        self.logger.info("TODO Check the master")
-        # self.config.validate_structure(self.master_tracks, self.file_count_observed, self.isbn)    
+            usb_drive.write_disk_image(image_file) 
     
     def load_input_tracks(self, input_folder):
         """Loads the raw input tracks provided by the publisher."""
         self.input_tracks = Tracks(self, input_folder, self.params, ["frame_errors"])
-
     
-    def load_master_from_drive(self, drive_path, tests=None):
+    def load_master_from_drive(self, tests=None):
+        drive_path = self.master_path
         """Loads a previously created Master from a removable drive."""
         tracks_path = Path(drive_path) / self.output_structure["tracks_path"]
         info_path = Path(drive_path) / self.output_structure["info_path"]
@@ -224,22 +257,18 @@ class Master:
 
         self.master_tracks = Tracks(self, tracks_path, self.params, tests)
 
-        isbn_file = Path(drive_path) / self.output_structure["id_file"]
-        count_file = Path(drive_path) / self.output_structure["count_file"]
-        isbn = str(isbn_file.read_text().strip())
-        count = int(count_file.read_text().strip())
-        
         try:
-            self.isbn = isbn
-            self.file_count_observed = count
-            self.title = self.master_tracks.title
-            self.author = self.master_tracks.author
-            self.duration = self.master_tracks.duration
-            self.logger.debug(f"Loaded Master with count={count} isbn={isbn} author={self.author} duration={self.duration}")
+            isbn_file = Path(drive_path) / self.output_structure["id_file"]
+            count_file = Path(drive_path) / self.output_structure["count_file"]
+            isbn = str(isbn_file.read_text().strip())
+            count = int(count_file.read_text().strip())
+            self.file_count_expected = count
         except FileNotFoundError:
             self.logger.error("Required metadata files (id.txt, count.txt) missing in bookInfo.")
             raise
-    
+        
+        self.logger.debug(f"Loaded Master with count={self.file_count_observed} isbn={self.isbn} author={self.author} duration={self.duration}")
+        
     def load_master_from_image(self, image_path):
         """Loads a previously created Master from a disk image using pycdlib."""
         self.logger.info(f"Loading Master from disk image: {image_path}")
@@ -387,14 +416,27 @@ class Master:
 
         return adjusted_bit_rate
 
-    def validate_master(self):
+    def validate(self):
+        #check file count
+        #check silences
+        #encoding
+        #checksum
+        #speed
+
         """Validates an existing Master from drive or disk image."""
         self.logger.info("Validating Master...")
-        if self.master_tracks:
-            self.logger.info("Checking master with tracks...")
-            self._validate_tracks(self.master_tracks)
-        elif self.input_tracks:
-            self.logger.info("Have input tracks...")
+        if not self.master_tracks:
+            self.logger.info("No master tracks found...")
+            return False
+        
+        if self.file_count_expected != self.file_count_observed:
+            self.logger.info("Expected and observed file count mismatch.")
+            return False
+        
+        if not self.master_tracks.all_valid:
+            self.logger.info(f"Some invalid tracks found: {self.master_tracks.invalid_tracks}")
+
+        return True
 
     def infer_metadata_from_tracks(self, input_folder):
         """Derives title, author, and SKU from the first Track's metadata if not already set."""
@@ -414,19 +456,20 @@ class Master:
             self.logger.info(f"Inferred title: {self.title} in {metadata_tags}")
 
         # Infer author
-        if not self.author:
-            # Prefer "artist" tag, fallback to "album_artist"
-            self.author = metadata_tags.get("artist") or metadata_tags.get("album_artist")
-            if self.author:
-                self.author = self.author.strip()
-                self.logger.info(f"Inferred author: {self.author}")
+        # This should be handled by the individual tracks rather than here. Allow getter of author to delegate to Tracks>Track
+        # if not self.author:
+        #     # Prefer "artist" tag, fallback to "album_artist"
+        #     self.author = metadata_tags.get("artist") or metadata_tags.get("album_artist")
+        #     if self.author:
+        #         self.author = self.author.strip()
+        #         self.logger.info(f"Inferred author: {self.author}")
 
         # Generate SKU if not set
         if not self.sku:
             self.sku = self.generate_sku()
             self.logger.info(f"Generated SKU: {self.sku}")
 
-    def lookup_isbn(self, new_isbn):
+    def lookup_isbnOLD(self, new_isbn):
         
         """Triggered when ISBN changes. Looks up book details if ISBN is 13 digits."""
         if len(new_isbn) != 13 :
