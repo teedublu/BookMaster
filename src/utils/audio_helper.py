@@ -59,7 +59,7 @@ def analyze_loudness(file_path, params):
             target_offset: float
         }
     """
-    target_lufs = params.get("target_lufs", -16)
+    target_lufs = params.get("target_lufs", -19)
 
     try:
         result = ffmpeg.input(str(file_path)) \
@@ -101,9 +101,6 @@ def analyze_loudness(file_path, params):
         "target_offset": None
     }
 
-
-
-
 def detect_silence(file_path, params):
     """
     Detects silence in an audio file using FFmpeg.
@@ -121,10 +118,10 @@ def detect_silence(file_path, params):
     try:
         logging.debug(f"Checking {file_path} for silence")
         result = ffmpeg.input(str(file_path)) \
-            .filter("silencedetect", noise=f"-{silence_threshold}dB", 
-                    d=min_silence_duration) \
-            .output("null", f="null").global_args("-hide_banner") \
-            .run(capture_stderr=True)
+            .filter("silencedetect", noise=f"-{silence_threshold}dB", d=min_silence_duration) \
+            .output("null", f="null") \
+            .global_args("-hide_banner") \
+            .run(capture_stderr=False)
 
         output = result[1].decode("utf-8")
         logging.debug(f"FFmpeg Output (Silence Detection {silence_threshold}||{min_silence_duration}): {output}")

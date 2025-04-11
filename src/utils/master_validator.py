@@ -3,6 +3,7 @@ from utils import compute_sha256, remove_system_files
 from pathlib import Path
 import logging
 import subprocess
+import json
 from config.config import Config
 from settings import (
     load_settings, save_settings
@@ -37,11 +38,11 @@ class MasterValidator:
         self.errors = []  # Reset errors before validation
 
         settings = load_settings()
-        config = Config()  # Assuming Config can accept a debug flag
+        config = Config()
 
-        logging.debug(f"creating candidate master {self.usb_drive.mountpoint} settings={settings} config={config}")
+        logging.debug(f"creating candidate master {self.usb_drive.mountpoint} settings={json.dumps(settings, indent=2)} config={config}")
         settings["past_master"] = {}
-        
+
         self.candidate_master = Master.from_device(config, settings, self.usb_drive.mountpoint, self.tests) #from_device defines the checks to be made
         
         # self.candidate_master.lookup_isbn(self.candidate_master.isbn)
@@ -66,6 +67,8 @@ class MasterValidator:
 
         logging.info (f"Overall status {self.candidate_master.validate()}")
         
+        # self.candidate_master.master_tracks.reencode_all_in_place()
+
         return len(self.errors) == 0, self.errors  # Return validation status and errors
 
     def check_path_exists(self):
@@ -141,7 +144,7 @@ class MasterValidator:
 
     def check_checksum(self):
         """Returns True if expected and actual checksums match."""
-        return self.candidate_master.checksum_expected == self.candidate_master.checksum_actual
+        return self.candidate_master.checksum_file_value == self.candidate_master.checksum_computed
 
     def check_checksumOLD(self):
         """Check that the checksum.txt file exists and matches computed checksums."""
@@ -181,7 +184,7 @@ class MasterValidator:
         # Check for unexpected files
         for file in actual_checksums.keys():
             if file not in expected_checksums:
-                self.errors.append(f"⚠️ Unexpected file '{file}' not listed in checksum.txt.")
+                self.errors.append(f"Unexpected file '{file}' not listed in checksum.txt.")
 
     
 

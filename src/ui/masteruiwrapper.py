@@ -81,13 +81,6 @@ class MasterUIWrapper:
     def create(self):
         # Dont pass properties of Master as settings
         
-
-
-        # title = self._vars["title"].get()
-        # author = self._vars["author"].get()
-        # sku = self._vars["sku"].get()
-        # isbn = self._vars["isbn"].get()
-        # input_tracks = self._vars["author"].get()
         if not self.master.title or not self.master.author:
             audio_file = get_first_audiofile(self.main_window.input_folder_var.get())
             self.master.author, self.master.title = get_metadata_from_audio(audio_file)
@@ -97,13 +90,6 @@ class MasterUIWrapper:
 
         if not self.master.sku:
             self.master.sku = generate_sku(self.master.author, self.master.title, self.master.isbn)
-
-        # self.settings["isbn"] = isbn
-        # self.settings["sku"] = sku
-        # self.settings["title"] = title
-        # self.settings["author"] = author
-        # self.settings["file_count_expected"] = self._vars["file_count_expected"].get()
-        # self.settings["skip_encoding"] = self._vars["skip_encoding"].get()
 
         # self.master = Master(self.config, self.settings) #### Pass isbn and sku here not via past master
         input_folder = self.main_window.input_folder_var.get()
@@ -128,6 +114,8 @@ class MasterUIWrapper:
             if getattr(self.master, key, None) != new_value:  # Prevent infinite loops
                 logging.debug(f"Syncing UI change: {key} -> {new_value}")
                 setattr(self.master, key, new_value)
+                logging.debug(f" Master Title : {self.master.title} ")
+                logging.debug(f" Master ISBN : {self.master.isbn} ")
 
             # Trigger additional callbacks if needed
             if key in self._callbacks:
@@ -138,11 +126,15 @@ class MasterUIWrapper:
 
     # Inline lookup function
     def _on_isbn_change(self, *args):
+        if not self.main_window.lookup_csv_var.get():
+            logging.debug(f"csv lookup disabled")
+            return
+
         new_isbn = self._vars["isbn"].get()
         
         """Triggered when ISBN changes. Looks up book details if ISBN is 13 digits."""
-        if len(new_isbn) != 13 :
-            logging.debug(f"Invalid ISBN {new_isbn} len={len(new_isbn)}")
+        if not isinstance(new_isbn, str) or len(new_isbn) != 13 or not new_isbn.isdigit():
+            logging.debug(f"Invalid ISBN '{new_isbn}': must be 13 digits.")
             return
 
         logging.info(f"Looking up data for {new_isbn}")

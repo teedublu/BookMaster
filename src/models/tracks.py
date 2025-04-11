@@ -1,8 +1,9 @@
-from pathlib import Path
 import mimetypes
 import mutagen
 import ffmpeg
 import slugify
+import shutil
+from pathlib import Path
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, TIT2, TPE1, TXXX
 from .track import Track
@@ -60,7 +61,7 @@ class Tracks:
         if not self.files:
             raise ValueError(f"No valid tracks found in {self.directory}")
 
-        logging.debug(f"Successfully loaded {len(self.files)} Track(s) from {self.directory}")
+        logging.debug(f"Successfully loaded {self.master.title} {len(self.files)} Track(s) from {self.directory}")
 
     
     @property
@@ -122,3 +123,29 @@ class Tracks:
         elif len(authors) > 1:
             raise ValueError("Inconsistent author values found in tracks.")
         return None
+
+
+    def reencode_all_in_place(self):
+        """
+        Re-encodes all tracks in this Tracks instance using current encoding parameters,
+        and overwrites each original file with the re-encoded version.
+        """
+        bit_rate = self.params["encoding"]["bit_rate"]
+        temp_dir = self.master.output_path / "_tmp_reencode"
+        temp_dir.mkdir(exist_ok=True)
+
+        logging.info(f"Re-encoding all tracks to temp dir: {temp_dir}")
+
+        try:
+            for track in self.files:
+                temp_file = temp_dir / track.file_path.name
+                track.convert(temp_dir, bit_rate)
+                shutil.move(temp_file, track.file_path)
+                logging.info(f"Re-encoded {track.file_path.name} to {bit_rate}bps and replaced original.")
+        except Exception as e:
+            logging.error(f"Failed during re-encoding: {e}")
+        finally:
+            # Clean up temp dir
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+

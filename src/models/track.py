@@ -7,7 +7,7 @@ import sys
 import base64
 from slugify import slugify
 from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, TIT2, TPE1, TXXX
+from mutagen.id3 import ID3, TALB, TPE1, TIT2, TXXX
 from config.config import COLORS
 import logging
 import traceback
@@ -158,34 +158,10 @@ class Track:
 
         return all(checks)
 
-
     def _determine_file_type(self):
         """ Determines the file type based on its MIME type. """
         mime_type, _ = mimetypes.guess_type(self.file_path)
         return mime_type.split("/")[-1] if mime_type and "audio" in mime_type else None
-
-    def apply_metadata(self):
-        """ Applies extracted metadata to the Track object, ensuring safe value assignment.        """
-        metadata = self.metadata
-        # Extract values safely
-        sample_rate = metadata.get("sample_rate")
-        bit_rate = int(metadata["bit_rate"]) if "bit_rate" in metadata and metadata["bit_rate"] is not None else None
-        channels = metadata.get("channels")
-        duration = metadata.get("duration")
-        album = metadata.get("album")
-        title = metadata.get("title")
-
-        # Set values, ensuring existing values aren't overridden with None
-        # self.duration = duration if duration is not None else self.duration NOW set via @property
-        self.bit_rate = min(filter(None, [bit_rate, self.bit_rate]), default=96000)
-        self.sample_rate = min(filter(None, [sample_rate, self.sample_rate]), default=41000)
-        self.channels = channels if channels is not None else self.channels
-
-        # Assign album and title
-        self.title = self.title or album
-        self.track_name = self.track_name or title
-
-        logging.debug(f"Metadata applied to Track giving {self}.")
 
     def convert(self, destination_path, bit_rate):
         # takes input_file and converts into processed path
@@ -207,7 +183,7 @@ class Track:
         # f"[0:a]silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB[a0]; "
 
 
-        logging.info(f"Converting {self.file_path.parent.name}/{self.file_path.name} renaming to {file_path.parent.name}/{file_path.name} duration {self.duration} samplerate {self.target_sample_rate} bitrate {bit_rate} target_lufs {self.target_lufs}")
+        logging.info(f"Converting {self.file_path.parent.name}/{self.file_path.name} renaming to {file_path_string} duration {self.duration} samplerate {self.target_sample_rate} bitrate {bit_rate} target_lufs {self.target_lufs}")
         try:
             (
                 (
@@ -238,18 +214,16 @@ class Track:
         self.update_mp3_metadata()
 
     def update_mp3_metadata(self):
-        logging.debug(f"Now clean all tags except the required ones for {self.title}, {self.author}")
-        logging.debug(f"{self}")
-        return
+        
         self.audio = MP3(self.file_path, ID3=ID3)
 
         # Delete all existing ID3 tags
         self.audio.delete()
 
         # Add new tags
-        audio["TALB"] = TALB(encoding=3, text=self.title)  # Album = Audiobook Title
-        audio["TPE1"] = TPE1(encoding=3, text=self.author)  # Author
-        audio["TIT2"] = TIT2(encoding=3, text=f"Track {self.file_index} from {self.title}")  # Track Name (e.g., "Chapter X")
+        self.audio["TALB"] = TALB(encoding=3, text=self.title)  # Album = Audiobook Title
+        self.audio["TPE1"] = TPE1(encoding=3, text=self.author)  # Author
+        self.audio["TIT2"] = TIT2(encoding=3, text=f"Track {self.index} from {self.title}")  # Track Name (e.g., "Chapter X")
 
         # Create a custom TXXX frame for the obfuscated ISBN
         obfuscated_isbn = base64.urlsafe_b64encode(str(self.isbn).encode()).decode()
@@ -257,5 +231,5 @@ class Track:
 
         # Save the changes
         self.audio.save()
-        logging.info(f"ID3 tags saved to {self.file_path.name} title:{self.title} author:{self.author} isbn:{self.isbn}")
+        logging.info(f"ID3 tags saved to {self.file_path.name} title:{self.title} author:{self.author} isbn:{self.isbn} {self.audio}")
         

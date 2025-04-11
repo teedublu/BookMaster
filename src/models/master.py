@@ -26,6 +26,7 @@ class Master:
         self.master_structure = None
         self.usb_drive_tests = settings.get("usb_drive_tests", "").split(",") if settings.get("usb_drive_tests") else []
         self.isbn = settings.get("isbn", "")
+        self.isbn_file_value = None
         self.sku = settings.get("sku", "")
         self.title = settings.get("title", "")
         self.author = settings.get("author", "")
@@ -38,10 +39,8 @@ class Master:
         
         self._file_count_observed = 0
         self._duration = 0
-        self._author = None
-        self._title = None
-        self._isbn = None
-        
+        self._checksum_computed = None
+
         self.status = ""
         
         # self.lookup_csv = settings.get("lookup_csv", False)
@@ -56,7 +55,8 @@ class Master:
             "metadata_file": ".metadata_never_index",
             "checksum_file": "bookInfo/checksum.txt"
         }
-        logging.debug(f"Creating new Master {self.isbn},{self.sku} with settings {self.settings} and tests {self.usb_drive_tests}")
+        
+        logging.debug(f"Initiating new Master {self.isbn},{self.sku} with settings {self.settings} and tests {self.usb_drive_tests}")
         
         # Logger setup
         self.logger = logging.getLogger(__name__)
@@ -111,7 +111,7 @@ class Master:
             f".metadata_never_index: {metadata_status}\n"
             f"bookInfo/count.txt: {count_value}\n"
             f"bookInfo/id.txt: {id_value}\n"
-            f"bookInfo/checksum.txt: {checksum_value}\n"
+            f"bookInfo/checksum.txt: {self.checksum_file_value}\n"
             f"\nInput Tracks:\n{input_tracks_info}"
             f"\nProcessed Tracks:\n{processed_tracks_info}"
             f"\nMaster Tracks:\n{master_tracks_info}"
@@ -127,25 +127,15 @@ class Master:
         self._duration = value;
 
     @property
-    def author(self):
+    def id3_author(self):
         return self.master_tracks.author if self.master_tracks else 'Unknown'
 
-    @author.setter
-    def author(self, value):
-        # should only be used inbound after which tracks will define the author
-        self._author = value;
-
     @property
-    def title(self):
+    def id3_title(self):
         return self.master_tracks.title if self.master_tracks else 'Unknown'
 
-    @title.setter
-    def title(self, value):
-        # should only be used inbound after which tracks will define the author
-        self._title = value;
-
     @property
-    def checksum_expected(self):
+    def checksum_file_value(self):
         """Returns the checksum stored in bookInfo/checksum.txt, or None if missing."""
         checksum_file = self.master_path / "bookInfo" / "checksum.txt"
         if checksum_file.exists():
@@ -156,14 +146,23 @@ class Master:
         return None
 
     @property
-    def checksum_actual(self):
-        """Computes a SHA-256 checksum of the Master files."""
+    def checksum_computed(self):
+        """
+        Computes and caches a SHA-256 checksum of the Master files.
+        Only calculated once per instance unless manually invalidated.
+        """
+        if hasattr(self, '_checksum_computed') and self._checksum_computed is not None:
+            return self._checksum_computed
+
         try:
             all_files = [p for p in self.master_path.rglob("*") if p.is_file()]
-            return compute_sha256(all_files)
+            self._checksum_computed = compute_sha256(all_files)
+            return self._checksum_computed
         except Exception as e:
             self.logger.warning(f"Could not compute actual checksum: {e}")
+            self._checksum_computed = None
             return None
+
 
 
     @property
@@ -183,8 +182,6 @@ class Master:
         """Returns the number of files in Tracks, or 0 if Tracks is None."""
         return len(self.master_tracks.files) if getattr(self, "master_tracks", None) and hasattr(self.master_tracks, "files") else 0
     
-
-
     @property
     def checksum(self):
         """Computes a SHA-256 checksum for all files in the master directory."""
@@ -219,6 +216,7 @@ class Master:
     def from_device(cls, config, settings, device_path, tests):
         """ Alternative constructor to initialize Master from a device. """
         instance = cls(config, settings, master_path=device_path)
+        instance.reset_metadata_fields()
         instance.load_master_from_drive(tests)
         return instance
     
@@ -254,10 +252,11 @@ class Master:
     
     def load_master_from_drive(self, tests=None):
         drive_path = self.master_path
+        print ('==============')
+        print (self)
         """Loads a previously created Master from a removable drive."""
         tracks_path = Path(drive_path) / self.output_structure["tracks_path"]
         info_path = Path(drive_path) / self.output_structure["info_path"]
-        # tests = ["metadata", "frame_errors", "silence"]
         
         self.logger.info(f"Loading Master from drive: {drive_path} _ {tests}")
 
@@ -267,13 +266,18 @@ class Master:
             isbn_file = Path(drive_path) / self.output_structure["id_file"]
             count_file = Path(drive_path) / self.output_structure["count_file"]
             isbn = str(isbn_file.read_text().strip())
-            count = int(count_file.read_text().strip())
-            self.file_count_expected = count
+            self.isbn_file_value = isbn_file.read_text().strip()
+            self.file_count_expected = int(count_file.read_text().strip())
+            self.logger.debug(f"Loaded Master: ISBN={self.isbn}, Title={self.title}, Author={self.author}, Duration={self.duration}")
+
         except FileNotFoundError:
             self.logger.error("Required metadata files (id.txt, count.txt) missing in bookInfo.")
             raise
         
         self.logger.debug(f"Loaded Master with count={self.file_count_observed} isbn={self.isbn} author={self.author} duration={self.duration}")
+
+        
+
         
     def load_master_from_image(self, image_path):
         """Loads a previously created Master from a disk image using pycdlib."""
@@ -475,26 +479,13 @@ class Master:
             self.sku = self.generate_sku()
             self.logger.info(f"Generated SKU: {self.sku}")
 
-    def lookup_isbnOLD(self, new_isbn):
-        
-        """Triggered when ISBN changes. Looks up book details if ISBN is 13 digits."""
-        if len(new_isbn) != 13 :
-            logging.debug(f"Invalid ISBN {new_isbn} len={len(new_isbn)}")
-            return
+    def reset_metadata_fields(self):
+        self.isbn = ""
+        self.title = ""
+        self.author = ""
+        self.sku = ""
+        self.duration = 0
 
-        logging.info(f"Master looking up data for {new_isbn}")
 
-        row = self.config.books.get(new_isbn, {})  # Fast lookup from cached dictionary
-
-        if not row:
-            logging.warning(f"No data found for {new_isbn}")
-            return
-
-        logging.debug(f"Data found for {new_isbn} {row}")
-
-        self.sku = row.get('SKU', "")
-        self.title = row.get('Title', "")
-        self.author = row.get('Author', "")
-        self.file_count_expected = row.get('ExpectedFileCount', 0)
-        self.duration = parse_time_to_minutes(row.get('Duration'))
+    
 
