@@ -7,6 +7,7 @@ import threading
 import subprocess
 import pathlib
 import hashlib
+from natsort import natsorted
 from utils import compute_sha256
 from pathlib import Path
 from utils import MasterValidator
@@ -34,7 +35,7 @@ class USBDrive:
         logging.debug(f"USBDrive Properties {self.properties}")
         logging.debug(f"USBDrive Context {self.ui_context.usb_drive_check_on_mount.get()}")
         
-        if self.is_master and self.ui_context.usb_drive_check_on_mount.get():
+        if self.is_master :
             logging.debug(f"Inserted drive is likely Master")
             self.checksum = self.compute_checksum()  # Compute actual checksum
             self.stored_checksum = self.load_stored_checksum()  # Load stored checksum

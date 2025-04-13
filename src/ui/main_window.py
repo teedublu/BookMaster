@@ -198,7 +198,9 @@ class VoxblockUI:
             selected_drive = self.usb_listbox.get(selected_index[0])
             if selected_drive in self.usb_hub.drives:
                 usb_drive = self.usb_hub.drives[selected_drive]
-                tests = None
+                print (usb_drive.is_master)
+                return
+                tests = self.available_tests
                 self.candidate_master = Master.from_device(self.config, self.settings, usb_drive.mountpoint, tests) #from_device defines the checks to be made
         
 
