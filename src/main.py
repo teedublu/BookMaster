@@ -6,7 +6,7 @@ Initializes logging, loads configuration, and starts the application.
 import argparse
 import logging
 from config.config import Config  # Assuming a Config class exists
-from models.master import Master
+from models.masterdraft import MasterDraft
 from models.usbhub import USBHub
 from ui.main_window import VoxblockUI
 from utils.custom_logging import setup_logging
@@ -17,14 +17,17 @@ from settings import (
 def start_app(debug=False):
     
     # Load UI settings
+    # Settings is about saving previous UI values for next run of app
+    # (is not settings for a Master)
     settings = load_settings()
 
-
     # Load configuration
-    config = Config()  # Assuming Config can accept a debug flag
-    master = Master(config, settings)
+    # Config is about app file locations and encoding settings
+    config = Config()
+
+    # draft = MasterDraft(config, settings)
     hub = USBHub()
-    main_window = VoxblockUI(hub, master, config, settings)
+    main_window = VoxblockUI(hub, config, settings)
     hub.ui_context = main_window
     
 

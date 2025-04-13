@@ -15,12 +15,12 @@ class Tracks:
     """
     Manages a collection of File objects and provides aggregate properties.
     """
-    def __init__(self, master, directory, params, tests=None):
-        
+    def __init__(self, master, directory, audio_params, tests=None):
+        self.logger = logging.getLogger(__name__)
         self.directory = Path(directory).resolve()
         self.files = []
         self.master = master
-        self.params = params  # Store the parameter object
+        self.audio_params = audio_params  # Store the parameter object
         self.tests = tests
 
         self._load_files()
@@ -48,7 +48,7 @@ class Tracks:
 
         for index, file in enumerate(files, start=1):
             try:
-                track = Track(file, index, self.params, self.tests, **{
+                track = Track(file, index, self.audio_params, self.tests, **{
                     "title": self.master.title,
                     "author": self.master.author,
                     "isbn": self.master.isbn,
@@ -70,14 +70,24 @@ class Tracks:
         return sum(file.duration for file in self.files if file.duration)
     
     @property
+    def count(self):
+        """ Returns the count of all files. """
+        return sum(1 for file in self.files)
+
+    @property
     def total_size(self):
         """ Returns the total duration of all files. """
         return sum(file.file_size for file in self.files if file.duration)
 
     @property
-    def total_size_after_encoding(self):
+    def total_size(self):
         """ Returns the total duration of all files. """
-        return sum(file.encoded_size for file in self.files if file.encoded_size)
+        return sum(file.size for file in self.files if file.size)
+
+    @property
+    def total_target_size(self):
+        """ Returns the total duration of all files. """
+        return sum(file.target_size for file in self.files if file.target_size)
     
     @property
     def all_valid(self):
@@ -124,13 +134,17 @@ class Tracks:
             raise ValueError("Inconsistent author values found in tracks.")
         return None
 
+    def convert_all(self, destination_path, bit_rate):
+        for track in natsorted(self.files, key=lambda t: t.file_path.name):
+            track.convert(destination_path, bit_rate)
+            self.logger.info(f"Encoding track: {track.file_path.parent.name}/{track.file_path.name} and moving to -> {destination_path.name}")
 
     def reencode_all_in_place(self):
         """
         Re-encodes all tracks in this Tracks instance using current encoding parameters,
         and overwrites each original file with the re-encoded version.
         """
-        bit_rate = self.params["encoding"]["bit_rate"]
+        bit_rate = self.audio_params["encoding"]["bit_rate"]
         temp_dir = self.master.output_path / "_tmp_reencode"
         temp_dir.mkdir(exist_ok=True)
 

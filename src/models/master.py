@@ -15,15 +15,10 @@ class Master:
     """
     Represents the master audiobook collection, managing files and metadata.
     """
-    def __init__(self, config, settings, master_path=None, expected_count=None):
+    def __init__(self, config, settings, expected_count=None, input_tracks=None):
         self.config = config # config of audio settings
         self.settings = settings # UI and file locations
         self.params = getattr(self.config, "params", {})
-        self.output_path = Path(settings.get("output_folder","default_output"))
-        self.input_tracks = None  # Tracks: Raw publisher files Tracks
-        self.processed_tracks = None  # Tracks: Encoded and cleaned tracks
-        self.master_tracks = None  # Tracks: Loaded from either USB drive or disk image
-        self.master_structure = None
         self.usb_drive_tests = settings.get("usb_drive_tests", "").split(",") if settings.get("usb_drive_tests") else []
         self.isbn = settings.get("isbn", "")
         self.isbn_file_value = None
@@ -32,9 +27,15 @@ class Master:
         self.author = settings.get("author", "")
         self.infer_data = settings.get("infer_data", False)
 
-        self.master_path = Path(master_path) if master_path else self.output_path / self.sku / "master"
-        self.master_path.mkdir(parents=True, exist_ok=True) 
+        self.output_path = Path(settings.get("output_folder","default_output"))
+        self.master_path = self.output_path / self.sku / "master"
+        self.input_tracks = input_tracks  # Tracks: Raw publisher files Tracks
+        self.processed_tracks = None  # Tracks: Encoded and cleaned tracks
+        self.master_tracks = None  # Tracks: Loaded from either USB drive or disk image
+        self.master_structure = None
 
+        
+        self.master_path.mkdir(parents=True, exist_ok=True) 
         self.file_count_expected = expected_count if expected_count else 0
         
         self._file_count_observed = 0
@@ -42,6 +43,10 @@ class Master:
         self._checksum_computed = None
 
         self.status = ""
+
+
+        # Logger setup
+        self.logger = logging.getLogger(__name__)
         
         # self.lookup_csv = settings.get("lookup_csv", False)
         self.skip_encoding = settings.get("skip_encoding", False) # useful for speeding up debugging
@@ -58,8 +63,9 @@ class Master:
         
         logging.debug(f"Initiating new Master {self.isbn},{self.sku} with settings {self.settings} and tests {self.usb_drive_tests}")
         
-        # Logger setup
-        self.logger = logging.getLogger(__name__)
+        if self.input_tracks:
+            self.create()
+
     
     def __str__(self):
         """
@@ -163,8 +169,6 @@ class Master:
             self._checksum_computed = None
             return None
 
-
-
     @property
     def processed_path(self):
         processed_path = self.output_path / self.sku / "processed"
@@ -215,8 +219,8 @@ class Master:
     @classmethod
     def from_device(cls, config, settings, device_path, tests):
         """ Alternative constructor to initialize Master from a device. """
-        instance = cls(config, settings, master_path=device_path)
-        instance.reset_metadata_fields()
+        instance = cls(config, settings)
+        # instance.reset_metadata_fields()
         instance.load_master_from_drive(tests)
         return instance
     
@@ -227,10 +231,12 @@ class Master:
         instance.load_master_from_image(image_path)
         return instance
 
-    def create(self, input_folder, usb_drive=None):
+    def create(self, input_folder=None, usb_drive=None):
 
         logging.info (f"Creating master with isbn {self.isbn} sku {self.sku}")
-        self.load_input_tracks(input_folder)
+        if not self.input_tracks:
+            self.load_input_tracks(input_folder)
+        
         # take input files and process
         self.process_tracks()
          #create structure
@@ -238,13 +244,13 @@ class Master:
 
         # Ensure we pass the correct processed tracks directory
         diskimage = DiskImage(output_path=self.image_path)
-        image_file = diskimage.create_disk_image(self.master_structure, self.sku)
+        self.image_file = diskimage.create_disk_image(self.master_structure, self.sku)
 
-        self.logger.info(f"Disk image written to {self.image_path}, {image_file}")
+        self.logger.info(f"Disk image written to {self.image_path}, {self.image_file}")
 
         if usb_drive:
-            self.logger.info(f"Attempting to write {image_file} to USB {usb_drive}")
-            usb_drive.write_disk_image(image_file) 
+            self.logger.info(f"Attempting to write {self.image_file} to USB {usb_drive}")
+            usb_drive.write_disk_image(self.image_file) 
     
     def load_input_tracks(self, input_folder):
         """Loads the raw input tracks provided by the publisher."""
@@ -252,8 +258,6 @@ class Master:
     
     def load_master_from_drive(self, tests=None):
         drive_path = self.master_path
-        print ('==============')
-        print (self)
         """Loads a previously created Master from a removable drive."""
         tracks_path = Path(drive_path) / self.output_structure["tracks_path"]
         info_path = Path(drive_path) / self.output_structure["info_path"]
@@ -275,9 +279,6 @@ class Master:
             raise
         
         self.logger.debug(f"Loaded Master with count={self.file_count_observed} isbn={self.isbn} author={self.author} duration={self.duration}")
-
-        
-
         
     def load_master_from_image(self, image_path):
         """Loads a previously created Master from a disk image using pycdlib."""
@@ -308,7 +309,6 @@ class Master:
             raise ValueError("No input tracks provided.")
 
         processed_path = self.processed_path
-        
         if self.skip_encoding:
             logging.debug("Skip encoding requested, finding processed path.")
             self.processed_tracks = None
@@ -340,10 +340,7 @@ class Master:
 
         bit_rate = self.calculate_encoding_for_1gb()
 
-        for track in natsorted(self.input_tracks.files, key=lambda t: t.file_path.name):
-            track.convert(self.processed_path, bit_rate)
-            self.logger.info(f"Encoding track: {track.file_path.parent.name}/{track.file_path.name} and moving to -> {self.processed_path.name}")
-
+        self.input_tracks.convert_all(self.processed_path, bit_rate)
         self.processed_tracks = Tracks(self, self.processed_path, self.params, ["metadata"]) #metadata required to get duration
         self.logger.info(f"Processed Tracks total size {self.processed_tracks.total_size}")
 
@@ -401,9 +398,9 @@ class Master:
         """Determines if the total size of the tracks fits on a 1GB drive.
         If not, calculates the required encoding bitrate to make it fit. 
         """
-
-        current_size_bytes = self.input_tracks.total_size_after_encoding  # Total encoded size
-        current_bit_rate = int(self.config.params["encoding"]["bit_rate"])  # e.g., 192 for 192
+        MAX_DRIVE_SIZE = self.config.params["max_drive_size"]
+        current_size_bytes = self.input_tracks.total_target_size  # Total encoded size
+        current_bit_rate = int(self.config.params["encoding"]["bit_rate"]) 
 
         if current_size_bytes <= MAX_DRIVE_SIZE:
             self.logger.info(f"Tracks fit within 1GB {current_size_bytes} ({current_size_bytes / (1024**2):.2f} MB). No encoding changes required.")

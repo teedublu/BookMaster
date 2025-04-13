@@ -4,11 +4,11 @@ import csv
 from tkinter import messagebox, filedialog
 from tkinter.scrolledtext import ScrolledText
 from utils.custom_logging import setup_logging, TextHandler
-from models import Master  # Import Master class
+from models import MasterDraft  # Import Master class
 from utils import find_input_folder_from_isbn, parse_time_to_minutes
 from utils import remove_folder, compute_sha256, get_first_audiofile, get_metadata_from_audio, generate_sku, generate_isbn
 from utils import MasterValidator
-class MasterUIWrapper:
+class MasterDraftUIWrapper:
     """
     Wrapper class for managing Tkinter UI state while keeping Master logic separate.
     """
@@ -21,24 +21,34 @@ class MasterUIWrapper:
         list: lambda value=[]: tk.StringVar(value=",".join(value)),
     }
 
-    def __init__(self, main_window, master_instance, settings):
-        self.master = master_instance
+    def __init__(self, main_window, config, settings):
         self.main_window = main_window
         self.root = main_window.root
-        self.config = master_instance.config
+        self.config = config
         # set the last used values on load
-        self.master.isbn = settings.get("past_master", {}).get("isbn", "")
-        self.master.sku = settings.get("past_master", {}).get("sku", "")
-        self.master.title = settings.get("past_master", {}).get("title", "")
-        self.master.author = settings.get("past_master", {}).get("author", "")
+        self.isbn = settings.get("past_master", {}).get("isbn", "")
+        self.sku = settings.get("past_master", {}).get("sku", "")
+        self.title = settings.get("past_master", {}).get("title", "")
+        self.author = settings.get("past_master", {}).get("author", "")
+        self.input_folder = settings.get("input_folder", None)
+        self.expected_count = None
+        
+        # included for now until unpicked
+        self.file_count_expected = None
+        self.file_count_observed = None
+        self.status = None
+        self.skip_encoding = None
+        self.duration = None
+
         self.settings = settings
-        # self.settings_copy = {k: v for k, v in master_instance.settings.items() if k != "past_master"} # remove past_master - UI settings should not be passed to master NEEDS REFACTORING SO settings go to MasterUIWrapper not Master
-        print (self.master.get_fields().items())
+        
+        print (self.get_fields().items())
         # Create Tkinter variables dynamically
         self._vars = {
-            key: self.VARIABLE_TYPES[type(value)](value=value)
-            for key, value in self.master.get_fields().items()
+            key: self.VARIABLE_TYPES[type(value) if value is not None else str](value if value is not None else "")
+            for key, value in self.get_fields().items()
         }
+
 
         # Attach trace_add to each variable to sync with Master instance
         for key, var in self._vars.items():
@@ -56,66 +66,20 @@ class MasterUIWrapper:
             "isbn": self._on_isbn_change
         }
 
-    def _rebind_master(self):
-        """Rebinds the UI to a new Master instance."""
-        # Update internal variables with new Master fields
-        for key, var in self._vars.items():
-            if key in self.master.get_fields():
-                var.set(self.master.get_fields()[key])
-    
-        # Ensure UI callbacks are still attached
-        for key, var in self._vars.items():
-            var.trace_add("write", self._on_var_change(key))
 
-
-    def check(self):
-        """Validates Master and updates UI."""
-        tests = self.main_window.usb_drive_tests_var.get()
-        drive = self.main_window.usb_hub.first_available_drive
-        if drive:
-            self.validator = MasterValidator(self.main_window.usb_hub.first_available_drive, tests=tests, expected_isbn = self.isbn )
-        else:
-            logging.warning(f"No drive available to test")
- 
-
-    def create(self):
-        # Dont pass properties of Master as settings
+    def loadMasterDraft(self):
         
-        if not self.master.title or not self.master.author:
-            audio_file = get_first_audiofile(self.main_window.input_folder_var.get())
-            self.master.author, self.master.title = get_metadata_from_audio(audio_file)
-        
-        if not self.master.isbn:
-            self.master.isbn = generate_isbn()
-
-        if not self.master.sku:
-            self.master.sku = generate_sku(self.master.author, self.master.title, self.master.isbn)
-
-        # self.master = Master(self.config, self.settings) #### Pass isbn and sku here not via past master
-        input_folder = self.main_window.input_folder_var.get()
-
-        if self.main_window.find_isbn_folder_var.get():
-            try:
-                input_folder = find_input_folder_from_isbn(self, input_folder, self.isbn)
-            except Exception as e:
-                logging.error(f"Finding folder with isbn {self.isbn} failed. Stopping.")
-                return
-
-        usb_drive = self.main_window.usb_hub.first_available_drive
-
-        logging.info(f"Passing '{input_folder}' to create a Master on {usb_drive}")
-
-        self.master.create(input_folder, usb_drive)
+        self.draft = MasterDraft(self.config, self.settings, self.isbn, self.sku, self.author, self.title, self.expected_count, self.input_folder)
 
     def _on_var_change(self, key):
         """Creates a callback function for trace_add to sync UI changes with Master."""
         def callback(*args):
             new_value = self._vars[key].get()
-            if getattr(self.master, key, None) != new_value:  # Prevent infinite loops
+            if getattr(self, key, None) != new_value:  # Prevent infinite loops
                 logging.debug(f"Syncing UI change: {key} -> {new_value}")
-                setattr(self.master, key, new_value)
-                logging.debug(f" Master Title : {self.master.title} ")
-                logging.debug(f" Master ISBN : {self.master.isbn} ")
+                setattr(self, key, new_value)
+                logging.debug(f" Master Title : {self.title} ")
+                logging.debug(f" Master ISBN : {self.isbn} ")
 
             # Trigger additional callbacks if needed
             if key in self._callbacks:
@@ -164,7 +128,7 @@ class MasterUIWrapper:
     def update_ui_from_master(self):
         """Ensures UI reflects the current state of Master."""
         for key in self._vars:
-            master_value = getattr(self.master, key, None)
+            master_value = getattr(self.draft, key, None)
             ui_value = self._vars[key].get()
             
 
@@ -176,21 +140,33 @@ class MasterUIWrapper:
     def update_master_from_ui(self):
         """Syncs Master instance properties with Tkinter variables."""
         for key in self._vars:
-            setattr(self.master, key, self._vars[key].get())
+            setattr(self.draft, key, self._vars[key].get())
 
     def _on_usb_tests_change(self, *_):
         """Updates Master when the UI checkboxes change."""
-        self.master.usb_drive_tests = self._vars["usb_drive_tests"].get().split(",")
-        self.master.logger.info(f"Updated USB drive tests: {self.master.usb_drive_tests}")
+        self.draft.usb_drive_tests = self._vars["usb_drive_tests"].get().split(",")
+        self.draft.logger.info(f"Updated USB drive tests: {self.draft.usb_drive_tests}")
 
 
     def select_input_folderOLD(self):
         """Opens a folder selection dialog, updates the corresponding Tkinter variable, and creates a Master from the input folder."""
         folder_selected = filedialog.askdirectory()
         if folder_selected:
-            setattr(self.master, "input_folder", folder_selected)
-            self.master.load_input_tracks(folder_selected)  # Load tracks from the folder
-            self.master.process_tracks()
-            self.master.validate_master()
+            setattr(self.draft, "input_folder", folder_selected)
+            self.draft.load_input_tracks(folder_selected)  # Load tracks from the folder
+            self.draft.process_tracks()
+            self.draft.validate_master()
             # self.update_ui_from_master()
-
+    def get_fields(self):
+        """Returns a dictionary of all property values for UI synchronization."""
+        return {
+            "isbn": self.isbn,
+            "sku": self.sku,
+            "title": self.title,
+            "author": self.author,
+            "duration": self.duration,
+            "file_count_expected": self.file_count_expected,
+            "file_count_observed": self.file_count_observed,
+            "status": self.status,
+            "skip_encoding": self.skip_encoding
+        }

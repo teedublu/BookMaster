@@ -46,8 +46,8 @@ class Track:
         self.track_analysis = analyze_track(self.file_path, self.params, self.tests)
         metadata = self.track_analysis.get("metadata", {})
         loudness = self.track_analysis.get("loudness", {})
+        
         self.metadata = metadata
-
         self.duration = metadata.get("duration",0)
         self.sample_rate = metadata.get("sample_rate",None)
         self.bit_rate = metadata.get("bit_rate",None)
@@ -70,20 +70,14 @@ class Track:
 
 
     def __str__(self):
-        """
-        Returns a colorized, user-friendly string representation of the track.
-        Example:
-            "track1.mp3" (Green for valid)
-            "track2.mp3 (Silence)" (Yellow)
-            "track3.mp3 (Frame errors)" (Red)
-        """
+        
         # Determine color based on status
         is_valid, issue_str = self.status
         color = COLORS["green"] if is_valid else COLORS["yellow"] if issue_str.startswith("Silence") else COLORS["red"]
 
         # Return formatted output
         issue_str_output = f" (issues: {issue_str})" if issue_str else ""
-        return f"{color}{self.title} by {self.author} :{self.sku}_ {self.file_path.name} {self.sample_rate}k {self.bit_rate//1000}kbps {f'{issue_str_output}'}{COLORS['reset']}"
+        return f"{color}{self.title} by {self.author} :{self.sku}_ {self.file_path.name[0:16]}... {self.sample_rate}k {self.bit_rate//1000}kbps \n ----->{f'{issue_str_output}'}{COLORS['reset']}"
 
     def __repr__(self):
         """ Returns a detailed representation of the track for debugging. """
@@ -135,13 +129,22 @@ class Track:
         return self.status[0]
 
     @property
-    def encoded_size(self):
+    def size(self):
         """Estimates the encoded file size in MB based on bit rate and duration."""
         if not self.duration:
             return 0  # Avoid division errors if duration isn't set
 
         total_size_bytes = (self.bit_rate * self.duration) // 8  # Convert to bytes
-        return total_size_bytes  # Convert to MB
+        return total_size_bytes
+
+    @property
+    def target_size(self):
+        """Estimates the encoded file size in MB based on bit rate and duration."""
+        if not self.duration:
+            return 0  # Avoid division errors if duration isn't set
+
+        total_size_bytes = (self.target_bit_rate * self.duration) // 8  # Convert to bytes
+        return total_size_bytes
 
 
     def encoding_is_valid(self):

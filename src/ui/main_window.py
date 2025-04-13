@@ -6,14 +6,15 @@ from tkinter.scrolledtext import ScrolledText
 import logging
 from pathlib import Path
 from utils.webcam import Webcam
-
+from models import Master
 
 from utils.custom_logging import setup_logging
-from ui.masteruiwrapper import MasterUIWrapper
+from ui.masterdraftuiwrapper import MasterDraftUIWrapper
+from models import MasterDraft  # Import Master class
 from settings import save_settings
 
 class VoxblockUI:
-    def __init__(self, usb_hub, master, config, settings):
+    def __init__(self, usb_hub, config, settings):
         self.root = tk.Tk()
         self.config = config
         self.settings = settings
@@ -21,14 +22,45 @@ class VoxblockUI:
         self.usb_hub = usb_hub
         self.usb_hub.callback = self.update_usb_list
         self.settings = settings
+
         # Initialize UI state variables that are not passed to Master and used only in UI to prepare
         # eg variable=self.lookup_csv_var
-        # versus variable=self.master_ui._vars["infer_data"]
-        self.input_folder_var = tk.StringVar(value=settings.get('input_folder', None))
+        # versus variable=self.ui_state["infer_data"]
+        # self.input_folder_var = tk.StringVar(value=settings.get('input_folder', None))
         self.find_isbn_folder_var = tk.BooleanVar(value=settings.get('find_isbn_folder', False))
         self.lookup_csv_var = tk.BooleanVar(value=settings.get('lookup_csv', False))
         self.usb_drive_check_on_mount = tk.BooleanVar(value=settings.get('usb_drive_check_on_mount', False))
         self.usb_drive_tests_var = tk.StringVar(value=settings.get('usb_drive_tests', ""))  # Comma-separated string
+        self.draft = MasterDraft(config, settings)
+
+        self.ui_state = {
+            "find_isbn_folder": tk.BooleanVar(value=settings.get("find_isbn_folder", False)),
+            "lookup_csv": tk.BooleanVar(value=settings.get("lookup_csv", False)),
+            "usb_drive_check_on_mount": tk.BooleanVar(value=settings.get("usb_drive_check_on_mount", False)),
+            "usb_drive_tests": tk.StringVar(value=settings.get("usb_drive_tests", "")),
+            "skip_encoding": tk.BooleanVar(value=settings.get("skip_encoding", False))
+        }
+        past_master = settings.get("past_master",{})
+        self.draft_vars = {
+            "isbn": tk.StringVar(value=past_master.get('isbn', None)),
+            "title": tk.StringVar(value=past_master.get('title', None)),
+            "author": tk.StringVar(value=past_master.get("author",None)),
+            "sku": tk.StringVar(value=past_master.get("sku",None)),
+            "input_folder": tk.StringVar(value=past_master.get("input_folder",None)),
+            "file_count_expected": tk.IntVar(value=past_master.get("file_count_expected", 0))
+        }
+
+        
+        
+        def make_tracer(k, v):
+            return lambda *_: setattr(self.draft, k, v.get())
+
+        for key, var in self.draft_vars.items():
+            var.trace_add("write", make_tracer(key, var))
+
+        # set to force sync first time
+        for key, var in self.draft_vars.items():
+            setattr(self.draft, key, var.get())
 
         # Define available tests dynamically
         self.available_tests = ["Silence", "Loudness", "Metadata", "Frames", "Speed"]
@@ -43,7 +75,8 @@ class VoxblockUI:
 
 
         # Wrap the master object with the UI wrapper
-        self.master_ui = MasterUIWrapper(self, master, settings)
+        # self.draft = MasterDraftUIWrapper(self, config, settings)
+        
         
         self.create_widgets()
         self._sync_string_to_checkboxes()
@@ -59,18 +92,18 @@ class VoxblockUI:
         ############ ROW 0
         # Input Folder
         tk.Label(self.root, text="Input Folder:").grid(row=0, column=0, sticky='w')
-        tk.Entry(self.root, textvariable=self.input_folder_var).grid(row=0, column=1, sticky='w')
-        tk.Button(self.root, text="Browse", command=lambda: self.browse_folder(self.input_folder_var)).grid(row=0, column=2)
+        tk.Entry(self.root, textvariable=self.draft_vars["input_folder"]).grid(row=0, column=1, sticky='w')
+        tk.Button(self.root, text="Browse", command=lambda: self.browse_folder(self.draft_vars["input_folder"])).grid(row=0, column=2)
         # option to scan for folder
         tk.Checkbutton(self.root, text="Find input from ISBN", variable=self.find_isbn_folder_var).grid(row=0, column=3, sticky='w')
 
         ############ ROW 1
-        tk.Checkbutton(self.root, text="Skip encoding", variable=self.master_ui._vars["skip_encoding"]).grid(row=1, column=3, sticky='w')
+        tk.Checkbutton(self.root, text="Skip encoding", variable=self.ui_state["skip_encoding"]).grid(row=1, column=3, sticky='w')
 
         ############ ROW 3
         # ISBN Entry
         tk.Label(self.root, text="ISBN:").grid(row=3, column=0, sticky='w')
-        self.isbn_entry = tk.Entry(self.root, textvariable=self.master_ui._vars["isbn"])
+        self.isbn_entry = tk.Entry(self.root, textvariable=self.draft_vars["isbn"])
         self.isbn_entry.grid(row=3, column=1, sticky='w')
         # Radio button for Webcam
         self.use_webcam_field = tk.BooleanVar(value=False) 
@@ -79,7 +112,7 @@ class VoxblockUI:
         ############ ROW 4
         # SKU Entry
         tk.Label(self.root, text="SKU:").grid(row=4, column=0, sticky='w')
-        self.sku_entry = tk.Entry(self.root, textvariable=self.master_ui._vars["sku"], state='normal')
+        self.sku_entry = tk.Entry(self.root, textvariable=self.draft_vars["sku"], state='normal')
         self.sku_entry.grid(row=4, column=1, sticky='w')
         # Radio button for CSV lookup
         self.lookup_csv_field = tk.Checkbutton(self.root, text="CSV lookup", variable=self.lookup_csv_var, command=self.toggle_csvlookup)
@@ -88,30 +121,27 @@ class VoxblockUI:
         ############ ROW 5
         # Title Entry
         tk.Label(self.root, text="Title:").grid(row=5, column=0, sticky='w')
-        self.title_entry = tk.Entry(self.root, textvariable=self.master_ui._vars["title"], state='normal')
+        self.title_entry = tk.Entry(self.root, textvariable=self.draft_vars["title"], state='normal')
         self.title_entry.grid(row=5, column=1, sticky='w')
-        # Radio button for CSV lookup
-        self.infer_data_field = tk.Checkbutton(self.root, text="Infer data", variable=self.master_ui._vars["infer_data"])
-        self.infer_data_field.grid(row=5, column=3, sticky='w')
-
+        
         ############ ROW 6
         # Author Entry
         tk.Label(self.root, text="Author:").grid(row=6, column=0, sticky='w')
-        self.author_entry = tk.Entry(self.root, textvariable=self.master_ui._vars["author"], state='normal')
+        self.author_entry = tk.Entry(self.root, textvariable=self.draft_vars["author"], state='normal')
         self.author_entry.grid(row=6, column=1, sticky='w')
 
         ############ ROW 7
         # File Count Entry
         tk.Label(self.root, text="Expected File Count:").grid(row=7, column=0, sticky='w')
-        self.file_count = tk.Entry(self.root, textvariable=self.master_ui._vars["file_count_expected"], state='normal')
+        self.file_count = tk.Entry(self.root, textvariable=self.draft_vars["file_count_expected"], state='normal')
         self.file_count.grid(row=7, column=1, sticky='w')
 
         ############ ROW 8
         # Create Button
         self.create_master_button = tk.Button(self.root, text="Create Master", command=self.create)
         self.create_master_button.grid(row=8, column=0, columnspan=2)
-        # Create Button
-        self.check_master_button = tk.Button(self.root, text="Check Master", command=self.master_ui.check)
+        # Check Button
+        self.check_master_button = tk.Button(self.root, text="Check Master", command=self.check)
         self.check_master_button.grid(row=8, column=2, columnspan=2)
 
         ############ ROW 9
@@ -148,7 +178,32 @@ class VoxblockUI:
         setup_logging(self.log_text)
 
     def create(self):
-        self.master_ui.create()
+        output_path = Path(self.settings["output_folder"])
+        if self.draft.validate():
+            self.draft.load_tracks()
+            self.master = self.draft.to_master(output_path)
+        
+        selected_index = self.usb_listbox.curselection()
+        if selected_index:
+            selected_drive = self.usb_listbox.get(selected_index[0])
+            if selected_drive in self.usb_hub.drives:
+                usb_drive = self.usb_hub.drives[selected_drive]
+                usb_drive.write_disk_image(master.image_file) 
+                
+
+    def check(self):
+        # TODO call masterValidaotr
+        selected_index = self.usb_listbox.curselection()
+        if selected_index:
+            selected_drive = self.usb_listbox.get(selected_index[0])
+            if selected_drive in self.usb_hub.drives:
+                usb_drive = self.usb_hub.drives[selected_drive]
+                tests = None
+                self.candidate_master = Master.from_device(self.config, self.settings, usb_drive.mountpoint, tests) #from_device defines the checks to be made
+        
+
+        else:
+            logging.warning(f"No usb drive selected")
 
     def refresh_ui(self):
         """Refresh the UI after a Master instance is replaced."""
@@ -169,7 +224,7 @@ class VoxblockUI:
         self.sku_entry.config(state=new_state)
         self.file_count.config(state=new_state)
         if self.lookup_csv_var.get():
-            self.master_ui._on_isbn_change()
+            self._on_isbn_change()
 
     def test_selected_drive(self):
         """Trigger a test on the selected USB drive."""
@@ -187,7 +242,6 @@ class VoxblockUI:
 
     def update_usb_list(self, drives):
         if not hasattr(self, 'usb_listbox') or self.usb_listbox is None:
-            print("Error: self.usb_listbox is None!")  # Debugging
             return  # Ensure listbox exists before updating
         
         self.usb_listbox.delete(0, tk.END)
@@ -221,7 +275,7 @@ class VoxblockUI:
     def update_isbn(self, barcode_data):
         """Callback function to update the ISBN entry"""
         if len(barcode_data) == 13 and barcode_data.isdigit():
-            self.master_ui._vars["isbn"].set(barcode_data)
+            self.draft_vars["isbn"].set(barcode_data)
 
     def browse_folder(self, field):
         """Opens a folder selection dialog, starting in the current folder value."""
@@ -245,27 +299,25 @@ class VoxblockUI:
         for test, var in self._checkbox_vars.items():
             var.set(test in selected_tests)
 
-
     def run(self):
         """Runs the Tkinter main loop."""
         self.root.mainloop()
 
     def update_settings(self):
         """Updates settings from UI variables."""
-        self.settings['input_folder'] = self.input_folder_var.get()
         self.settings['find_isbn_folder'] = self.find_isbn_folder_var.get()
         self.settings['lookup_csv'] = self.lookup_csv_var.get()
-        self.settings['infer_data'] = self.master_ui._vars["infer_data"].get()
-        self.settings['skip_encoding'] = self.master_ui._vars["skip_encoding"].get()
+        self.settings['skip_encoding'] = self.ui_state["skip_encoding"].get()
 
         self.settings['usb_drive_check_on_mount'] = self.usb_drive_check_on_mount.get()
         self.settings['usb_drive_tests'] = self.usb_drive_tests_var.get()  # Save as a string
 
         self.settings['past_master'] = {
-            'isbn': self.master_ui._vars["isbn"].get(),
-            'sku': self.master_ui._vars["sku"].get(),
-            'author': self.master_ui._vars["author"].get(),
-            'title': self.master_ui._vars["title"].get()
+            'isbn': self.draft_vars["isbn"].get(),
+            'sku': self.draft_vars["sku"].get(),
+            'author': self.draft_vars["author"].get(),
+            'title': self.draft_vars["title"].get(),
+            'input_folder': self.draft_vars["input_folder"].get()
         }
 
     def on_closing(self):
@@ -274,4 +326,36 @@ class VoxblockUI:
         save_settings(self.settings)  # Pass app.settings instead of app
         self.root.destroy()
 
+    # Inline lookup function
+    def _on_isbn_change(self, *args):
+        if not self.lookup_csv_var.get():
+            logging.debug(f"csv lookup disabled")
+            return
+
+        new_isbn = self.draft_vars["isbn"].get()
+        
+        """Triggered when ISBN changes. Looks up book details if ISBN is 13 digits."""
+        if not isinstance(new_isbn, str) or len(new_isbn) != 13 or not new_isbn.isdigit():
+            logging.debug(f"Invalid ISBN '{new_isbn}': must be 13 digits.")
+            return
+
+        logging.info(f"Looking up data for {new_isbn}")
+
+        row = self.config.books.get(new_isbn, {})  # Fast lookup from cached dictionary
+
+        if not row:
+            logging.warning(f"No data found for {new_isbn}")
+            self.draft_vars["sku"].set("")
+            self.draft_vars["title"].set("")
+            self.draft_vars["author"].set("")
+            self.draft_vars["file_count_expected"].set(0)
+            return
+
+        logging.debug(f"Data found for {new_isbn} {row}")
+
+
+        self.draft_vars["sku"].set(row.get('SKU', ""))
+        self.draft_vars["title"].set(row.get('Title', ""))
+        self.draft_vars["author"].set(row.get('Author', ""))
+        self.draft_vars["file_count_expected"].set(row.get('ExpectedFileCount', 0))
 
