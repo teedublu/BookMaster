@@ -214,7 +214,10 @@ class Track:
         
         # logging.info(f"Point Track to newly converted file {file_path.parent.name}/{file_path.name}")
         # self.file_path = Path(file_path_string)
-        self.update_mp3_metadata()
+        print ("WTFWTFTWF")
+        print (self.file_type)
+        if self.file_type == "mp3":
+            self.update_mp3_metadata()
 
     def update_mp3_metadata(self):
         

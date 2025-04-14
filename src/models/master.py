@@ -29,7 +29,7 @@ class Master:
 
         self.output_path = Path(settings.get("output_folder","default_output"))
         self.master_path = self.output_path / self.sku / "master"
-        self.input_tracks = input_tracks  # Tracks: Raw publisher files Tracks
+        self.input_tracks = input_tracks  # Track(s) passed from draft but not yet formatted or checked
         self.processed_tracks = None  # Tracks: Encoded and cleaned tracks
         self.master_tracks = None  # Tracks: Loaded from either USB drive or disk image
         self.master_structure = None
@@ -41,25 +41,14 @@ class Master:
         self._file_count_observed = 0
         self._duration = 0
         self._checksum_computed = None
-
         self.status = ""
-
 
         # Logger setup
         self.logger = logging.getLogger(__name__)
         
         # self.lookup_csv = settings.get("lookup_csv", False)
         self.skip_encoding = settings.get("skip_encoding", False) # useful for speeding up debugging
-        
-        # HEER FOR NOW BUT SHOULD COME FROM CONFIG
-        self.output_structure = {
-            "tracks_path": "tracks",
-            "info_path": "bookInfo",
-            "id_file": "bookInfo/id.txt",
-            "count_file": "bookInfo/count.txt",
-            "metadata_file": ".metadata_never_index",
-            "checksum_file": "bookInfo/checksum.txt"
-        }
+        self.output_structure = self.params.get("output_structure",None)
         
         logging.debug(f"Initiating new Master {self.isbn},{self.sku} with settings {self.settings} and tests {self.usb_drive_tests}")
         
@@ -123,7 +112,6 @@ class Master:
             f"\nMaster Tracks:\n{master_tracks_info}"
         )
 
-    
     @property
     def duration(self):
         return self.master_tracks.duration if self.master_tracks else 0
@@ -221,7 +209,7 @@ class Master:
         """ Alternative constructor to initialize Master from a device. """
         instance = cls(config, settings)
         # instance.reset_metadata_fields()
-        instance.load_master_from_drive(tests)
+        instance.load_master_from_drive(device_path, tests)
         return instance
     
     @classmethod
@@ -242,7 +230,6 @@ class Master:
          #create structure
         self.create_master_structure() # do this after process so converted tracks can be put under /tracks
 
-        # Ensure we pass the correct processed tracks directory
         diskimage = DiskImage(output_path=self.image_path)
         self.image_file = diskimage.create_disk_image(self.master_structure, self.sku)
 
@@ -256,8 +243,7 @@ class Master:
         """Loads the raw input tracks provided by the publisher."""
         self.input_tracks = Tracks(self, input_folder, self.params, ["frame_errors"])
     
-    def load_master_from_drive(self, tests=None):
-        drive_path = self.master_path
+    def load_master_from_drive(self, drive_path, tests=None):
         """Loads a previously created Master from a removable drive."""
         tracks_path = Path(drive_path) / self.output_structure["tracks_path"]
         info_path = Path(drive_path) / self.output_structure["info_path"]
@@ -476,12 +462,7 @@ class Master:
             self.sku = self.generate_sku()
             self.logger.info(f"Generated SKU: {self.sku}")
 
-    def reset_metadata_fields(self):
-        self.isbn = ""
-        self.title = ""
-        self.author = ""
-        self.sku = ""
-        self.duration = 0
+    
 
 
     

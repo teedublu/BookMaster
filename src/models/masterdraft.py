@@ -17,8 +17,8 @@ class MasterDraft:
     Represents the draft of master audiobook collection, managing inputs
     Does not process files just ensures valid input
     """
-    def __init__(self, config, settings=None, isbn=None, sku=None, author=None, title=None, expected_count=None, input_folder=None):
-        self.config = config # config of audio settings NOT NEEDED
+    def __init__(self, config=None, settings=None, isbn=None, sku=None, author=None, title=None, expected_count=None, input_folder=None):
+        self.config = config # config of audio settings 
         self.settings = settings # UI and file locations NOT NEEDED should be called inputs
         self.params = getattr(self.config, "params", {}) # NOT NEEDED
         # self.output_path = Path(settings.get("output_folder","default_output")) # NOT NEEDED
@@ -66,8 +66,8 @@ class MasterDraft:
     def load_tracks(self):
         """Loads the raw input tracks provided by the publisher."""
         logging.info(f"Loading Tracks '{self.input_folder}'")
-        self.tracks = Tracks(self, self.input_folder, self.params, ["frame_errors"])
-        print (self.tracks)
+        self.tracks = Tracks(self, self.input_folder, self.params)
+
     
     def reset_metadata_fields(self):
         self.isbn = ""
@@ -76,8 +76,11 @@ class MasterDraft:
         self.sku = ""
         self.duration = 0
 
+    from pathlib import Path
+
     def validate(self):
         errors = []
+        # valid_formats = self.config.get("output_structure",None)
 
         # Require all basic metadata
         if not self.isbn or not isinstance(self.isbn, str):
@@ -91,44 +94,26 @@ class MasterDraft:
 
         input_path = Path(self.input_folder) if self.input_folder else None
 
-        if not input_path or not input_path.exists() or not any(input_path.glob("*.mp3")):
-            errors.append(f"Input folder empty of audio files: {input_path}")
+        # Check for presence of audio files in supported formats
+        if not input_path or not input_path.exists():
+            errors.append(f"Input folder does not exist: {input_path}")
+        else:
+            audio_files = [f for f in input_path.iterdir() if f.suffix.lower() in self.config.params.get("valid_formats",None)]
+            if not audio_files:
+                errors.append(f"No valid audio files found in input folder: {input_path}")
 
+        # Compare file count if expected is specified
         if getattr(self, "file_count_expected", None) is not None and getattr(self, "file_count_expected", None) > 0:
-            actual = len(list(input_path.glob("*.mp3"))) if input_path and input_path.exists() else 0
+            actual = len(audio_files) if input_path and input_path.exists() else 0
             if actual != self.file_count_expected:
                 errors.append(f"Expected {self.file_count_expected} files, found {actual}")
 
-
         if errors:
-            raise ValueError(f"MasterDraft validation failed:\n{"\n--".join(errors)}")
+            raise ValueError(f"MasterDraft validation failed:\n{'-- ' + '\n-- '.join(errors)}")
 
         return True
 
-    def load(self):        
-        if not self.draft.isbn:
-            self.draft.isbn = generate_isbn()
-
-        if not self.draft.sku:
-            self.draft.sku = generate_sku(self.draft.author, self.draft.title, self.draft.isbn)
-
-        # self.draft = Master(self.config, self.settings) #### Pass isbn and sku here not via past master
-        input_folder = self.main_window.input_folder_var.get()
-
-        if self.main_window.find_isbn_folder_var.get():
-            try:
-                input_folder = find_input_folder_from_isbn(self, input_folder, self.isbn)
-            except Exception as e:
-                logging.error(f"Finding folder with isbn {self.isbn} failed. Stopping.")
-                return
-
-        usb_drive = self.main_window.usb_hub.first_available_drive
-
-        logging.info(f"Passing '{input_folder}' to create a Master on {usb_drive}")
-
-        self.input_tracks = Tracks(self, input_folder, self.params, ["frame_errors"])
-
-        
+    
     def calculate_encoding_for_drive_limit(self):
         """
         Determines if the total size of the tracks fits on the configured max drive size.
@@ -169,7 +154,12 @@ class MasterDraft:
 
         return adjusted_bit_rate
 
-
+    def reset(self):
+        self.isbn = ""
+        self.title = ""
+        self.author = ""
+        self.sku = ""
+        self.duration = 0
 
     def to_master(self, output_path: Path) -> Master:
         self.validate()

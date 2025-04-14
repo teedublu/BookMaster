@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from utils.webcam import Webcam
 from models import Master
-
+from utils import find_input_folder_from_isbn, parse_time_to_minutes
 from utils.custom_logging import setup_logging
 from ui.masterdraftuiwrapper import MasterDraftUIWrapper
 from models import MasterDraft  # Import Master class
@@ -27,7 +27,7 @@ class VoxblockUI:
         # eg variable=self.lookup_csv_var
         # versus variable=self.ui_state["infer_data"]
         # self.input_folder_var = tk.StringVar(value=settings.get('input_folder', None))
-        self.find_isbn_folder_var = tk.BooleanVar(value=settings.get('find_isbn_folder', False))
+        # self.find_isbn_folder_var = tk.BooleanVar(value=settings.get('find_isbn_folder', False))
         self.lookup_csv_var = tk.BooleanVar(value=settings.get('lookup_csv', False))
         self.usb_drive_check_on_mount = tk.BooleanVar(value=settings.get('usb_drive_check_on_mount', False))
         self.usb_drive_tests_var = tk.StringVar(value=settings.get('usb_drive_tests', ""))  # Comma-separated string
@@ -51,16 +51,25 @@ class VoxblockUI:
         }
 
         
-        
-        def make_tracer(k, v):
-            return lambda *_: setattr(self.draft, k, v.get())
+        self._callbacks = {
+            "isbn": self._on_isbn_change
+        }
+
+        # def make_tracer(k, v):
+        #     return lambda *_: setattr(self.draft, k, v.get())
+
+        # for key, var in self.draft_vars.items():
+        #     var.trace_add("write", make_tracer(key, var))
 
         for key, var in self.draft_vars.items():
-            var.trace_add("write", make_tracer(key, var))
+            var.trace_add("write", self._on_var_change(key))
+
 
         # set to force sync first time
         for key, var in self.draft_vars.items():
             setattr(self.draft, key, var.get())
+
+
 
         # Define available tests dynamically
         self.available_tests = ["Silence", "Loudness", "Metadata", "Frames", "Speed"]
@@ -83,6 +92,23 @@ class VoxblockUI:
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+    def _on_var_change(self, key):
+        """Creates a callback function for trace_add to sync UI changes with Master."""
+        def callback(*args):
+            new_value = self.draft_vars[key].get()
+            if getattr(self, key, None) != new_value:  # Prevent infinite loops
+                logging.debug(f"Syncing UI change: {key} -> {new_value}")
+                setattr(self.draft, key, new_value)
+                print (self.draft)
+
+            # Trigger additional callbacks if needed
+            if key in self._callbacks:
+                self._callbacks[key](new_value)
+        print ('==================')
+        print (self.draft_vars)
+        
+        return callback
+
     def create_widgets(self):
         """Creates the UI layout"""
         self.root.title("Voxblock Master Creation App")
@@ -95,7 +121,7 @@ class VoxblockUI:
         tk.Entry(self.root, textvariable=self.draft_vars["input_folder"]).grid(row=0, column=1, sticky='w')
         tk.Button(self.root, text="Browse", command=lambda: self.browse_folder(self.draft_vars["input_folder"])).grid(row=0, column=2)
         # option to scan for folder
-        tk.Checkbutton(self.root, text="Find input from ISBN", variable=self.find_isbn_folder_var).grid(row=0, column=3, sticky='w')
+        tk.Checkbutton(self.root, text="Find input from ISBN", variable=self.ui_state["find_isbn_folder"]).grid(row=0, column=3, sticky='w')
 
         ############ ROW 1
         tk.Checkbutton(self.root, text="Skip encoding", variable=self.ui_state["skip_encoding"]).grid(row=1, column=3, sticky='w')
@@ -178,27 +204,31 @@ class VoxblockUI:
         setup_logging(self.log_text)
 
     def create(self):
-        output_path = Path(self.settings["output_folder"])
-        if self.draft.validate():
-            self.draft.load_tracks()
-            self.master = self.draft.to_master(output_path)
-        
-        selected_index = self.usb_listbox.curselection()
-        if selected_index:
-            selected_drive = self.usb_listbox.get(selected_index[0])
-            if selected_drive in self.usb_hub.drives:
-                usb_drive = self.usb_hub.drives[selected_drive]
-                usb_drive.write_disk_image(master.image_file) 
+        input_folder = self.get_input_folder()
+        if input_folder:
+            self.draft.input_folder = self.get_input_folder()
+            output_path = Path(self.settings["output_folder"])
+            if self.draft.validate():
+                self.draft.load_tracks()
+                self.master = self.draft.to_master(output_path)
+            
+            selected_index = self.usb_listbox.curselection()
+            if selected_index:
+                selected_drive = self.usb_listbox.get(selected_index[0])
+                if selected_drive in self.usb_hub.drives:
+                    usb_drive = self.usb_hub.drives[selected_drive]
+                    usb_drive.write_disk_image(master.image_file)
+        else:
+            logging.error(f"No sub folder with ISBN {self.draft_vars["isbn"].get()} found")
                 
 
     def check(self):
-        # TODO call masterValidaotr
+        self.draft.input_folder = self.get_input_folder()
         selected_index = self.usb_listbox.curselection()
         if selected_index:
             selected_drive = self.usb_listbox.get(selected_index[0])
             if selected_drive in self.usb_hub.drives:
                 usb_drive = self.usb_hub.drives[selected_drive]
-                print (usb_drive.is_master)
                 return
                 tests = self.available_tests
                 self.candidate_master = Master.from_device(self.config, self.settings, usb_drive.mountpoint, tests) #from_device defines the checks to be made
@@ -206,6 +236,17 @@ class VoxblockUI:
 
         else:
             logging.warning(f"No usb drive selected")
+
+    def get_input_folder(self):
+        input_folder = self.draft_vars["input_folder"].get()
+        isbn = self.draft_vars["isbn"].get()
+        if self.ui_state["find_isbn_folder"].get():
+            try:
+                return find_input_folder_from_isbn(self, input_folder, isbn)
+            except ValueError:
+                return None
+        else:
+            return input_folder
 
     def refresh_ui(self):
         """Refresh the UI after a Master instance is replaced."""
@@ -263,7 +304,7 @@ class VoxblockUI:
             if not self.webcam:
                 self.webcam = Webcam(self.video_label, self.update_isbn)
                 self.webcam.start()
-                print('Webcam started.')  # Debug feedback
+                print('Webcam started.')
             self.isbn_entry.config(state='readonly')
         else:
             if self.webcam:
@@ -307,12 +348,12 @@ class VoxblockUI:
 
     def update_settings(self):
         """Updates settings from UI variables."""
-        self.settings['find_isbn_folder'] = self.find_isbn_folder_var.get()
-        self.settings['lookup_csv'] = self.lookup_csv_var.get()
+        self.settings['find_isbn_folder'] = self.ui_state["find_isbn_folder"].get()
+        self.settings['lookup_csv'] = self.ui_state["lookup_csv"].get()
         self.settings['skip_encoding'] = self.ui_state["skip_encoding"].get()
 
-        self.settings['usb_drive_check_on_mount'] = self.usb_drive_check_on_mount.get()
-        self.settings['usb_drive_tests'] = self.usb_drive_tests_var.get()  # Save as a string
+        self.settings['usb_drive_check_on_mount'] = self.ui_state["usb_drive_check_on_mount"].get()
+        self.settings['usb_drive_tests'] = self.ui_state["usb_drive_tests"].get()  # Save as a string
 
         self.settings['past_master'] = {
             'isbn': self.draft_vars["isbn"].get(),
@@ -330,6 +371,7 @@ class VoxblockUI:
 
     # Inline lookup function
     def _on_isbn_change(self, *args):
+
         if not self.lookup_csv_var.get():
             logging.debug(f"csv lookup disabled")
             return
@@ -339,6 +381,7 @@ class VoxblockUI:
         """Triggered when ISBN changes. Looks up book details if ISBN is 13 digits."""
         if not isinstance(new_isbn, str) or len(new_isbn) != 13 or not new_isbn.isdigit():
             logging.debug(f"Invalid ISBN '{new_isbn}': must be 13 digits.")
+            self.draft.reset()
             return
 
         logging.info(f"Looking up data for {new_isbn}")

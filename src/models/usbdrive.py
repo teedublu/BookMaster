@@ -11,14 +11,13 @@ from natsort import natsorted
 from utils import compute_sha256
 from pathlib import Path
 from utils import MasterValidator
+from models import MasterDraft  # Import Master class
 
 class USBDrive:
     def __init__(self, mountpoint, device_path=None, ui_context=None):
         """
         Initialize USBDrive with its mountpoint.
         """
-        print(f"USBDrive ui_context : {ui_context}, type: {type(ui_context)}")
-
         self.mountpoint = Path(mountpoint) #eg /Volumes/AA11111AA
         self.device_path = device_path or self.get_device_path()  # eg "/dev/disk4"
         self.capacity = self.get_capacity()
@@ -30,10 +29,7 @@ class USBDrive:
         self.checksum = None
         self.stored_checksum = None
         self.is_checksum_valid = None
-        logging.debug(f"USBDrive found mountpoint:{self.mountpoint} device_path:{self.device_path}")
-        
-        logging.debug(f"USBDrive Properties {self.properties}")
-        logging.debug(f"USBDrive Context {self.ui_context.usb_drive_check_on_mount.get()}")
+        logging.debug(f"USBDrive found mountpoint:{self.mountpoint} device_path:{self.device_path} properties: {self.properties}")
         
         if self.is_master :
             logging.debug(f"Inserted drive is likely Master")
@@ -42,7 +38,12 @@ class USBDrive:
             self.is_checksum_valid = self.checksum_matches()  # Check if they match
 
 
-            self.validator = MasterValidator(self)
+            self.load_existing()
+            draft = MasterDraft(config=None, settings=None, isbn=self.current_content["isbn"], sku=None, author=None, title=None, expected_count=None, input_folder=None)
+            ui_context.draft = draft
+            ui_context.update_isbn(self.current_content["isbn"])
+            
+            # self.validator = MasterValidator(self)
 
             logging.debug(f"Stored checksum {self.stored_checksum}")
             logging.debug(f"Calcul checksum {self.checksum}")
@@ -165,8 +166,6 @@ class USBDrive:
 
         logging.warning(f"Could not find device path for {self.mountpoint}")
         return None
-
-
 
     def write_disk_image(self, image_path, use_sudo=True):
         """
