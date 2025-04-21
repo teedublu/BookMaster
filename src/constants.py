@@ -1,1 +1,2 @@
 MAX_DRIVE_SIZE = 1_000_000_000  # 1GB in bytes
+VERSION = 2.0

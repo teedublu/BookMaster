@@ -139,6 +139,13 @@ class Tracks:
             track.convert(destination_path, bit_rate)
             self.logger.info(f"Encoding track: {track.file_path.parent.name}/{track.file_path.name} and moving to -> {destination_path.name}")
 
+
+    def tag_all(self):
+        for track in self.files:
+            track.update_mp3_tags()
+            self.logger.info(f"Tagging all tracks: {track.file_path.parent.name}/{track.file_path.name} ")
+       
+
     def reencode_all_in_place(self):
         """
         Re-encodes all tracks in this Tracks instance using current encoding parameters,

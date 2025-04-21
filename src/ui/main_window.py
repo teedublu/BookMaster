@@ -1,5 +1,5 @@
 # ui.py
-import os
+import os, csv
 import tkinter as tk
 from tkinter import messagebox, filedialog
 from tkinter.scrolledtext import ScrolledText
@@ -104,8 +104,6 @@ class VoxblockUI:
             # Trigger additional callbacks if needed
             if key in self._callbacks:
                 self._callbacks[key](new_value)
-        print ('==================')
-        print (self.draft_vars)
         
         return callback
 
@@ -118,19 +116,20 @@ class VoxblockUI:
         ############ ROW 0
         # Input Folder
         tk.Label(self.root, text="Input Folder:").grid(row=0, column=0, sticky='w')
-        tk.Entry(self.root, textvariable=self.draft_vars["input_folder"]).grid(row=0, column=1, sticky='w')
-        tk.Button(self.root, text="Browse", command=lambda: self.browse_folder(self.draft_vars["input_folder"])).grid(row=0, column=2)
-        # option to scan for folder
-        tk.Checkbutton(self.root, text="Find input from ISBN", variable=self.ui_state["find_isbn_folder"]).grid(row=0, column=3, sticky='w')
-
+        tk.Entry(self.root, textvariable=self.draft_vars["input_folder"]).grid(row=0, column=1, columnspan=2, sticky='we')
+        tk.Button(self.root, text="Browse", command=lambda: self.browse_folder(self.draft_vars["input_folder"])).grid(row=0, column=3, sticky='w')
+        
         ############ ROW 1
+        
         tk.Checkbutton(self.root, text="Skip encoding", variable=self.ui_state["skip_encoding"]).grid(row=1, column=3, sticky='w')
 
         ############ ROW 3
         # ISBN Entry
         tk.Label(self.root, text="ISBN:").grid(row=3, column=0, sticky='w')
-        self.isbn_entry = tk.Entry(self.root, textvariable=self.draft_vars["isbn"])
-        self.isbn_entry.grid(row=3, column=1, sticky='w')
+        self.isbn_entry = tk.Entry(self.root, textvariable=self.draft_vars["isbn"]).grid(row=3, column=1, sticky='w')
+        # option to scan for folder
+        tk.Checkbutton(self.root, text="Find input from ISBN", variable=self.ui_state["find_isbn_folder"]).grid(row=3, column=2, sticky='w')
+
         # Radio button for Webcam
         self.use_webcam_field = tk.BooleanVar(value=False) 
         tk.Checkbutton(self.root, text="Use Webcam to Detect ISBN", variable=self.use_webcam_field, command=self.toggle_webcam).grid(row=3, column=3, sticky='w')
@@ -149,6 +148,7 @@ class VoxblockUI:
         tk.Label(self.root, text="Title:").grid(row=5, column=0, sticky='w')
         self.title_entry = tk.Entry(self.root, textvariable=self.draft_vars["title"], state='normal')
         self.title_entry.grid(row=5, column=1, sticky='w')
+        tk.Button(self.root, text="Batch Create from CSV", command=lambda: self.load_isbn_csv_and_create_masters()).grid(row=5, column=3, sticky='w')
         
         ############ ROW 6
         # Author Entry
@@ -158,7 +158,7 @@ class VoxblockUI:
 
         ############ ROW 7
         # File Count Entry
-        tk.Label(self.root, text="Expected File Count:").grid(row=7, column=0, sticky='w')
+        tk.Label(self.root, text="File Count:").grid(row=7, column=0, sticky='w')
         self.file_count = tk.Entry(self.root, textvariable=self.draft_vars["file_count_expected"], state='normal')
         self.file_count.grid(row=7, column=1, sticky='w')
 
@@ -196,7 +196,6 @@ class VoxblockUI:
         self.video_label.grid(row=10, column=0, columnspan=2)
 
 
-
         ############ ROW 13
         # FEEDBACK OUTPUT
         self.log_text = ScrolledText(self.root, height=30, width=100, state='normal', wrap="none")
@@ -207,11 +206,17 @@ class VoxblockUI:
         input_folder = self.get_input_folder()
         if input_folder:
             self.draft.input_folder = self.get_input_folder()
+            self.draft.skip_encoding = self.ui_state["skip_encoding"].get()
             output_path = Path(self.settings["output_folder"])
-            if self.draft.validate():
+            errors = self.draft.validate()
+            if errors:
+                logging.error(f"Invalid Input Folder {errors}")
+                return
+            else:
                 self.draft.load_tracks()
                 self.master = self.draft.to_master(output_path)
-            
+                
+
             selected_index = self.usb_listbox.curselection()
             if selected_index:
                 selected_drive = self.usb_listbox.get(selected_index[0])
@@ -223,15 +228,24 @@ class VoxblockUI:
                 
 
     def check(self):
+        path = "/Users/thomaswilliams/Documents/VoxblockMaster/output/BK-74107-CLAE/master"
+
+        self.reset()
+
+        self.draft = MasterDraft.from_file(self.config, self.settings, path, tests=None) #from_device defines the checks to be made
+        
+        print(self.draft)
+
+        return
         self.draft.input_folder = self.get_input_folder()
         selected_index = self.usb_listbox.curselection()
         if selected_index:
             selected_drive = self.usb_listbox.get(selected_index[0])
             if selected_drive in self.usb_hub.drives:
                 usb_drive = self.usb_hub.drives[selected_drive]
-                return
+                usb_drive.load_existing()
                 tests = self.available_tests
-                self.candidate_master = Master.from_device(self.config, self.settings, usb_drive.mountpoint, tests) #from_device defines the checks to be made
+                # self.candidate_master = Master.from_device(self.config, self.settings, usb_drive.mountpoint, tests) #from_device defines the checks to be made
         
 
         else:
@@ -251,6 +265,18 @@ class VoxblockUI:
     def refresh_ui(self):
         """Refresh the UI after a Master instance is replaced."""
         self.root.update_idletasks()
+
+    def reset(self):
+        
+        # set to force sync first time
+        for key, var in self.draft_vars.items():
+            # setattr(self.draft, key, None)
+            if key == "file_count_expected":
+                self.draft_vars[key].set(0)
+            elif key!="input_folder":
+                self.draft_vars[key].set(None)
+
+
 
     def update_selected_tests(self):
         """Updates self.usb_drive_tests_var when checkboxes change."""
@@ -296,7 +322,6 @@ class VoxblockUI:
             self.usb_listbox.activate(0)
 
         self.usbdrives_frame.config(text="Write to..." if drives else "No drives detected.")
-
 
     def toggle_webcam(self):
         print('Toggling webcam...')  # Debug feedback
@@ -403,4 +428,55 @@ class VoxblockUI:
         self.draft_vars["title"].set(row.get('Title', ""))
         self.draft_vars["author"].set(row.get('Author', ""))
         self.draft_vars["file_count_expected"].set(row.get('ExpectedFileCount', 0))
+
+    def load_isbn_csv_and_create_masters(self):
+        # Ask for CSV file
+        csv_path = filedialog.askopenfilename(
+            filetypes=[("CSV Files", "*.csv")],
+            title="Select ISBN CSV File"
+        )
+        if not csv_path:
+            return
+
+        self.lookup_csv_var.set(True)
+
+        input_folder = self.draft_vars["input_folder"].get()
+        if not os.path.isdir(input_folder):
+            messagebox.showerror("Error", "Invalid input folder.")
+            return
+
+        with open(csv_path, newline='', encoding='utf-8') as csvfile:
+            self.ui_state["find_isbn_folder"].set(True)
+            reader = csv.reader(csvfile)
+            for row in reader:
+                if not row:
+                    continue
+                isbn = row[0].strip()
+                if not isbn:
+                    continue
+
+                try:
+                    folder_path =  self.get_input_folder(isbn)
+                except Exception as e:
+                    logging.info(f"Skipping ISBN {isbn}: folder {input_folder} not found.")
+                    continue
+
+                if not os.path.isdir(folder_path):
+                    print(f"Skipping ISBN {isbn}: folder {folder_path} not found.")
+                    continue
+
+                try:
+                    self.reset()
+                    self.draft_vars["isbn"].set(isbn)
+                    self.create()  # or whatever method triggers building
+                    print(f"Master created for ISBN {isbn}")
+                    continue
+                except Exception as e:
+                    print(f"Error creating master for {isbn}: {e}")
+                    continue
+
+
+
+
+
 

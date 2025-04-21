@@ -17,7 +17,8 @@
         "id_file": "bookInfo/id.txt",
         "count_file": "bookInfo/count.txt",
         "metadata_file": ".metadata_never_index",
-        "checksum_file": "bookInfo/checksum.txt"
+        "checksum_file": "bookInfo/checksum.txt",
+        "version": "bookInfo/version.txt"
     },
     "valid_formats": [".mp3", ".wav"]
 }

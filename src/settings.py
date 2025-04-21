@@ -34,11 +34,13 @@ def load_settings():
             logging.info(f"Loading settings: {settings}")
             return settings
     except (json.JSONDecodeError, KeyError) as e:
-        logging.error(f"Error loading settings: {e}")
+        logging.error(f"Error loading settings in {file}: {e}")
         return DEFAULT_SETTINGS
 
 def save_settings(settings):
     """Saves per-user UI settings."""
+    print (settings)
+    
     with open(SETTINGS_FILE, 'w') as file:
         json.dump(settings, file, indent=4)
     logging.info(f"Settings saved to {SETTINGS_FILE}")

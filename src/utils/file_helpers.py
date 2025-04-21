@@ -5,7 +5,7 @@ import hashlib
 import subprocess
 import random
 import ffmpeg
-import re
+import re, os
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3
 from mutagen.wave import WAVE
@@ -106,31 +106,44 @@ def parse_time_to_minutes(time_str):
         logging.error(f"Invalid time format: {time_str}")
         return None
 
-def compute_sha256(file_paths):
+def compute_sha256(file_paths, base_path=None):
     """
-    Computes a SHA-256 checksum for a list of files, excluding system files and directories.
+    Computes a SHA-256 checksum for a list of files, incorporating both file contents and relative paths.
 
     :param file_paths: A list of Path objects representing files to include in the hash.
+    :param base_path: Optional base path to compute relative paths from. Defaults to the common parent.
     :return: SHA-256 hash string or None if an error occurs.
     """
-    return "abc"
     hasher = hashlib.sha256()
-    
+
     logging.debug(f"Creating hash for {len(file_paths)} paths")
 
+    if not file_paths:
+        return None
+
+    # Establish base path for consistent relative path hashing
+    if base_path is None:
+        base_path = Path(os.path.commonpath([str(p) for p in file_paths]))
+
     for file_path in natsorted(file_paths, key=lambda p: str(p)):
-        # Check if any part of the path is in EXCLUDED_DIRS (including all parent directories)
         if file_path.is_file() and not any(part in EXCLUDED_DIRS for part in file_path.parts):
             try:
+                # Include relative path in the hash
+                rel_path = file_path.relative_to(base_path).as_posix()
+                hasher.update(rel_path.encode('utf-8'))
+                logging.debug(f"Hashing path: {rel_path}")
+
+                # Include file content in the hash
                 with file_path.open("rb") as f:
-                    logging.debug(f"Creating hash chunk for {file_path}")
-                    while chunk := f.read(8192):  # 8KB buffer
+                    while chunk := f.read(8192):
                         hasher.update(chunk)
+
             except Exception as e:
-                logging.error(f"Error reading {file_path}: {e}")
-                return None  # Stop if any file fails
+                logging.error(f"Error processing {file_path}: {e}")
+                return None
 
     return hasher.hexdigest()
+
 
 
 def remove_system_files(drive):
@@ -220,13 +233,13 @@ def find_input_folder_from_isbn(self, input_path, isbn):
     # Check if input_path itself contains the ISBN
     if input_path.is_dir() and isbn in input_path.name:
         logging.info(f'{input_path} already contains ISBN {isbn}')
-        return input_path
+        return str(input_path)
 
     # Search within subdirectories
     for subpath in input_path.iterdir():
         if subpath.is_dir() and isbn in subpath.name:
             logging.info(f'Found folder based on ISBN: {subpath}')
-            return subpath
+            return str(subpath)
 
     # Raise an error if no folder is found
     raise ValueError(f"Folder with ISBN {isbn} not found under {input_path}.")

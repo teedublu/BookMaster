@@ -68,7 +68,6 @@ class Track:
 
         logging.debug(f"File index {file_index}, is called {file_path.parent.name}/{file_path.name} of type {self.file_type} metadata: {self.metadata} analysis:{self.track_analysis}")
 
-
     def __str__(self):
         
         # Determine color based on status
@@ -76,13 +75,12 @@ class Track:
         color = COLORS["green"] if is_valid else COLORS["yellow"] if issue_str.startswith("Silence") else COLORS["red"]
 
         # Return formatted output
-        issue_str_output = f" (issues: {issue_str})" if issue_str else ""
-        return f"{color}{self.title} by {self.author} :{self.sku}_ {self.file_path.name[0:16]}... {self.sample_rate}k {self.bit_rate//1000}kbps \n ----->{f'{issue_str_output}'}{COLORS['reset']}"
+        issue_str_output = f" (issues: {issue_str})" if issue_str else "No issues"
+        return f"{color}{self.title} by {self.author} :{self.sku}_ {self.file_path.name[0:16]}... {self.sample_rate}k {self.bit_rate//1000}kbps ({issue_str_output}){COLORS['reset']}"
 
     def __repr__(self):
         """ Returns a detailed representation of the track for debugging. """
         return f"Track(filename={self.file_path.name}, is_valid={self.is_valid} , sample_rate={self.sample_rate}, bit_rate={self.bit_rate} frame_errors={self.frame_errors}, silences={len(self.silences)})"
-
 
     @property
     def loudness_is_close_to_target(self):
@@ -214,12 +212,10 @@ class Track:
         
         # logging.info(f"Point Track to newly converted file {file_path.parent.name}/{file_path.name}")
         # self.file_path = Path(file_path_string)
-        print ("WTFWTFTWF")
-        print (self.file_type)
-        if self.file_type == "mp3":
-            self.update_mp3_metadata()
 
-    def update_mp3_metadata(self):
+        # self.update_mp3_tags()
+
+    def update_mp3_tags(self):
         
         self.audio = MP3(self.file_path, ID3=ID3)
 

@@ -17,7 +17,7 @@ class MasterDraft:
     Represents the draft of master audiobook collection, managing inputs
     Does not process files just ensures valid input
     """
-    def __init__(self, config=None, settings=None, isbn=None, sku=None, author=None, title=None, expected_count=None, input_folder=None):
+    def __init__(self, config=None, settings=None, isbn=None, sku=None, author=None, title=None, expected_count=None, input_folder=None, skip_encoding=False):
         self.config = config # config of audio settings 
         self.settings = settings # UI and file locations NOT NEEDED should be called inputs
         self.params = getattr(self.config, "params", {}) # NOT NEEDED
@@ -63,6 +63,13 @@ class MasterDraft:
             f"Input Folder:{self.input_folder}"
         )
     
+    @classmethod
+    def from_file(cls, config, settings, file_path, tests):
+        """ Alternative constructor to initialize Master from a device. """
+        instance = cls(config, {})
+        instance.reset_metadata_fields()
+        return instance
+
     def load_tracks(self):
         """Loads the raw input tracks provided by the publisher."""
         logging.info(f"Loading Tracks '{self.input_folder}'")
@@ -109,11 +116,10 @@ class MasterDraft:
                 errors.append(f"Expected {self.file_count_expected} files, found {actual}")
 
         if errors:
-            raise ValueError(f"MasterDraft validation failed:\n{'-- ' + '\n-- '.join(errors)}")
+            return '-- ' + '\n-- '.join(errors)
 
-        return True
-
-    
+        return None
+ 
     def calculate_encoding_for_drive_limit(self):
         """
         Determines if the total size of the tracks fits on the configured max drive size.
@@ -161,9 +167,7 @@ class MasterDraft:
         self.sku = ""
         self.duration = 0
 
-    def to_master(self, output_path: Path) -> Master:
-        self.validate()
-        self.calculate_encoding_for_drive_limit()
+    def update_settings(self):
         self.settings.update({
             "isbn": self.isbn,
             "sku": self.sku,
@@ -171,7 +175,13 @@ class MasterDraft:
             "author": self.author,
             "input_folder": self.input_folder,
             "file_count_expected": self.file_count_expected,
+            "skip_encoding": self.skip_encoding
         })
+
+    def to_master(self, output_path: Path) -> Master:
+        self.validate()
+        self.calculate_encoding_for_drive_limit()
+        self.update_settings()
         # TODO Unpick the "past_master" storage and keep it at root
         master = Master(config=self.config, settings=self.settings, input_tracks=self.tracks)
 

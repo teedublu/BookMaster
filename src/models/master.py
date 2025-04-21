@@ -9,7 +9,8 @@ from natsort import natsorted
 from utils import remove_folder, compute_sha256, get_first_audiofile, get_metadata_from_audio, generate_sku, generate_isbn, parse_time_to_minutes
 from .tracks import Tracks
 from .diskimage import DiskImage
-from constants import MAX_DRIVE_SIZE
+from utils import MasterValidator
+from constants import MAX_DRIVE_SIZE, VERSION
 
 class Master:
     """
@@ -26,7 +27,7 @@ class Master:
         self.title = settings.get("title", "")
         self.author = settings.get("author", "")
         self.infer_data = settings.get("infer_data", False)
-
+        self.version =  VERSION
         self.output_path = Path(settings.get("output_folder","default_output"))
         self.master_path = self.output_path / self.sku / "master"
         self.input_tracks = input_tracks  # Track(s) passed from draft but not yet formatted or checked
@@ -36,9 +37,10 @@ class Master:
 
         
         self.master_path.mkdir(parents=True, exist_ok=True) 
-        self.file_count_expected = expected_count if expected_count else 0
+        # self.file_count_expected = expected_count
         
         self._file_count_observed = 0
+        self._file_count_expected = expected_count
         self._duration = 0
         self._checksum_computed = None
         self.status = ""
@@ -49,12 +51,13 @@ class Master:
         # self.lookup_csv = settings.get("lookup_csv", False)
         self.skip_encoding = settings.get("skip_encoding", False) # useful for speeding up debugging
         self.output_structure = self.params.get("output_structure",None)
-        
+
+        self.validator = MasterValidator(self)
+
         logging.debug(f"Initiating new Master {self.isbn},{self.sku} with settings {self.settings} and tests {self.usb_drive_tests}")
         
         if self.input_tracks:
             self.create()
-
     
     def __str__(self):
         """
@@ -76,6 +79,7 @@ class Master:
         count_file = master_path / self.output_structure["count_file"]
         id_file = master_path / self.output_structure["id_file"]
         checksum_file = master_path / "bookInfo/checksum.txt"
+        version_file = master_path / "bookInfo/version.txt"
 
         # Check presence of `.metadata_never_index`
         metadata_status = "Present" if metadata_file.exists() else "Not Present"
@@ -87,10 +91,9 @@ class Master:
 
         count_value = read_file(count_file)
         id_value = read_file(id_file)
-        checksum_value = read_file(checksum_file)
 
         return (
-            f"Master Audiobook Collection:\n"
+            f"\nMaster Audiobook Collection:\n"
             f"Title: {self.title}\n"
             f"Author: {self.author}\n"
             f"ISBN: {self.isbn}\n"
@@ -101,15 +104,14 @@ class Master:
             f"Status: {self.status}\n"
             f"Encoding Skipped: {self.skip_encoding}\n"
             f"Infer data: {self.infer_data}\n"
-            f"\nMaster Structure:\n{structure_info}\n"
-            f"\nMetadata Presence:\n"
             f".metadata_never_index: {metadata_status}\n"
             f"bookInfo/count.txt: {count_value}\n"
             f"bookInfo/id.txt: {id_value}\n"
             f"bookInfo/checksum.txt: {self.checksum_file_value}\n"
-            f"\nInput Tracks:\n{input_tracks_info}"
-            f"\nProcessed Tracks:\n{processed_tracks_info}"
-            f"\nMaster Tracks:\n{master_tracks_info}"
+            f"bookInfo/version.txt: {self.version_file_value}\n"
+            # f"\nInput Tracks:\n{input_tracks_info}"
+            # f"\nProcessed Tracks:\n{processed_tracks_info}"
+            f"Master Tracks:\n{master_tracks_info}"
         )
 
     @property
@@ -140,21 +142,35 @@ class Master:
         return None
 
     @property
-    def checksum_computed(self):
-        """
-        Computes and caches a SHA-256 checksum of the Master files.
-        Only calculated once per instance unless manually invalidated.
-        """
-        if hasattr(self, '_checksum_computed') and self._checksum_computed is not None:
-            return self._checksum_computed
+    def version_file_value(self):
+        """Returns the checksum stored in bookInfo/checksum.txt, or None if missing."""
+        version_file = self.master_path / "bookInfo" / "version.txt"
+        if version_file.exists():
+            try:
+                return version_file.read_text(encoding="utf-8").strip()
+            except Exception as e:
+                self.logger.warning(f"Could not read version: {e}")
+        return None
+
+    @property
+    def checksum(self):
+        """Computes and caches a SHA-256 checksum for all files in the master directory."""
+        if hasattr(self, '_checksum') and self._checksum is not None:
+            return self._checksum
+
+        root = self.master_path  # or self.master_structure if that’s more appropriate
+        if not root or not root.is_dir():
+            self.logger.warning("Master path is not set or is not a directory.")
+            return None
 
         try:
-            all_files = [p for p in self.master_path.rglob("*") if p.is_file()]
-            self._checksum_computed = compute_sha256(all_files)
-            return self._checksum_computed
+            all_files = natsorted([p for p in root.rglob("*") if p.is_file()])
+            self._checksum = compute_sha256(all_files)
+            self.logger.info(f"Computed checksum: {self._checksum}")
+            return self._checksum
         except Exception as e:
-            self.logger.warning(f"Could not compute actual checksum: {e}")
-            self._checksum_computed = None
+            self.logger.warning(f"Could not compute checksum: {e}")
+            self._checksum = None
             return None
 
     @property
@@ -170,22 +186,28 @@ class Master:
         return image_path
 
     @property
+    def file_count_expected(self):
+        """Returns the checksum stored in bookInfo/checksum.txt, or None if missing."""
+        if not self._file_count_expected:
+            count_file = self.master_path / "bookInfo" / "count.txt"
+            if count_file.exists():
+                try:
+                    self._file_count_expected = count_file.read_text(encoding="utf-8").strip()
+                    return self._file_count_expected
+                except Exception as e:
+                    self.logger.warning(f"Could not read expected file count: {e}")
+            return None
+        else:
+            return self._file_count_expected
+
+    @file_count_expected.setter
+    def file_count_expected(self, value):
+        self._file_count_expected = value
+
+    @property
     def file_count_observed(self):
         """Returns the number of files in Tracks, or 0 if Tracks is None."""
         return len(self.master_tracks.files) if getattr(self, "master_tracks", None) and hasattr(self.master_tracks, "files") else 0
-    
-    @property
-    def checksum(self):
-        """Computes a SHA-256 checksum for all files in the master directory."""
-        if not self.master_structure or not self.master_structure.is_dir():
-            self.logger.warning("Master structure is not set or is not a directory.")
-            return None
-        
-        # Collect all files inside the directory recursively
-        file_paths = natsorted(self.master_structure.rglob("*"))  # Get all files inside the directory
-        checksum_value = compute_sha256(file_paths)
-        self.logger.info(f"Computed master_structure checksum: {checksum_value}")
-        return checksum_value  
 
     def get_fields(self):
         """Returns a dictionary of all property values for UI synchronization."""
@@ -249,7 +271,7 @@ class Master:
         info_path = Path(drive_path) / self.output_structure["info_path"]
         
         self.logger.info(f"Loading Master from drive: {drive_path} _ {tests}")
-
+        self.master_path = Path(drive_path)
         self.master_tracks = Tracks(self, tracks_path, self.params, tests)
 
         try:
@@ -271,7 +293,7 @@ class Master:
         self.logger.info(f"Loading Master from disk image: {image_path}")
         iso = pycdlib.PyCdlib()
         iso.open(image_path)
-        
+        self.master_path = Path(drive_path)
         try:
             file_list = iso.listdir('/')
             self.logger.info(f"Found files in image: {file_list}")
@@ -295,8 +317,8 @@ class Master:
             raise ValueError("No input tracks provided.")
 
         processed_path = self.processed_path
+        logging.debug(f"Process tracks, skip_encoding={self.skip_encoding}.")
         if self.skip_encoding:
-            logging.debug("Skip encoding requested, finding processed path.")
             self.processed_tracks = None
             if processed_path.exists() and any(processed_path.iterdir()):
                 processed_files = list(processed_path.glob("*.*"))  # Get processed files list
@@ -309,6 +331,7 @@ class Master:
                 else:
                     self.processed_tracks = Tracks(self, processed_path, self.params, [])
                     logging.debug("Found processed path, created Tracks from processed files.")
+                    self.processed_tracks.tag_all()
                     return
 
         # if get here then zap anything in processed path and start encoding again
@@ -363,6 +386,7 @@ class Master:
         (master_path / self.output_structure["id_file"]).write_text(self.isbn)
         (master_path / self.output_structure["count_file"]).write_text(str(len(self.processed_tracks.files)))
         (master_path / self.output_structure["checksum_file"]).write_text(str(self.checksum))
+        (master_path / self.output_structure["version_file"]).write_text(str(self.version))
 
         self.logger.debug(f"Writing data to files id->{self.isbn} count->{len(self.processed_tracks.files)} checksum->{self.checksum}")
 
@@ -408,62 +432,3 @@ class Master:
             self.logger.warning(f"Tracks exceed 1GB ({current_size_bytes / (1024**2):.2f} MB). Reducing bitrate from {current_bit_rate} to {adjusted_bit_rate}.")
 
         return adjusted_bit_rate
-
-    def validate(self):
-        #check file count
-        #check silences
-        #encoding
-        #checksum
-        #speed
-
-        """Validates an existing Master from drive or disk image."""
-        self.logger.info("Validating Master...")
-        if not self.master_tracks:
-            self.logger.info("No master tracks found...")
-            return False
-        
-        if self.file_count_expected != self.file_count_observed:
-            self.logger.info("Expected and observed file count mismatch.")
-            return False
-        
-        if not self.master_tracks.all_valid:
-            self.logger.info(f"Some invalid tracks found: {self.master_tracks.invalid_tracks}")
-
-        return True
-
-    def infer_metadata_from_tracks(self, input_folder):
-        """Derives title, author, and SKU from the first Track's metadata if not already set."""
-        self.logger.info("Inferring Master data from metadata.")
-
-        if not input_folder:
-            self.logger.warning("No tracks available to infer metadata.")
-            return
-
-        # Get metadata from the first track
-        first_track = self.input_tracks.files[0]
-        metadata_tags = first_track.metadata.get("tags", {})
-
-        # Infer title (Track will have already cleaned album/title/name into a Track.title)
-        if not self.title and "title" in metadata_tags:
-            self.title = metadata_tags["title"].strip()
-            self.logger.info(f"Inferred title: {self.title} in {metadata_tags}")
-
-        # Infer author
-        # This should be handled by the individual tracks rather than here. Allow getter of author to delegate to Tracks>Track
-        # if not self.author:
-        #     # Prefer "artist" tag, fallback to "album_artist"
-        #     self.author = metadata_tags.get("artist") or metadata_tags.get("album_artist")
-        #     if self.author:
-        #         self.author = self.author.strip()
-        #         self.logger.info(f"Inferred author: {self.author}")
-
-        # Generate SKU if not set
-        if not self.sku:
-            self.sku = self.generate_sku()
-            self.logger.info(f"Generated SKU: {self.sku}")
-
-    
-
-
-    
-

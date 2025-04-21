@@ -15,21 +15,22 @@ class MasterValidator:
     Validates a master structure to ensure it follows the required format on a USB drive.
     """
 
-    def __init__(self, usb_drive, tests=None, expected_count=None, expected_isbn=None):
+    def __init__(self, master):
         """
         :param usb_drive: USBDrive instance representing the mounted USB device.
         :param expected_count: Expected number of track files.
         :param expected_isbn: Expected ISBN value.
         """
-        self.usb_drive = usb_drive
-        self.expected_isbn = expected_isbn
+        self.master = master
+        self.usb_drive = None
+        self.expected_isbn = None
         self.usb_drive_tests_var = None
         self.file_isbn = None
-        self.file_count_expected = expected_count
+        self.file_count_expected = None
         self.is_clean = None
         self.errors = []
-        self.tests = tests
-        logging.info(f"MasterValidator created from {self.usb_drive} with tests={tests}")
+        self.tests = None
+        logging.info(f"MasterValidator created from {self.usb_drive} with tests={self.tests}")
         self.validate()
 
     def validate(self):
@@ -37,15 +38,15 @@ class MasterValidator:
         """Runs all validation checks and returns a summary."""
         self.errors = []  # Reset errors before validation
 
-        settings = load_settings()
-        config = Config()
+        settings = self.master.settings
+        config = self.master.config
 
-        logging.debug(f"creating candidate master {self.usb_drive.mountpoint} settings={json.dumps(settings, indent=2)} config={config}")
-        settings["past_master"] = {}
+        # logging.debug(f"creating candidate master settings={json.dumps(settings, indent=2)} config={config}")
+        # settings["past_master"] = {}
 
-        self.candidate_master = Master.from_device(config, settings, self.usb_drive.mountpoint, self.tests) #from_device defines the checks to be made
+        # self.master = Master.from_device(config, settings, self.usb_drive.mountpoint, self.tests) #from_device defines the checks to be made
         
-        # self.candidate_master.lookup_isbn(self.candidate_master.isbn)
+        # self.master.lookup_isbn(self.master.isbn)
 
         self.check_path_exists()
         self.check_tracks_folder()
@@ -53,26 +54,30 @@ class MasterValidator:
         self.check_checksum()
 
         
-        self.is_clean = self.ensure_metadata_never_index() & remove_system_files(self.usb_drive.mountpoint)
-        
+        # self.is_clean = self.ensure_metadata_never_index() & remove_system_files(self.usb_drive.mountpoint)
+        is_single_volume = False
+        if getattr(self.usb_drive, "properties", None) and isinstance(self.usb_drive.properties, dict):
+            is_single_volume = self.usb_drive.properties.get("is_single_volume", False)
+
         logging.info(f"Validation performed, errors found: {self.errors}")
-        logging.info(f"|--- title: {self.candidate_master.title}")
-        logging.info(f"|--- isbn: {self.candidate_master.isbn}")
-        logging.info(f"|--- sku: {self.candidate_master.sku}")
-        logging.info(f"|--- duration: {self.candidate_master.duration}")
+        logging.info(f"|--- title: {self.master.title}")
+        logging.info(f"|--- isbn: {self.master.isbn}")
+        logging.info(f"|--- sku: {self.master.sku}")
+        logging.info(f"|--- duration: {self.master.duration}")
         logging.info(f"|--- USB is_clean: {self.is_clean}")
-        logging.info(f"|--- USB is_single_volume: {self.usb_drive.properties.get("is_single_volume")}")
+        logging.info(f"|--- USB is_single_volume: {is_single_volume}")
 
-        logging.info (self.candidate_master)
-
-        logging.info (f"Overall status {self.candidate_master.validate()}")
+        logging.info (self.master)
         
-        # self.candidate_master.master_tracks.reencode_all_in_place()
+        # self.master.master_tracks.reencode_all_in_place()
 
         return len(self.errors) == 0, self.errors  # Return validation status and errors
 
     def check_path_exists(self):
         """Ensure the USB drive mount path exists."""
+        if not self.usb_drive: 
+            self.errors.append(f"USB drive not prvided")
+            return
         if not os.path.exists(self.usb_drive.mountpoint):
             self.errors.append(f"USB drive path does not exist: {self.usb_drive.mountpoint}")
 
@@ -84,7 +89,7 @@ class MasterValidator:
             drive (str or Path): The root directory of the drive.
         """
 
-        drive_path = Path(self.usb_drive.mountpoint)  # Ensure it's a Path object
+        drive_path = self.master.master_path
         metadata_file = drive_path / ".metadata_never_index"  # Construct path
 
         if metadata_file.exists():
@@ -102,18 +107,15 @@ class MasterValidator:
     def check_tracks_folder(self):
         """Check if the 'tracks' folder exists and contains the correct number of files."""
 
-        tracks_path = Path(self.usb_drive.mountpoint) / "tracks"
+        tracks_path = self.master.master_path / "tracks"
 
         if not tracks_path.is_dir():
             self.errors.append("Missing expected 'tracks' folder.")
             return
-        if not self.candidate_master:
-            self.errors.append("Missing Candidate Master.")
-            return
-
+        
         # Count only files (ignoring subdirectories)
-        file_count_observed = sum(1 for f in tracks_path.iterdir() if f.is_file())
-        file_count_expected = self.candidate_master.file_count_expected
+        file_count_observed = int(sum(1 for f in tracks_path.iterdir() if f.is_file()))
+        file_count_expected = int(self.master.file_count_expected)
 
         if file_count_observed != file_count_expected:
             self.errors.append(f"Expected {file_count_expected} track files, but found {file_count_observed} in '{tracks_path}'")
@@ -123,7 +125,7 @@ class MasterValidator:
     def check_bookinfo_id(self):
         """Check that the ISBN in 'bookinfo/id.txt' matches the expected value."""
         
-        id_txt_path = Path(self.usb_drive.mountpoint) / "bookinfo" / "id.txt"
+        id_txt_path = self.master.master_path / "bookinfo" / "id.txt"
 
         if not id_txt_path.parent.is_dir():
             self.errors.append("Missing 'bookinfo' directory.")
@@ -137,56 +139,13 @@ class MasterValidator:
         self.file_isbn = id_txt_path.read_text(encoding="utf-8").strip()
 
         # Validate ISBN if expected ISBN is provided
-        if self.candidate_master and self.file_isbn != self.candidate_master.isbn:
-            self.errors.append(f"ISBN mismatch: Expected {self.candidate_master.isbn}, but found {self.file_isbn} in 'id.txt'.")
-        else:
-            logging.info(f"Found ID {self.file_isbn} (expecting {self.candidate_master.isbn}) in {id_txt_path.parent}.")
+        if self.master and self.file_isbn != self.master.isbn:
+            self.errors.append(f"ISBN mismatch: Expected {self.master.isbn}, but found {self.file_isbn} in 'id.txt'.")
+        
 
     def check_checksum(self):
         """Returns True if expected and actual checksums match."""
-        return self.candidate_master.checksum_file_value == self.candidate_master.checksum_computed
-
-    def check_checksumOLD(self):
-        """Check that the checksum.txt file exists and matches computed checksums."""
-        checksum_path = os.path.join(self.usb_drive.mountpoint, "bookinfo", "checksum.txt")
-
-        if not os.path.isfile(checksum_path):
-            self.errors.append("Missing 'checksum.txt' in the /bookInfo folder on the USB drive.")
-            return
-
-        # Read expected checksums
-        expected_checksums = {}
-        with open(checksum_path, "r", encoding="utf-8") as f:
-            for line in f:
-                parts = line.strip().split("  ")
-                if len(parts) == 2:
-                    expected_checksums[parts[1]] = parts[0]
-
-        file_paths = []
-        for root, _, files in os.walk(self.usb_drive.mountpoint):
-            for file in files:
-                if file == "checksum.txt":
-                    continue
-                full_path = Path(root) / file
-                file_paths.append(full_path)
-
-        usb_checksum = compute_sha256(file_paths)
-
-
-        # Compare expected vs actual
-        for file, expected_hash in expected_checksums.items():
-            actual_hash = actual_checksums.get(file)
-            if actual_hash is None:
-                self.errors.append(f"File '{file}' listed in checksum.txt is missing.")
-            elif actual_hash != expected_hash:
-                self.errors.append(f"Checksum mismatch for '{file}': expected {expected_hash}, got {actual_hash}.")
-
-        # Check for unexpected files
-        for file in actual_checksums.keys():
-            if file not in expected_checksums:
-                self.errors.append(f"Unexpected file '{file}' not listed in checksum.txt.")
+        if not self.master.checksum_file_value == self.master.checksum:
+            self.errors.append("Checksums mismatch.")
 
     
-
-
-

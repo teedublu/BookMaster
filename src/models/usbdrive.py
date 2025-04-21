@@ -29,6 +29,7 @@ class USBDrive:
         self.checksum = None
         self.stored_checksum = None
         self.is_checksum_valid = None
+        self.ui_context = ui_context
         logging.debug(f"USBDrive found mountpoint:{self.mountpoint} device_path:{self.device_path} properties: {self.properties}")
         
         if self.is_master :
@@ -38,15 +39,7 @@ class USBDrive:
             self.is_checksum_valid = self.checksum_matches()  # Check if they match
 
 
-            self.load_existing()
-            draft = MasterDraft(config=None, settings=None, isbn=self.current_content["isbn"], sku=None, author=None, title=None, expected_count=None, input_folder=None)
-            ui_context.draft = draft
-            ui_context.update_isbn(self.current_content["isbn"])
             
-            # self.validator = MasterValidator(self)
-
-            logging.debug(f"Stored checksum {self.stored_checksum}")
-            logging.debug(f"Calcul checksum {self.checksum}")
     
 
     def compute_checksum(self):
@@ -305,6 +298,15 @@ class USBDrive:
             # read/write speed
 
             # capacity
+
+
+            draft = MasterDraft(config=None, settings=None, isbn=self.current_content["isbn"], sku=None, author=None, title=None, expected_count=None, input_folder=None)
+            self.ui_context.draft = draft
+            self.ui_context.update_isbn(self.current_content["isbn"])
+            
+            # self.validator = MasterValidator(self)
+            logging.debug(f"Stored checksum {self.stored_checksum}")
+            logging.debug(f"Calcul checksum {self.checksum}")
             
         except Exception as e:
             logging.error(f"Error loading current content of block: {e}")
