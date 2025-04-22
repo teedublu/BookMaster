@@ -6,3 +6,5 @@ samples/.DS_Store
 .DS_Store
 /bookmaster/bin
 /bookmaster/lib
+src/utils/settings.json
+src/utils/settings.json

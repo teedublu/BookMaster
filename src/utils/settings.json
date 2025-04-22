@@ -1,7 +1,7 @@
 {
     "default": {
         "input_folder": "/Users/thomaswilliams/Library/CloudStorage/GoogleDrive-tom@voxblock.co.uk/Shared drives/Codek Masters/To do",
-        "output_folder_files": "/Users/thomaswilliams/VoxblockMaster",
+        "output_folder_files": "/Users/thomaswilliams/Library/CloudStorage/GoogleDrive-tom@voxblock.co.uk/Shared drives/Codek Masters",
         "manual_data": false,
         "lookup_csv": false,
         "find_isbn_folder": true,

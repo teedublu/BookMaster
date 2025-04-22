@@ -222,7 +222,7 @@ class VoxblockUI:
                 selected_drive = self.usb_listbox.get(selected_index[0])
                 if selected_drive in self.usb_hub.drives:
                     usb_drive = self.usb_hub.drives[selected_drive]
-                    usb_drive.write_disk_image(master.image_file)
+                    usb_drive.write_disk_image(self.master.image_file)
         else:
             logging.error(f"No sub folder with ISBN {self.draft_vars["isbn"].get()} found")
                 

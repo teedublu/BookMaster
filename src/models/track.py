@@ -233,5 +233,5 @@ class Track:
 
         # Save the changes
         self.audio.save()
-        logging.info(f"ID3 tags saved to {self.file_path.name} title:{self.title} author:{self.author} isbn:{self.isbn} {self.audio}")
+        logging.info(f"ID3 tags saved to file {self.file_path} title:{self.title} author:{self.author} isbn:{self.isbn} {self.audio}")
         
