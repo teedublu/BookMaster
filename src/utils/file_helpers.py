@@ -13,7 +13,7 @@ import logging
 from itertools import chain
 from natsort import natsorted
 
-EXCLUDED_DIRS = {".fseventsd", ".Spotlight-V100", ".Trashes", ".DS_Store"}
+EXCLUDED_PATTERNS = {".fseventsd", ".Spotlight-V100", ".Trashes", ".DS_Store", "version.txt", "checksum.txt"}
 
 
 def probe_metadata(audio_file):
@@ -53,7 +53,6 @@ def get_metadata_from_audio(audio_file):
 
     return None, None  # Return None if metadata is missing or invalid
 
-
 def generate_isbn():
     return str(random.randint(1000000000000, 9999999999999))
 
@@ -80,7 +79,6 @@ def generate_sku(author, title, isbn):
 
     return f"BK-{isbn[-5:]}-{author_abbr}{title_abbr}"
 
-
 def get_first_audiofile(input_folder, valid_formats=["*.mp3", "*.wav"]):
     """Returns the first valid audio file found in the given folder, or None if no valid files exist."""
     folder_path = Path(input_folder)
@@ -95,8 +93,6 @@ def get_first_audiofile(input_folder, valid_formats=["*.mp3", "*.wav"]):
 
     return str(audio_files[0]) if audio_files else None  # Return first audio file or None
 
-
-
 def parse_time_to_minutes(time_str):
     """Convert HH:MM to total minutes as a float."""
     try:
@@ -105,6 +101,14 @@ def parse_time_to_minutes(time_str):
     except ValueError:
         logging.error(f"Invalid time format: {time_str}")
         return None
+
+def is_excluded(path, excluded_patterns=EXCLUDED_PATTERNS):
+    """
+    Returns True if any part of the path matches an excluded pattern.
+    Accepts a Path object or string.
+    """
+    path = Path(path)
+    return any(part in excluded_patterns for part in path.parts)
 
 def compute_sha256(file_paths, base_path=None):
     """
@@ -116,6 +120,8 @@ def compute_sha256(file_paths, base_path=None):
     """
     hasher = hashlib.sha256()
 
+    file_paths = [p for p in file_paths if p.is_file() and not is_excluded(p)]
+
     logging.debug(f"Creating hash for {len(file_paths)} paths")
 
     if not file_paths:
@@ -126,12 +132,12 @@ def compute_sha256(file_paths, base_path=None):
         base_path = Path(os.path.commonpath([str(p) for p in file_paths]))
 
     for file_path in natsorted(file_paths, key=lambda p: str(p)):
-        if file_path.is_file() and not any(part in EXCLUDED_DIRS for part in file_path.parts):
+        if file_path.is_file() :
             try:
                 # Include relative path in the hash
                 rel_path = file_path.relative_to(base_path).as_posix()
                 hasher.update(rel_path.encode('utf-8'))
-                logging.debug(f"Hashing path: {rel_path}")
+                logging.debug(f"Hashing path:[{base_path}] {rel_path}")
 
                 # Include file content in the hash
                 with file_path.open("rb") as f:

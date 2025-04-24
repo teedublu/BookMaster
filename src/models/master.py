@@ -385,7 +385,6 @@ class Master:
 
         (master_path / self.output_structure["id_file"]).write_text(self.isbn)
         (master_path / self.output_structure["count_file"]).write_text(str(len(self.processed_tracks.files)))
-        (master_path / self.output_structure["checksum_file"]).write_text(str(self.checksum))
         (master_path / self.output_structure["version_file"]).write_text(str(self.version))
 
         self.logger.debug(f"Writing data to files id->{self.isbn} count->{len(self.processed_tracks.files)} checksum->{self.checksum}")
@@ -400,6 +399,9 @@ class Master:
             self.logger.info(f"Copied {processed_track.file_path.name} from /{processed_track.file_path.parent.name} -> /{tracks_path.parent.name}/{tracks_path.name}")
             
         self.master_tracks = Tracks(self, tracks_path, params, [])
+
+        # do this after moving tracks into folder duh!
+        (master_path / self.output_structure["checksum_file"]).write_text(str(self.checksum))
 
 
         self.logger.info("Master structure setup complete.")
