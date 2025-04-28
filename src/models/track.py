@@ -166,6 +166,8 @@ class Track:
 
     def convert(self, destination_path, bit_rate):
         # takes input_file and converts into processed path
+        Path(destination_path).mkdir(parents=True, exist_ok=True)
+        
         if not self.duration:
             raise ValueError (f"Track missing duration {str(self)} can not convert")
         

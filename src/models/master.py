@@ -54,7 +54,7 @@ class Master:
 
         self.validator = MasterValidator(self)
 
-        logging.debug(f"Initiating new Master {self.isbn},{self.sku} with settings {self.settings} and tests {self.usb_drive_tests}")
+        logging.debug(f"Initiating new Master {self.isbn},{self.sku} with settings {self.settings} and tests {self.usb_drive_tests} with output_path {self.output_path}")
         
         if self.input_tracks:
             self.create()

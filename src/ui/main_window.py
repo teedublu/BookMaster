@@ -254,7 +254,9 @@ class VoxblockUI:
     def get_input_folder(self):
         input_folder = self.draft_vars["input_folder"].get()
         isbn = self.draft_vars["isbn"].get()
-        if self.ui_state["find_isbn_folder"].get():
+        find_isbn_folder = self.ui_state["find_isbn_folder"].get()
+        if find_isbn_folder:
+            logging.debug(f"Finding folder based on {isbn}")
             try:
                 return find_input_folder_from_isbn(self, input_folder, isbn)
             except ValueError:
@@ -456,9 +458,10 @@ class VoxblockUI:
                     continue
 
                 try:
-                    folder_path =  self.get_input_folder(isbn)
+                    folder_path =  self.get_input_folder()
+                    logging.debug(f"Found folder based on ISBN {folder_path}")
                 except Exception as e:
-                    logging.info(f"Skipping ISBN {isbn}: folder {input_folder} not found.")
+                    logging.info(f"Skipping ISBN {isbn}: error {e}")
                     continue
 
                 if not os.path.isdir(folder_path):
