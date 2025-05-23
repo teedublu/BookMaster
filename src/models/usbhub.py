@@ -61,7 +61,7 @@ class USBHub:
                             drives[part.mountpoint] = self.drives[part.mountpoint]
                         else:
                             # Create new USBDrive instance only for newly detected drives
-                            logging.debug(f"Creating new USB drive: {part.mountpoint} _ {device_path} ___{self.ui_context}")
+                            logging.debug(f"Creating new USB drive: {part.mountpoint} _ {device_path} ")
 
                             print(f"USBHub ui_context : {self.ui_context}, type: {type(self.ui_context)}")
 

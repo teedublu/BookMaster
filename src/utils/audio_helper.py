@@ -6,45 +6,108 @@ from pathlib import Path
 
 def analyze_track(file_path, params, tests):
     """
-    Performs a single-pass analysis on an audio file:
-    - Extracts metadata
-    - Analyzes loudness
-    - Detects silence
-    - Checks for frame errors
-
-    Returns:
-        dict with keys:
-            - duration
-            - sample_rate
-            - bit_rate
-            - channels
-            - tags
-            - loudness
-            - silences
-            - frame_errors
+    Analyzes an audio file conditionally based on format/codec.
+    Returns partial results even if some steps fail.
     """
-    test_list = tests.split(",") if isinstance(tests, str) else []
-    tests = [t.lower().strip() for t in test_list]  # Convert to a list for reusability
-
-    results = {}
-    results["metadata"] = extract_metadata(file_path)  # FFmpeg probe
-    results["loudness"] = {}
-    results["silences"] = {}
-    results["frame_errors"] = 0
-
-    logging.info(f"Performing audio tests {tests}.")
-
-    if "loudness" in tests:
-        results["loudness"] = analyze_loudness(file_path, params)
-
-    if "silence" in tests:
-        results["silences"] = detect_silence(file_path, params)
-
-    if "frame_errors" in tests:
-        results["frame_errors"] = check_frame_errors(file_path)
     
+    results = {
+        "metadata": {},
+        "loudness": {},
+        "silences": [],
+        "frame_errors": None,
+        "errors": []
+    }
+
+    try:
+        metadata = extract_metadata(file_path)
+        results["metadata"] = metadata
+    except Exception as e:
+        logging.error(f"Failed metadata extraction: {file_path}: {e}")
+        results["errors"].append(f"Metadata error: {e}")
+        return results  # Metadata is fundamental; bail early.
+
+    # Identify format and codec
+    format_name = metadata.get("format_name", "").lower()
+    codec_name = metadata.get("codec_name", "").lower()
+
+    logging.info(f"Analyzing {file_path}: format={format_name}, codec={codec_name}, tests={tests}")
+
+    if tests:
+        test_list = tests.split(",") if isinstance(tests, str) else list(tests)
+        test_list = [t.lower().strip() for t in test_list]
+
+        # Selective test execution
+        if "loudness" in test_list:
+            if format_name in ["mp3", "aac", "ogg"] or codec_name.startswith("mp3"):
+                results["loudness"] = analyze_loudness(file_path, params)
+            else:
+                logging.info(f"Skipping loudness: unsupported format {format_name}")
+                results["errors"].append("Skipped loudness")
+
+        if "silence" in test_list:
+            if format_name in ["mp3", "aac", "ogg", "wav", "flac"]:
+                results["silences"] = detect_silence(file_path, params)
+            else:
+                logging.info(f"Skipping silence detection: unsupported format {format_name}")
+                results["errors"].append("Skipped silence detection")
+
+        if "frame_errors" in test_list:
+            if codec_name.startswith("mp3"):
+                results["frame_errors"] = check_frame_errors(file_path)
+            else:
+                logging.info(f"Skipping frame error check: codec={codec_name} not frame-based")
+                results["errors"].append("Skipped frame error check")
+
     return results
 
+
+def extract_metadata(file_path):
+    results = {
+        "duration": None,
+        "sample_rate": None,
+        "bit_rate": None,
+        "channels": None,
+        "tags": {},
+        "format_name": None,
+        "codec_name": None
+    }
+
+    probe = ffmpeg.probe(str(file_path))
+
+    format_data = probe.get("format", {}) or {}
+    streams = probe.get("streams") or []
+
+    if not isinstance(streams, list):
+        raise ValueError(f"Invalid streams format in FFmpeg probe for {file_path}")
+
+    audio_stream = next((s for s in streams if s.get("codec_type") == "audio"), None)
+
+    if not audio_stream:
+        raise ValueError(f"No valid audio stream found in {file_path}")
+
+    results["format_name"] = format_data.get("format_name")
+    results["duration"] = try_parse_float(format_data.get("duration"))
+    results["tags"] = format_data.get("tags", {})
+
+    results["sample_rate"] = try_parse_int(audio_stream.get("sample_rate"))
+    results["bit_rate"] = try_parse_int(audio_stream.get("bit_rate"))
+    results["channels"] = try_parse_int(audio_stream.get("channels"))
+    results["codec_name"] = audio_stream.get("codec_name")
+
+    return results
+
+
+def try_parse_float(value):
+    try:
+        return float(value) if value is not None else None
+    except (ValueError, TypeError):
+        return None
+
+def try_parse_int(value):
+    try:
+        return int(value) if value is not None else None
+    except (ValueError, TypeError):
+        return None
 
 def analyze_loudness(file_path, params):
     """
@@ -105,7 +168,7 @@ def detect_silence(file_path, params):
     """
     Detects silence in an audio file using FFmpeg.
 
-    Args:
+    Args:detect_silence
         file_path (Path): Path to the audio file.
         params (dict): Dictionary containing processing parameters.
 
@@ -116,90 +179,30 @@ def detect_silence(file_path, params):
     min_silence_duration = params.get("min_silence_duration", 0.2)
 
     try:
-        logging.debug(f"Checking {file_path} for silence")
+        logging.debug(f"Checking {file_path} for silence silence_threshold={silence_threshold}db min_silence_duration={min_silence_duration}s")
         result = ffmpeg.input(str(file_path)) \
             .filter("silencedetect", noise=f"-{silence_threshold}dB", d=min_silence_duration) \
             .output("null", f="null") \
             .global_args("-hide_banner") \
             .run(capture_stderr=False)
 
-        output = result[1].decode("utf-8")
-        logging.debug(f"FFmpeg Output (Silence Detection {silence_threshold}||{min_silence_duration}): {output}")
+        if result[1]:
+            output = result[1].decode("utf-8")
+            logging.debug(f"FFmpeg Output (Silence Detection {silence_threshold}||{min_silence_duration}): {output}")
 
-        # Extract silence periods using regex
-        silence_matches = re.findall(r"silence_start:\s*([\d\.]+)", output)
-        silences = [float(match) for match in silence_matches]
-        logging.debug(f"Checking {file_path} for silence: {silences}")
-        return silences
+            # Extract silence periods using regex
+            silence_matches = re.findall(r"silence_start:\s*([\d\.]+)", output)
+            silences = [float(match) for match in silence_matches]
+            logging.debug(f"Checking {file_path} for silence: {silences}")
+            return silences
+        else:
+            return None
 
     except Exception as e:
         tb = traceback.extract_tb(e.__traceback__)[-1]
         logging.warning(f"Warning: Could not analyze silence for {file_path} at {tb.filename}:{tb.lineno}: {e}")
 
     return []
-
-
-def extract_metadata(file_path):
-    """
-    Extracts audio metadata including duration, sample rate, bit rate, channels, and tags.
-
-    Args:
-        file_path (Path): Path to the audio file.
-
-    Returns:
-        dict: Contains duration (float), sample_rate (int), bit_rate (int), channels (int), and tags (dict).
-    """
-    results = {
-        "duration": None,
-        "sample_rate": None,
-        "bit_rate": None,
-        "channels": None,
-        "tags": {}
-    }
-
-    try:
-        probe = ffmpeg.probe(str(file_path))
-
-        # Extract general file-level metadata
-        format_data = probe.get("format", {})
-        if "duration" in format_data:
-            try:
-                results["duration"] = float(format_data["duration"])
-            except (ValueError, TypeError):
-                logging.warning(f"Warning: Could not parse duration for {file_path}")
-
-        # Extract first available audio stream
-        audio_stream = next((s for s in probe["streams"] if s.get("codec_type") == "audio"), None)
-        if audio_stream:
-            try:
-                results["sample_rate"] = int(audio_stream.get("sample_rate", 0)) or None
-                results["bit_rate"] = int(audio_stream.get("bit_rate", 0)) if audio_stream.get("bit_rate") else None
-                results["channels"] = int(audio_stream.get("channels", 0)) or None
-            except (ValueError, TypeError):
-                logging.warning(f"Warning: Issue parsing stream properties for {file_path}")
-
-        # Extract tags from format-level metadata
-        results["tags"] = format_data.get("tags", {}).copy()
-
-        # Merge additional tags from all streams
-        for stream in probe.get("streams", []):
-            if "tags" in stream:
-                print (stream["tags"])
-                results["tags"].update(stream["tags"])  # Merge tags from multiple streams
-
-    except ffmpeg.Error as e:
-        tb = traceback.extract_tb(e.__traceback__)[-1]
-        logging.error(f"FFmpeg error for {file_path} at {tb.filename}:{tb.lineno}: {e.stderr.decode() if e.stderr else e}")
-        raise ValueError
-    except Exception as e:
-        tb = traceback.extract_tb(e.__traceback__)[-1]
-        logging.debug(f"Error extracting metadata for {file_path} at {tb.filename}:{tb.lineno}: {e}")
-        raise ValueError
-
-    logging.debug(f"Metadata for {file_path.parent.name}/{file_path.name}: {results}")
-    return results
-
-
 
 def check_frame_errors(file_path):
     """

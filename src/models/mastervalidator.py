@@ -3,8 +3,8 @@ import logging
 import fnmatch
 from pathlib import Path
 from typing import Literal
-from utils.audio_analysis import analyze_loudness, detect_silence
-from utils.file_utils import has_hidden_files, read_count_file, check_id3_tags, add_id3_tags, compute_checksum_file
+# from utils.audio_analysis import analyze_loudness, detect_silence
+# from utils.file_utils import has_hidden_files, read_count_file, check_id3_tags, add_id3_tags, compute_checksum_file
 
 class MasterValidator:
     def __init__(self, master, config=None):

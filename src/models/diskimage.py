@@ -27,7 +27,8 @@ class DiskImage:
 
         # Calculate required image size
         source_size_kb = int(subprocess.check_output(["du", "-sk", master_root]).split()[0])
-        image_size_mb = max((source_size_kb + source_size_kb // 10) // 1024, 10)  # +10% buffer, min 10MB
+        buffer_kb = max(source_size_kb // 10, 50 * 1024)  # 10% or 50MB buffer
+        image_size_mb = max((source_size_kb + buffer_kb + 1023) // 1024, 10)  # round up using +1023, min 10MB total as FAT requires min 8MB
 
         self.logger.info(f"Creating {image_size_mb}MB disk image: {image_path}")
 

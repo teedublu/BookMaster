@@ -108,7 +108,7 @@ class Track:
         
         if self.silences:
             issues.append(f"Silence: {len(self.silences)}")
-        if self.frame_errors > 0:
+        if self.frame_errors and self.frame_errors > 0:
             issues.append(f"Frame errors: {self.frame_errors}")
         if not self.encoding_is_valid():
             issues.append(f"Encoding issue: {self.sample_rate}kbps {self.bit_rate}kHz {self.channels} channel  -{self.loudness}dB")
@@ -167,7 +167,7 @@ class Track:
     def convert(self, destination_path, bit_rate):
         # takes input_file and converts into processed path
         Path(destination_path).mkdir(parents=True, exist_ok=True)
-        
+
         if not self.duration:
             raise ValueError (f"Track missing duration {str(self)} can not convert")
         

@@ -10,6 +10,7 @@ from .track import Track
 import logging
 from natsort import natsorted
 from itertools import chain
+import traceback
 
 class Tracks:
     """
@@ -56,7 +57,8 @@ class Tracks:
                 })
                 self.files.append(track)
             except Exception as e:
-                logging.error(f"Failed to load Track {file.name}: {e}")
+                logging.error(f"Failed to load Track {file.name}")
+                logging.error(traceback.format_exc())
 
         if not self.files:
             raise ValueError(f"No valid tracks found in {self.directory}")

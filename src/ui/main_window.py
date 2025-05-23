@@ -10,7 +10,7 @@ from models import Master
 from utils import find_input_folder_from_isbn, parse_time_to_minutes
 from utils.custom_logging import setup_logging
 from ui.masterdraftuiwrapper import MasterDraftUIWrapper
-from models import MasterDraft  # Import Master class
+from models import MasterDraft, MasterValidator  # Import Master class
 from settings import save_settings
 
 class VoxblockUI:
@@ -99,7 +99,6 @@ class VoxblockUI:
             if getattr(self, key, None) != new_value:  # Prevent infinite loops
                 logging.debug(f"Syncing UI change: {key} -> {new_value}")
                 setattr(self.draft, key, new_value)
-                print (self.draft)
 
             # Trigger additional callbacks if needed
             if key in self._callbacks:
@@ -224,29 +223,34 @@ class VoxblockUI:
                     usb_drive = self.usb_hub.drives[selected_drive]
                     usb_drive.write_disk_image(self.master.image_file)
         else:
-            logging.error(f"No sub folder with ISBN {self.draft_vars["isbn"].get()} found")
+            logging.error(f"Input folder {input_folder} not found")
                 
-
     def check(self):
-        path = "/Users/thomaswilliams/Documents/VoxblockMaster/output/BK-74107-CLAE/master"
+        # path = "/Users/thomaswilliams/Documents/VoxblockMaster/output/BK-74107-CLAE/master"
 
         self.reset()
 
-        self.draft = MasterDraft.from_file(self.config, self.settings, path, tests=None) #from_device defines the checks to be made
+        # self.draft = MasterDraft.from_file(self.config, self.settings, path, tests=None) #from_device defines the checks to be made
         
-        print(self.draft)
-
-        return
         self.draft.input_folder = self.get_input_folder()
         selected_index = self.usb_listbox.curselection()
         if selected_index:
             selected_drive = self.usb_listbox.get(selected_index[0])
             if selected_drive in self.usb_hub.drives:
                 usb_drive = self.usb_hub.drives[selected_drive]
+                # loads details from drive
                 usb_drive.load_existing()
+                self.update_settings
+
+                logging.debug(f"Loaded existing Master")
                 tests = self.available_tests
-                # self.candidate_master = Master.from_device(self.config, self.settings, usb_drive.mountpoint, tests) #from_device defines the checks to be made
-        
+                self.draft.input_folder = usb_drive.mountpoint
+                
+                print (self.draft.validate())
+                # self.candidate_master = MasterDraft
+                self.candidate_master = Master.from_device(self.config, self.settings, usb_drive.mountpoint, tests) #from_device defines the checks to be made
+
+
 
         else:
             logging.warning(f"No usb drive selected")
@@ -277,8 +281,6 @@ class VoxblockUI:
                 self.draft_vars[key].set(0)
             elif key!="input_folder":
                 self.draft_vars[key].set(None)
-
-
 
     def update_selected_tests(self):
         """Updates self.usb_drive_tests_var when checkboxes change."""
@@ -432,51 +434,62 @@ class VoxblockUI:
         self.draft_vars["file_count_expected"].set(row.get('ExpectedFileCount', 0))
 
     def load_isbn_csv_and_create_masters(self):
-        # Ask for CSV file
-        csv_path = filedialog.askopenfilename(
-            filetypes=[("CSV Files", "*.csv")],
-            title="Select ISBN CSV File"
-        )
+        csv_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")], title="Select ISBN CSV File")
         if not csv_path:
             return
-
-        self.lookup_csv_var.set(True)
 
         input_folder = self.draft_vars["input_folder"].get()
         if not os.path.isdir(input_folder):
             messagebox.showerror("Error", "Invalid input folder.")
             return
 
-        with open(csv_path, newline='', encoding='utf-8') as csvfile:
-            self.ui_state["find_isbn_folder"].set(True)
-            reader = csv.reader(csvfile)
-            for row in reader:
-                if not row:
-                    continue
-                isbn = row[0].strip()
-                if not isbn:
-                    continue
+        self.lookup_csv_var.set(True)
+        self.ui_state["find_isbn_folder"].set(True)
 
-                try:
-                    folder_path =  self.get_input_folder()
-                    logging.debug(f"Found folder based on ISBN {folder_path}")
-                except Exception as e:
-                    logging.info(f"Skipping ISBN {isbn}: error {e}")
-                    continue
+        success, failed = [], []
 
-                if not os.path.isdir(folder_path):
-                    print(f"Skipping ISBN {isbn}: folder {folder_path} not found.")
-                    continue
+        try:
+            with open(csv_path, newline='', encoding='utf-8') as csvfile:
+                reader = csv.reader(csvfile)
+                for row in reader:
+                    if not row or not row[0].strip():
+                        continue
 
-                try:
+                    isbn = row[0].strip()
                     self.reset()
                     self.draft_vars["isbn"].set(isbn)
-                    self.create()  # or whatever method triggers building
-                    print(f"Master created for ISBN {isbn}")
-                    continue
-                except Exception as e:
-                    print(f"Error creating master for {isbn}: {e}")
-                    continue
+
+                    try:
+                        folder_path = self.get_input_folder()
+                        if not folder_path:
+                            logging.info(f"Skipping ISBN {isbn} - folder not found.")
+                            failed.append((isbn, "Folder not found"))
+                            continue
+                    except Exception as e:
+                        logging.info(f"Skipping ISBN {isbn}: error {e}")
+                        failed.append((isbn, str(e)))
+                        continue
+
+                    try:
+                        self.create()
+                        logging.info(f"Created master for ISBN {isbn}")
+                        success.append(isbn)
+                    except Exception as e:
+                        logging.error(f"Error creating master for {isbn}: {e}")
+                        failed.append((isbn, str(e)))
+
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open CSV: {e}")
+            return
+
+        if failed:
+            logging.warning("Some ISBNs failed to process:")
+            for isbn, reason in failed:
+                logging.warning(f"  - ISBN {isbn}: {reason}")
+
+        logging.info("Batch Processing Summary", f"{len(success)} masters created.\n{len(failed)} failed.")
+
 
 
 

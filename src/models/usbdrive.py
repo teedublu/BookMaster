@@ -32,15 +32,11 @@ class USBDrive:
         self.ui_context = ui_context
         logging.debug(f"USBDrive found mountpoint:{self.mountpoint} device_path:{self.device_path} properties: {self.properties}")
         
-        if self.is_master :
-            logging.debug(f"Inserted drive is likely Master")
-            self.checksum = self.compute_checksum()  # Compute actual checksum
-            self.stored_checksum = self.load_stored_checksum()  # Load stored checksum
-            self.is_checksum_valid = self.checksum_matches()  # Check if they match
-
-
-            
-    
+        # if self.is_master :
+        #     self.checksum = self.compute_checksum()  # Compute actual checksum
+        #     self.stored_checksum = self.load_stored_checksum()  # Load stored checksum
+        #     self.is_checksum_valid = self.checksum_matches()  # Check if they match
+        #     logging.debug(f"Inserted drive is likely Master checksum:{self.is_checksum_valid}")
 
     def compute_checksum(self):
         """Computes a SHA-256 checksum for all files in the USB drive, excluding system files and /bookInfo/checksum.txt."""
@@ -65,7 +61,6 @@ class USBDrive:
         except Exception as e:
             logging.error(f"Failed to compute checksum: {e}")
             return None
-
 
     def load_stored_checksum(self):
         """Loads the expected checksum from /bookinfo/checksum.txt if available."""
@@ -261,6 +256,14 @@ class USBDrive:
             return None
 
     def load_existing(self):
+         
+        if not self.ui_context:
+            logging.warning(f"No UI context ready. Stopping.")
+            return
+
+        if not self.is_master:
+            logging.warning(f"Trying to check an invalid Master. Stopping.")
+            return
 
         try:
             # Construct file paths
@@ -294,20 +297,25 @@ class USBDrive:
                 for item in Path(self.mountpoint).iterdir()
             )
 
+            # TEMP: dont do this as slow while testing
+            # self.checksum = self.compute_checksum()  # Compute actual checksum
+            # self.stored_checksum = self.load_stored_checksum()  # Load stored checksum
+            # self.is_checksum_valid = self.checksum_matches()  # Check if they match
+            # logging.debug(f"Stored checksum {self.stored_checksum}")
+            # logging.debug(f"Calcul checksum {self.checksum}")
+
 
             # read/write speed
 
             # capacity
 
 
-            draft = MasterDraft(config=None, settings=None, isbn=self.current_content["isbn"], sku=None, author=None, title=None, expected_count=None, input_folder=None)
-            self.ui_context.draft = draft
+            # draft = MasterDraft(config=None, settings=None, isbn=self.current_content["isbn"], sku=None, author=None, title=None, expected_count=None, input_folder=None)
+            # self.draft = draft
             self.ui_context.update_isbn(self.current_content["isbn"])
             
-            # self.validator = MasterValidator(self)
-            logging.debug(f"Stored checksum {self.stored_checksum}")
-            logging.debug(f"Calcul checksum {self.checksum}")
-            
+            logging.debug(f"Set UI to use isbn {self.current_content["isbn"]}")
+
         except Exception as e:
             logging.error(f"Error loading current content of block: {e}")
 

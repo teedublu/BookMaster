@@ -78,8 +78,6 @@ class MasterDraftUIWrapper:
             if getattr(self, key, None) != new_value:  # Prevent infinite loops
                 logging.debug(f"Syncing UI change: {key} -> {new_value}")
                 setattr(self, key, new_value)
-                logging.debug(f" Master Title : {self.title} ")
-                logging.debug(f" Master ISBN : {self.isbn} ")
 
             # Trigger additional callbacks if needed
             if key in self._callbacks:

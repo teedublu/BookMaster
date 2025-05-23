@@ -83,8 +83,6 @@ class MasterDraft:
         self.sku = ""
         self.duration = 0
 
-    from pathlib import Path
-
     def validate(self):
         errors = []
         # valid_formats = self.config.get("output_structure",None)
@@ -116,7 +114,9 @@ class MasterDraft:
                 errors.append(f"Expected {self.file_count_expected} files, found {actual}")
 
         if errors:
-            return '-- ' + '\n-- '.join(errors)
+            errs = '-- ' + '\n-- '.join(errors)
+            print (errs)
+            return errs
 
         return None
  

@@ -17,6 +17,7 @@ class Master:
     Represents the master audiobook collection, managing files and metadata.
     """
     def __init__(self, config, settings, expected_count=None, input_tracks=None):
+        logging.debug(f"init Master wiht settings {settings}")
         self.config = config # config of audio settings
         self.settings = settings # UI and file locations
         self.params = getattr(self.config, "params", {})
@@ -52,7 +53,7 @@ class Master:
         self.skip_encoding = settings.get("skip_encoding", False) # useful for speeding up debugging
         self.output_structure = self.params.get("output_structure",None)
 
-        self.validator = MasterValidator(self)
+        # self.validator = MasterValidator(self)
 
         logging.debug(f"Initiating new Master {self.isbn},{self.sku} with settings {self.settings} and tests {self.usb_drive_tests} with output_path {self.output_path}")
         
