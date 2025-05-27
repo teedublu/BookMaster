@@ -337,7 +337,7 @@ class Master:
 
         # if get here then zap anything in processed path and start encoding again
         remove_folder(processed_path, self.settings, self.logger)
-        self.logger.info(f"Processing input tracks into: {processed_path.parent.name}/{processed_path.name}")  
+        self.logger.info(f"Processing input tracks into: {processed_path.parent.name}/{processed_path.name}") 
         self.encode_tracks()
 
     def encode_tracks(self):
@@ -352,6 +352,7 @@ class Master:
 
         self.input_tracks.convert_all(self.processed_path, bit_rate)
         self.processed_tracks = Tracks(self, self.processed_path, self.params, ["metadata"]) #metadata required to get duration
+        self.processed_tracks.tag_all()
         self.logger.info(f"Processed Tracks total size {self.processed_tracks.total_size}")
 
     def create_master_structure(self):

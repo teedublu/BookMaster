@@ -74,8 +74,8 @@ def extract_metadata(file_path):
 
     probe = ffmpeg.probe(str(file_path))
 
-    format_data = probe.get("format", {}) or {}
-    streams = probe.get("streams") or []
+    format_data = probe.get("format", {})
+    streams = probe.get("streams", [])
 
     if not isinstance(streams, list):
         raise ValueError(f"Invalid streams format in FFmpeg probe for {file_path}")
@@ -86,13 +86,23 @@ def extract_metadata(file_path):
         raise ValueError(f"No valid audio stream found in {file_path}")
 
     results["format_name"] = format_data.get("format_name")
-    results["duration"] = try_parse_float(format_data.get("duration"))
     results["tags"] = format_data.get("tags", {})
-
     results["sample_rate"] = try_parse_int(audio_stream.get("sample_rate"))
     results["bit_rate"] = try_parse_int(audio_stream.get("bit_rate"))
     results["channels"] = try_parse_int(audio_stream.get("channels"))
     results["codec_name"] = audio_stream.get("codec_name")
+    results["duration"] = try_parse_float(format_data.get("duration"))
+
+    if results["duration"] is None:
+        # Try estimating
+        frames = try_parse_int(audio_stream.get("nb_frames"))
+        rate = try_parse_int(audio_stream.get("sample_rate"))
+        if frames and rate:
+            results["duration"] = frames / rate
+            logging.info(f"Estimated duration from frames for {file_path}")
+        else:
+            logging.warning(f"Unable to determine duration for {file_path}")
+
 
     return results
 

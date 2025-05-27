@@ -74,9 +74,15 @@ class Track:
         is_valid, issue_str = self.status
         color = COLORS["green"] if is_valid else COLORS["yellow"] if issue_str.startswith("Silence") else COLORS["red"]
 
-        # Return formatted output
-        issue_str_output = f" (issues: {issue_str})" if issue_str else "No issues"
-        return f"{color}{self.title} by {self.author} :{self.sku}_ {self.file_path.name[0:16]}... {self.sample_rate}k {self.bit_rate//1000}kbps ({issue_str_output}){COLORS['reset']}"
+        title = self.title or "Unknown Title"
+        author = self.author or "Unknown Author"
+        sku = self.sku or "NO-SKU"
+        name = self.file_path.name[:16] + "..." if self.file_path else "NOFILE"
+        sample_rate = f"{self.sample_rate}k" if self.sample_rate else "??k"
+        bitrate = f"{self.bit_rate // 1000}kbps" if self.bit_rate else "??kbps"
+        issue_str_output = self.issue_str() if hasattr(self, "issue_str") else ""
+        return f"{color}{title} by {author} :{sku}_ {name} {sample_rate} {bitrate} ({issue_str_output}){COLORS['reset']}"
+
 
     def __repr__(self):
         """ Returns a detailed representation of the track for debugging. """
