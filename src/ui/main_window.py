@@ -488,7 +488,8 @@ class VoxblockUI:
             for isbn, reason in failed:
                 logging.warning(f"  - ISBN {isbn}: {reason}")
 
-        logging.info("Batch Processing Summary", f"{len(success)} masters created.\n{len(failed)} failed.")
+        logging.info(f"Batch Processing Summary: {len(success)} masters created. {len(failed)} failed.")
+
 
 
 

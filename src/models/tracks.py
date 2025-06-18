@@ -1,7 +1,7 @@
 import mimetypes
 import mutagen
 import ffmpeg
-import slugify
+from slugify import slugify
 import shutil
 from pathlib import Path
 from mutagen.mp3 import MP3
