@@ -417,8 +417,13 @@ class Master:
         current_bit_rate = int(self.config.params["encoding"]["bit_rate"]) 
 
         if current_size_bytes <= MAX_DRIVE_SIZE:
-            self.logger.info(f"Tracks fit within 1GB {current_size_bytes} ({current_size_bytes / (1024**2):.2f} MB). No encoding changes required.")
+            self.logger.info(f"Tracks fit within {MAX_DRIVE_SIZE / (1024**2):.2f}MB {current_size_bytes} ({current_size_bytes / (1024**2):.2f}MB). No encoding changes required.")
+            
+            self.logger.info(
+                f"Tracks fit within {MAX_DRIVE_SIZE / (1024**2):.2f}MB limit ({current_size_bytes / (1024**2):.2f}MB used)."
+            )
             return current_bit_rate
+
 
         # Calculate required bitrate to fit within 1GB
         reduction_factor = MAX_DRIVE_SIZE / current_size_bytes
@@ -430,9 +435,9 @@ class Master:
         adjusted_bit_rate = max(MIN_BITRATE, min(required_bit_rate, MAX_BITRATE))
 
         if adjusted_bit_rate == current_bit_rate:
-            self.logger.warning(f"Tracks exceed 1GB ({current_size_bytes / (1024**2):.2f} MB), but reducing bitrate further may cause quality loss.")
+            self.logger.warning(f"Tracks exceed {MAX_DRIVE_SIZE / (1024**3):.2f}GB ({current_size_bytes / (1024**2):.2f} MB), but reducing bitrate further may cause quality loss.")
         
         else:
-            self.logger.warning(f"Tracks exceed 1GB ({current_size_bytes / (1024**2):.2f} MB). Reducing bitrate from {current_bit_rate} to {adjusted_bit_rate}.")
+            self.logger.warning(f"Tracks exceed {MAX_DRIVE_SIZE / (1024**3):.2f}GB ({current_size_bytes / (1024**2):.2f} MB). Reducing bitrate from {current_bit_rate} to {adjusted_bit_rate}.")
 
         return adjusted_bit_rate

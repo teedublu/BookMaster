@@ -2,6 +2,7 @@ import os
 import subprocess
 import logging
 import shutil
+import fnmatch
 from pathlib import Path
 
 class DiskImage:
@@ -27,7 +28,7 @@ class DiskImage:
 
         # Calculate required image size
         source_size_kb = int(subprocess.check_output(["du", "-sk", master_root]).split()[0])
-        buffer_kb = max(source_size_kb // 10, 50 * 1024)  # 10% or 50MB buffer
+        buffer_kb = max(source_size_kb // 20, 5 * 1024)  # 5% or 5MB
         image_size_mb = max((source_size_kb + buffer_kb + 1023) // 1024, 10)  # round up using +1023, min 10MB total as FAT requires min 8MB
 
         self.logger.info(f"Creating {image_size_mb}MB disk image: {image_path}")
@@ -43,7 +44,10 @@ class DiskImage:
         # **3. Copy files to the FAT filesystem without mounting**
         self.copy_files_to_image(image_path, master_root)
 
-        self.logger.info(f"Disk image created successfully: {image_path}")
+        # Log final disk image size
+        final_size_bytes = os.path.getsize(image_path)
+        final_size_mb = final_size_bytes / (1024 ** 2)
+        self.logger.info(f"Disk image created successfully: {image_path} ({final_size_bytes:,} bytes / {final_size_mb:.2f} MB)")
         return image_path
 
     def format_disk_image(self, image_path, sku, image_size_mb):
@@ -62,6 +66,15 @@ class DiskImage:
 
     def copy_files_to_image(self, image_path, source_folder):
         """Copies files from `source_folder` to `image_path` FAT image using `mtools`."""
+        patterns_to_ignore = [
+            "._*", "*.DS_Store", ".fseventsd", ".Trashes", ".TemporaryItems", 
+            ".Spotlight-V100", ".DocumentRevisions-V100", "System Volume Information", "*.tmp"
+        ]
+
+        def is_excluded(path):
+            rel_path = str(path.relative_to(source_folder))
+            return any(fnmatch.fnmatchcase(rel_path, pattern) or fnmatch.fnmatchcase(path.name, pattern) for pattern in patterns_to_ignore)
+
 
         source_folder = Path(source_folder)
         
@@ -82,7 +95,7 @@ class DiskImage:
 
         # Now copy files individually
         for file in sorted(source_folder.rglob("*")):
-            if file.is_file():  # Ensure only files are copied
+            if file.is_file() and not is_excluded(file):  # Ensure only files are copied
                 file_rel = file.relative_to(source_folder)
                 logging.info(f"Copying file to image: {file_rel}")
 
