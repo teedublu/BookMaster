@@ -10,7 +10,7 @@ from utils import remove_folder, compute_sha256, get_first_audiofile, get_metada
 from .tracks import Tracks
 from .diskimage import DiskImage
 from utils import MasterValidator
-from constants import MAX_DRIVE_SIZE, VERSION
+from constants import VERSION
 
 class Master:
     """
@@ -348,7 +348,7 @@ class Master:
             self.logger.error("No input tracks to encode.")
             raise ValueError("No input tracks to encode.")
 
-        bit_rate = self.calculate_encoding_for_1gb()
+        bit_rate = self.calculate_encoding_for_drive_capacity()
 
         self.input_tracks.convert_all(self.processed_path, bit_rate)
         self.processed_tracks = Tracks(self, self.processed_path, self.params, ["metadata"]) #metadata required to get duration
@@ -408,36 +408,45 @@ class Master:
 
         self.logger.info("Master structure setup complete.")
 
-    def calculate_encoding_for_1gb(self):
-        """Determines if the total size of the tracks fits on a 1GB drive.
-        If not, calculates the required encoding bitrate to make it fit. 
+    def calculate_encoding_for_drive_capacity(self):
+        """
+        Adjusts encoding bitrate to ensure total file size fits within 95% of drive capacity.
+        This accounts for filesystem and slack, assuming no post-write testing.
         """
         MAX_DRIVE_SIZE = self.config.params["max_drive_size"]
-        current_size_bytes = self.input_tracks.total_target_size  # Total encoded size
-        current_bit_rate = int(self.config.params["encoding"]["bit_rate"]) 
+        SAFETY_MARGIN = 0.05  # Always reserve 5%
+        USABLE_DRIVE_SIZE = MAX_DRIVE_SIZE * (1 - SAFETY_MARGIN)
 
-        if current_size_bytes <= MAX_DRIVE_SIZE:
-            self.logger.info(f"Tracks fit within {MAX_DRIVE_SIZE / (1024**2):.2f}MB {current_size_bytes} ({current_size_bytes / (1024**2):.2f}MB). No encoding changes required.")
-            
+        current_size_bytes = self.input_tracks.total_target_size
+        current_bit_rate = int(self.config.params["encoding"]["bit_rate"])
+
+        self.logger.debug(
+            f"Max drive: {MAX_DRIVE_SIZE}, usable after 5% margin: {int(USABLE_DRIVE_SIZE)}"
+        )
+
+        if current_size_bytes <= USABLE_DRIVE_SIZE:
             self.logger.info(
-                f"Tracks fit within {MAX_DRIVE_SIZE / (1024**2):.2f}MB limit ({current_size_bytes / (1024**2):.2f}MB used)."
+                f"Tracks fit: {current_size_bytes / (1024**2):.2f}MB used "
+                f"within {USABLE_DRIVE_SIZE / (1024**2):.2f}MB usable."
             )
             return current_bit_rate
 
+        self.logger.warning(
+            f"Tracks exceed 95% usable space "
+            f"({current_size_bytes / (1024**2):.2f}MB used > {USABLE_DRIVE_SIZE / (1024**2):.2f}MB). "
+            f"Reducing bitrate..."
+        )
 
-        # Calculate required bitrate to fit within 1GB
-        reduction_factor = MAX_DRIVE_SIZE / current_size_bytes
+        reduction_factor = USABLE_DRIVE_SIZE / current_size_bytes
         required_bit_rate = int(current_bit_rate * reduction_factor)
 
-        # Ensure bitrate remains in a reasonable range (e.g., 32000 - 192000)
-        MIN_BITRATE = 32
-        MAX_BITRATE = current_bit_rate  # Keep within original bitrate
-        adjusted_bit_rate = max(MIN_BITRATE, min(required_bit_rate, MAX_BITRATE))
+        MIN_BITRATE = 32000
+        adjusted_bit_rate = max(MIN_BITRATE, min(required_bit_rate, current_bit_rate))
 
-        if adjusted_bit_rate == current_bit_rate:
-            self.logger.warning(f"Tracks exceed {MAX_DRIVE_SIZE / (1024**3):.2f}GB ({current_size_bytes / (1024**2):.2f} MB), but reducing bitrate further may cause quality loss.")
-        
-        else:
-            self.logger.warning(f"Tracks exceed {MAX_DRIVE_SIZE / (1024**3):.2f}GB ({current_size_bytes / (1024**2):.2f} MB). Reducing bitrate from {current_bit_rate} to {adjusted_bit_rate}.")
+        self.logger.debug(
+            f"Bitrate adjusted from {current_bit_rate} to {adjusted_bit_rate} "
+            f"(required: {required_bit_rate})"
+        )
 
         return adjusted_bit_rate
+

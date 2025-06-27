@@ -63,13 +63,21 @@ class Tracks:
         if not self.files:
             raise ValueError(f"No valid tracks found in {self.directory}")
 
-        logging.debug(f"Successfully loaded {self.master.title} {len(self.files)} Track(s) from {self.directory}")
+        logging.debug(f"Successfully loaded {self.master.title} {len(self.files)} Track(s) {self.total_size_mb} {self.duration_hours} from {self.directory}")
 
     
     @property
     def duration(self):
         """ Returns the total duration of all files. """
         return sum(file.duration for file in self.files if file.duration)
+
+    @property
+    def duration_hours(self):
+        """Returns the total duration formatted as H:MM."""
+        total_seconds = int(self.duration)
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes = remainder // 60
+        return f"{hours}h {minutes:02d}m"
     
     @property
     def count(self):
@@ -79,12 +87,11 @@ class Tracks:
     @property
     def total_size(self):
         """ Returns the total duration of all files. """
-        return sum(file.file_size for file in self.files if file.duration)
+        return sum(file.size for file in self.files if file.size)
 
     @property
-    def total_size(self):
-        """ Returns the total duration of all files. """
-        return sum(file.size for file in self.files if file.size)
+    def total_size_mb(self):
+        return f"{self.total_size / (1024 ** 2)}MB"
 
     @property
     def total_target_size(self):

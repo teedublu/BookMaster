@@ -10,7 +10,7 @@ from utils import remove_folder, compute_sha256, get_first_audiofile, get_metada
 from .tracks import Tracks
 from models import Master
 from .diskimage import DiskImage
-from constants import MAX_DRIVE_SIZE
+
 
 class MasterDraft:
     """
