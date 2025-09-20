@@ -219,7 +219,7 @@ class VoxblockUI:
             selected_index = self.usb_listbox.curselection()
             if selected_index:
                 selected_drive = self.usb_listbox.get(selected_index[0])
-                if selected_drive in self.usb_hub.drives:
+                if selected_drive in self.usb_hub.drives and false: #blocked for now!!!!!!!!!!!!!!!!!!!!!
                     usb_drive = self.usb_hub.drives[selected_drive]
                     usb_drive.write_disk_image(self.master.image_file)
         else:

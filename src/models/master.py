@@ -167,6 +167,7 @@ class Master:
         try:
             all_files = natsorted([p for p in root.rglob("*") if p.is_file()])
             self._checksum = compute_sha256(all_files)
+            self.logger.info(f"Computing checksum for files {all_files}")
             self.logger.info(f"Computed checksum: {self._checksum}")
             return self._checksum
         except Exception as e:
@@ -258,7 +259,7 @@ class Master:
 
         self.logger.info(f"Disk image written to {self.image_path}, {self.image_file}")
 
-        if usb_drive:
+        if usb_drive and false: #Blocked for now so not to write to any disk in dock
             self.logger.info(f"Attempting to write {self.image_file} to USB {usb_drive}")
             usb_drive.write_disk_image(self.image_file) 
     
