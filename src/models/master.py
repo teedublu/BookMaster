@@ -414,14 +414,14 @@ class Master:
         This accounts for filesystem and slack, assuming no post-write testing.
         """
         MAX_DRIVE_SIZE = self.config.params["max_drive_size"]
-        SAFETY_MARGIN = 0.05  # Always reserve 5%
+        SAFETY_MARGIN = 0.1  # Always reserve 10%
         USABLE_DRIVE_SIZE = MAX_DRIVE_SIZE * (1 - SAFETY_MARGIN)
 
         current_size_bytes = self.input_tracks.total_target_size
         current_bit_rate = int(self.config.params["encoding"]["bit_rate"])
 
         self.logger.debug(
-            f"Max drive: {MAX_DRIVE_SIZE}, usable after 5% margin: {int(USABLE_DRIVE_SIZE)}"
+            f"Max drive: {MAX_DRIVE_SIZE}, usable after 10% margin: {int(USABLE_DRIVE_SIZE)}"
         )
 
         if current_size_bytes <= USABLE_DRIVE_SIZE:
@@ -432,7 +432,7 @@ class Master:
             return current_bit_rate
 
         self.logger.warning(
-            f"Tracks exceed 95% usable space "
+            f"Tracks exceed 90% usable space "
             f"({current_size_bytes / (1024**2):.2f}MB used > {USABLE_DRIVE_SIZE / (1024**2):.2f}MB). "
             f"Reducing bitrate..."
         )

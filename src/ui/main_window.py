@@ -38,7 +38,8 @@ class VoxblockUI:
             "lookup_csv": tk.BooleanVar(value=settings.get("lookup_csv", False)),
             "usb_drive_check_on_mount": tk.BooleanVar(value=settings.get("usb_drive_check_on_mount", False)),
             "usb_drive_tests": tk.StringVar(value=settings.get("usb_drive_tests", "")),
-            "skip_encoding": tk.BooleanVar(value=settings.get("skip_encoding", False))
+            "skip_encoding": tk.BooleanVar(value=settings.get("skip_encoding", False)),
+            "write_image_mode": tk.BooleanVar(value=self.settings.get("write_image_mode", False)),
         }
         past_master = settings.get("past_master",{})
         self.draft_vars = {
@@ -164,7 +165,11 @@ class VoxblockUI:
         ############ ROW 8
         # Create Button
         self.create_master_button = tk.Button(self.root, text="Create Master", command=self.create)
-        self.create_master_button.grid(row=8, column=0, columnspan=2)
+        self.create_master_button.grid(row=8, column=0, columnspan=1)
+
+        self.write_master_button = tk.Checkbutton( self.root, text="Write existing image by ISBN (wait for block)", variable=self.ui_state["write_image_mode"]
+        ).grid(row=8, column=1, sticky='w')  # adjust row/column for your layout
+
         # Check Button
         self.check_master_button = tk.Button(self.root, text="Check Master", command=self.check)
         self.check_master_button.grid(row=8, column=2, columnspan=2)
@@ -202,6 +207,42 @@ class VoxblockUI:
         setup_logging(self.log_text)
 
     def create(self):
+        # EITHER CREATING BLOCK FROM IMG FILE
+        if self.ui_state["write_image_mode"].get():
+            isbn = self.draft_vars["isbn"].get()
+            if not isbn:
+                messagebox.showerror("Missing ISBN", "Scan or enter an ISBN first.")
+                return
+            try:
+                image_path = self._image_path_from_isbn(isbn)
+            except Exception as e:
+                logging.error(e)
+                messagebox.showerror("Image not found", str(e))
+                return
+
+            messagebox.showinfo(
+                "Waiting for block",
+                "Now plug in the block. I’ll start writing as soon as it’s detected."
+            )
+            # Wait for *new* drive
+            mountpoint, usb_drive = self.usb_hub.wait_for_new_drive(timeout=None)  # block until found
+            if not usb_drive:
+                messagebox.showerror("No drive", "No drive detected.")
+                return
+
+            try:
+                logging.info(f"Writing {image_path} to {mountpoint}")
+                usb_drive.write_disk_image(str(image_path))
+                messagebox.showinfo("Done", f"Image written to {mountpoint}")
+            except Exception as e:
+                logging.exception("Write failed")
+                messagebox.showerror("Write failed", str(e))
+            finally:
+                # (optional) eject here if you like:
+                # self.usb_hub.eject_disk(usb_drive.device_path)
+                pass
+            return  # IMPORTANT: do not fall through to normal master creation
+        # OR CREATING NEW IMG FILE FROM INPUTS   
         input_folder = self.get_input_folder()
         if input_folder:
             self.draft.input_folder = self.get_input_folder()
@@ -267,6 +308,19 @@ class VoxblockUI:
                 return None
         else:
             return input_folder
+
+    def _image_path_from_isbn(self, isbn: str) -> Path:
+        # self.config.books is a dict keyed by ISBN, loaded from config/books.csv
+        row = self.config.books.get(str(isbn))
+        if not row:
+            raise FileNotFoundError(f"ISBN {isbn} not found in books.csv")
+        sku = row.get("SKU")
+        if not sku:
+            raise FileNotFoundError(f"SKU missing for ISBN {isbn} in books.csv")
+        p = Path(self.settings["output_folder"]) / sku / "image" / f"{sku}.img"
+        if not p.exists():
+            raise FileNotFoundError(f"Image not found: {p}")
+        return p
 
     def refresh_ui(self):
         """Refresh the UI after a Master instance is replaced."""
@@ -380,7 +434,7 @@ class VoxblockUI:
         self.settings['find_isbn_folder'] = self.ui_state["find_isbn_folder"].get()
         self.settings['lookup_csv'] = self.ui_state["lookup_csv"].get()
         self.settings['skip_encoding'] = self.ui_state["skip_encoding"].get()
-
+        self.settings["write_image_mode"] = self.ui_state["write_image_mode"].get()
         self.settings['usb_drive_check_on_mount'] = self.ui_state["usb_drive_check_on_mount"].get()
         self.settings['usb_drive_tests'] = self.ui_state["usb_drive_tests"].get()  # Save as a string
 

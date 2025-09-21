@@ -19,7 +19,8 @@ DEFAULT_SETTINGS = {
     "manual_data": False,
     "lookup_csv": False,
     "find_isbn_folder": False,
-    "skip_encoding": False
+    "skip_encoding": False,
+    "write_image_mode": False
 }
 
 def load_settings():

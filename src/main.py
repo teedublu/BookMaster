@@ -2,6 +2,8 @@
 Main entry point for the application.
 Initializes logging, loads configuration, and starts the application.
 """
+from dotenv import load_dotenv
+load_dotenv()  # this reads .env into os.environ
 
 import argparse
 import logging
@@ -13,6 +15,8 @@ from utils.custom_logging import setup_logging
 from settings import (
     load_settings, save_settings
 )
+
+
 
 def start_app(debug=False):
     

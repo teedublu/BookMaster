@@ -4,6 +4,7 @@ import logging
 import shutil
 import fnmatch
 from pathlib import Path
+from utils import claim_unique_slot_and_log
 
 class DiskImage:
     """
@@ -43,6 +44,9 @@ class DiskImage:
 
         # **3. Copy files to the FAT filesystem without mounting**
         self.copy_files_to_image(image_path, master_root)
+
+        # **4. Adjust to a unique size for tracking purposes **
+        claim_unique_slot_and_log(image_path=image_path, sku=sku)
 
         # Log final disk image size
         final_size_bytes = os.path.getsize(image_path)
