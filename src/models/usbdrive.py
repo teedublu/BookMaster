@@ -159,7 +159,7 @@ class USBDrive:
         logging.warning(f"Could not find device path for {self.mountpoint}")
         return None
 
-    def write_disk_image(self, image_path, use_sudo=False):
+    def write_disk_image(self, image_path, use_sudo=True):
         """
         Writes the provided disk image to the USB drive using 'dd'.
 
