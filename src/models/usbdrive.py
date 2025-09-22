@@ -13,6 +13,10 @@ from pathlib import Path
 from utils import MasterValidator
 from models import MasterDraft  # Import Master class
 
+DD_SUMMARY_RE = re.compile(
+    r"(?P<bytes>\d+)\s+bytes transferred in\s+(?P<secs>[0-9.]+)\s+secs\s+\((?P<bps>\d+)\s+bytes/sec\)"
+)
+
 class USBDrive:
     def __init__(self, mountpoint, device_path=None, ui_context=None):
         """
@@ -155,7 +159,7 @@ class USBDrive:
         logging.warning(f"Could not find device path for {self.mountpoint}")
         return None
 
-    def write_disk_image(self, image_path, use_sudo=True):
+    def write_disk_image(self, image_path, use_sudo=False):
         """
         Writes the provided disk image to the USB drive using 'dd'.
 
@@ -168,13 +172,19 @@ class USBDrive:
             RuntimeError: If an error occurs during writing.
         """
         # Validate image file
-        if not os.path.isfile(image_path):
+
+        image_path = Path(image_path)
+
+        # Validate
+        if not image_path.is_file():
             raise ValueError(f"The image file does not exist: {image_path}")
-        if not image_path.endswith(".img"):
+        if image_path.suffix.lower() != ".img":
             raise ValueError("The provided image path does not have a .img extension.")
 
         if not self.device_path:
             raise RuntimeError("Could not determine the raw device path.")
+
+        image_str = str(image_path)
 
         try:
             # Unmount USB drive to prevent conflicts
@@ -182,11 +192,11 @@ class USBDrive:
             subprocess.run(["diskutil", "unmountDisk", self.device_path], check=True)
 
             # Write the .img to the raw device, NOT the mountpoint
-            logging.info(f"Writing image {image_path} to {self.device_path}...")
+            logging.info(f"Writing image {image_str} to {self.device_path}...")
 
             dd_command = [
                 "dd",
-                f"if={image_path}",
+                f"if={image_str}",
                 f"of={self.device_path}",  # Use the raw device path
                 "bs=4M",
                 "status=progress"
@@ -195,9 +205,21 @@ class USBDrive:
             if use_sudo:
                 dd_command.insert(0, "sudo")
 
-            subprocess.run(dd_command, check=True)
+            proc = subprocess.run(dd_command, check=True, capture_output=True, text=True)
 
-            logging.info("Disk image written successfully.")
+            if proc.returncode != 0:
+                raise RuntimeError(proc.stderr or proc.stdout)
+
+            m = DD_SUMMARY_RE.search(proc.stderr)
+            if not m:
+                raise RuntimeError("Could not parse dd output for write speed")
+
+            dd_bytes = int(m.group("bytes"))
+            dd_secs = float(m.group("secs"))
+            dd_bps = int(m.group("bps"))
+            dd_MBps = dd_bps / (1024 * 1024)
+
+            logging.info(f"Disk image written successfully at {dd_MBps: .0f} MBps.")
 
         except subprocess.CalledProcessError as e:
             logging.error(f"Command failed: {e.cmd}")

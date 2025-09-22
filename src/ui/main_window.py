@@ -39,6 +39,7 @@ class VoxblockUI:
             "usb_drive_check_on_mount": tk.BooleanVar(value=settings.get("usb_drive_check_on_mount", False)),
             "usb_drive_tests": tk.StringVar(value=settings.get("usb_drive_tests", "")),
             "skip_encoding": tk.BooleanVar(value=settings.get("skip_encoding", False)),
+            "skip_image_creation": tk.BooleanVar(value=settings.get("skip_image_creation", False)),
             "write_image_mode": tk.BooleanVar(value=self.settings.get("write_image_mode", False)),
         }
         past_master = settings.get("past_master",{})
@@ -116,11 +117,12 @@ class VoxblockUI:
         ############ ROW 0
         # Input Folder
         tk.Label(self.root, text="Input Folder:").grid(row=0, column=0, sticky='w')
-        tk.Entry(self.root, textvariable=self.draft_vars["input_folder"]).grid(row=0, column=1, columnspan=2, sticky='we')
+        tk.Entry(self.root, textvariable=self.draft_vars["input_folder"]).grid(row=0, column=1, columnspan=1, sticky='we')
         tk.Button(self.root, text="Browse", command=lambda: self.browse_folder(self.draft_vars["input_folder"])).grid(row=0, column=3, sticky='w')
         
         ############ ROW 1
         
+        tk.Checkbutton(self.root, text="Skip Image Creation", variable=self.ui_state["skip_image_creation"]).grid(row=1, column=2, sticky='w')
         tk.Checkbutton(self.root, text="Skip encoding", variable=self.ui_state["skip_encoding"]).grid(row=1, column=3, sticky='w')
 
         ############ ROW 3
@@ -167,7 +169,7 @@ class VoxblockUI:
         self.create_master_button = tk.Button(self.root, text="Create Master", command=self.create)
         self.create_master_button.grid(row=8, column=0, columnspan=1)
 
-        self.write_master_button = tk.Checkbutton( self.root, text="Write existing image by ISBN (wait for block)", variable=self.ui_state["write_image_mode"]
+        self.write_master_button = tk.Checkbutton( self.root, text="Write image to block", variable=self.ui_state["write_image_mode"]
         ).grid(row=8, column=1, sticky='w')  # adjust row/column for your layout
 
         # Check Button
@@ -207,64 +209,45 @@ class VoxblockUI:
         setup_logging(self.log_text)
 
     def create(self):
-        # EITHER CREATING BLOCK FROM IMG FILE
-        if self.ui_state["write_image_mode"].get():
-            isbn = self.draft_vars["isbn"].get()
-            if not isbn:
-                messagebox.showerror("Missing ISBN", "Scan or enter an ISBN first.")
-                return
-            try:
-                image_path = self._image_path_from_isbn(isbn)
-            except Exception as e:
-                logging.error(e)
-                messagebox.showerror("Image not found", str(e))
-                return
-
-            messagebox.showinfo(
-                "Waiting for block",
-                "Now plug in the block. I’ll start writing as soon as it’s detected."
-            )
-            # Wait for *new* drive
-            mountpoint, usb_drive = self.usb_hub.wait_for_new_drive(timeout=None)  # block until found
-            if not usb_drive:
-                messagebox.showerror("No drive", "No drive detected.")
-                return
-
-            try:
-                logging.info(f"Writing {image_path} to {mountpoint}")
-                usb_drive.write_disk_image(str(image_path))
-                messagebox.showinfo("Done", f"Image written to {mountpoint}")
-            except Exception as e:
-                logging.exception("Write failed")
-                messagebox.showerror("Write failed", str(e))
-            finally:
-                # (optional) eject here if you like:
-                # self.usb_hub.eject_disk(usb_drive.device_path)
-                pass
-            return  # IMPORTANT: do not fall through to normal master creation
-        # OR CREATING NEW IMG FILE FROM INPUTS   
+     
         input_folder = self.get_input_folder()
-        if input_folder:
-            self.draft.input_folder = self.get_input_folder()
-            self.draft.skip_encoding = self.ui_state["skip_encoding"].get()
-            output_path = Path(self.settings["output_folder"])
-            errors = self.draft.validate()
-            if errors:
-                logging.error(f"Invalid Input Folder {errors}")
-                return
+        output_path = Path(self.settings["output_folder"])
+        use_existing_img = self.ui_state["skip_image_creation"].get()
+        skip_encoding = self.ui_state["skip_encoding"].get()
+        write_mode = self.ui_state["write_image_mode"].get()
+
+        self.draft.input_folder = input_folder
+        self.draft.skip_encoding = skip_encoding
+        
+        errors = self.draft.validate()
+        if not errors:
+            if use_existing_img:
+                master_image_file = self.draft.image_file_path
+                logging.debug(f"Draft image file should be {master_image_file}")
             else:
                 self.draft.load_tracks()
                 self.master = self.draft.to_master(output_path)
-                
+                master_image_file = self.master.image_file
 
-            selected_index = self.usb_listbox.curselection()
-            if selected_index:
-                selected_drive = self.usb_listbox.get(selected_index[0])
-                if selected_drive in self.usb_hub.drives and false: #blocked for now!!!!!!!!!!!!!!!!!!!!!
-                    usb_drive = self.usb_hub.drives[selected_drive]
-                    usb_drive.write_disk_image(self.master.image_file)
+            if write_mode:
+                if not master_image_file:
+                    raise ValueError("Draft image path is None.")
+                    return
+                selected_index = self.usb_listbox.curselection()
+                if selected_index:
+                    selected_drive = self.usb_listbox.get(selected_index[0])
+                    if selected_drive in self.usb_hub.drives:
+                        usb_drive = self.usb_hub.drives[selected_drive]
+                        usb_drive.test_speed()
+                        usb_drive.write_disk_image(master_image_file)
+
+
+            
+
         else:
-            logging.error(f"Input folder {input_folder} not found")
+            logging.error(f"Invalid Draft {errors}")
+            return
+
                 
     def check(self):
         # path = "/Users/thomaswilliams/Documents/VoxblockMaster/output/BK-74107-CLAE/master"
@@ -434,6 +417,7 @@ class VoxblockUI:
         self.settings['find_isbn_folder'] = self.ui_state["find_isbn_folder"].get()
         self.settings['lookup_csv'] = self.ui_state["lookup_csv"].get()
         self.settings['skip_encoding'] = self.ui_state["skip_encoding"].get()
+        self.settings['skip_image_creation'] = self.ui_state["skip_image_creation"].get()
         self.settings["write_image_mode"] = self.ui_state["write_image_mode"].get()
         self.settings['usb_drive_check_on_mount'] = self.ui_state["usb_drive_check_on_mount"].get()
         self.settings['usb_drive_tests'] = self.ui_state["usb_drive_tests"].get()  # Save as a string

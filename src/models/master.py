@@ -259,7 +259,7 @@ class Master:
 
         self.logger.info(f"Disk image written to {self.image_path}, {self.image_file}")
 
-        if usb_drive and false: #Blocked for now so not to write to any disk in dock
+        if usb_drive :
             self.logger.info(f"Attempting to write {self.image_file} to USB {usb_drive}")
             usb_drive.write_disk_image(self.image_file) 
     

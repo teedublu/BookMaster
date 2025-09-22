@@ -20,6 +20,7 @@ DEFAULT_SETTINGS = {
     "lookup_csv": False,
     "find_isbn_folder": False,
     "skip_encoding": False,
+    "skip_image_creation": False,
     "write_image_mode": False
 }
 

@@ -70,6 +70,21 @@ class MasterDraft:
         instance.reset_metadata_fields()
         return instance
 
+    @property
+    def image_file_path(self) -> Path | None:
+        """
+        Return the expected image file path based on the draft's SKU.
+        Looks for ./<sku>/image/<sku>.img and returns it if it exists,
+        else returns None.
+        """
+        if not getattr(self, "sku", None):
+            raise ValueError("Draft has no SKU set — cannot resolve image path.")
+        
+        output_path = Path(self.settings["output_folder"])
+        img_path = output_path / self.sku / "image" / f"{self.sku}.img"
+        return img_path if img_path.exists() else None
+
+
     def load_tracks(self):
         """Loads the raw input tracks provided by the publisher."""
         logging.info(f"Loading Tracks '{self.input_folder}'")
