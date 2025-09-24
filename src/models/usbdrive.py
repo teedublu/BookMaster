@@ -6,16 +6,15 @@ import time
 import threading
 import subprocess
 import pathlib
-import hashlib
+import hashlib, shlex
 from natsort import natsorted
 from utils import compute_sha256
 from pathlib import Path
 from utils import MasterValidator
 from models import MasterDraft  # Import Master class
 
-DD_SUMMARY_RE = re.compile(
-    r"(?P<bytes>\d+)\s+bytes transferred in\s+(?P<secs>[0-9.]+)\s+secs\s+\((?P<bps>\d+)\s+bytes/sec\)"
-)
+_SLICE_RE = re.compile(r"^/dev/r?disk(\d+)(s\d+)?$")
+DD_SUMMARY_RE = re.compile(r"(?P<bytes>\d+)\s+bytes transferred in\s+(?P<secs>[0-9.]+)\s+secs\s+\((?P<bps>\d+)\s+bytes/sec\)")
 
 class USBDrive:
     def __init__(self, mountpoint, device_path=None, ui_context=None):
@@ -145,7 +144,18 @@ class USBDrive:
         logging.debug(f"✅ Drive Properties for {mountpoint}: {properties}")
         return properties
 
-    def get_device_path(self):
+    def _normalize_to_raw_whole(devnode: str) -> str | None:
+        """
+        Accepts /dev/disk4, /dev/rdisk4, /dev/disk4s1, /dev/rdisk4s1
+        Returns /dev/rdisk4 (raw whole disk) or None if unrecognized.
+        """
+        m = _SLICE_RE.match(devnode)
+        if not m:
+            return None
+        num = m.group(1)
+        return f"/dev/rdisk{num}"
+
+    def get_device_pathOLD(self):
         """
         Find the raw device path corresponding to this mountpoint.
 
@@ -158,6 +168,110 @@ class USBDrive:
 
         logging.warning(f"Could not find device path for {self.mountpoint}")
         return None
+
+    def get_device_path(self) -> str | None:
+        """
+        macOS only: map this mountpoint -> /dev/rdiskX (whole disk).
+        """
+        try:
+            result = subprocess.run(
+                ["diskutil", "info", self.mountpoint],
+                capture_output=True, text=True, check=True
+            )
+            dev_node = None
+            for line in result.stdout.splitlines():
+                logging.debug(f" {line}")
+                if line.strip().startswith("Device Node:"):
+                    dev_node = line.split(":", 1)[1].strip()
+                    break
+
+            if not dev_node:
+                logging.warning(f"diskutil did not report a Device Node for {self.mountpoint}")
+                return None
+
+            raw_whole = _normalize_to_raw_whole(dev_node)
+            if raw_whole and os.path.exists(raw_whole):
+                return raw_whole
+
+            return dev_node  # fallback, but may be a slice
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Failed to retrieve device path for {self.mountpoint}: {e}")
+            return None
+
+
+
+    def _normalize_to_nodes(self, devnode: str):
+        """
+        Accepts /dev/disk4, /dev/rdisk4, /dev/disk4s1, /dev/rdisk4s1
+        Returns (diskutil_node, raw_whole) -> (/dev/disk4, /dev/rdisk4)
+        """
+        m = _SLICE_RE.match(devnode)
+        if not m:
+            raise RuntimeError(f"Unrecognized device node: {devnode}")
+        num = m.group(1)
+        return f"/dev/disk{num}", f"/dev/rdisk{num}"
+
+    def write_image_with_progress(self, image_str: str, devnode: str, use_sudo: bool = True):
+        # Resolve to whole-disk nodes
+        diskutil_node, raw_whole = self._normalize_to_nodes(devnode)
+
+        # Unmount the *whole* device
+        logging.info(f"Unmounting whole device {diskutil_node} …")
+        subprocess.run(["diskutil", "unmountDisk", diskutil_node], check=True)
+
+        # Build dd command writing to the raw whole disk
+        dd_cmd = [
+            "dd",
+            f"if={image_str}",
+            f"of={raw_whole}",
+            "bs=4m",
+            "iflag=fullblock",
+            "conv=fsync",
+            "status=progress",
+        ]
+        if use_sudo:
+            # -n = non-interactive; fail immediately if sudo would prompt
+            dd_cmd = ["sudo", "-n"] + dd_cmd
+
+        logging.info("Running command: %s", " ".join(shlex.quote(x) for x in dd_cmd))
+
+        last_summary = None
+        # Stream stderr so progress is logged live
+        with subprocess.Popen(dd_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1) as proc:
+            try:
+                for line in proc.stderr:
+                    line = line.rstrip()
+                    if not line:
+                        continue
+                    logging.info("[dd] %s", line)
+                    m = DD_SUMMARY_RE.search(line)
+                    if m:
+                        last_summary = m
+                ret = proc.wait()
+                if ret != 0:
+                    # If sudo -n failed, make that obvious
+                    if use_sudo and ret == 1:
+                        logging.error("dd exited 1; sudo may have required a password. Run `sudo -v` first or disable sudo.")
+                    # Capture any remaining output
+                    err = proc.stderr.read() if proc.stderr else ""
+                    out = proc.stdout.read() if proc.stdout else ""
+                    raise RuntimeError(err or out or f"dd exited with {ret}")
+            except KeyboardInterrupt:
+                proc.terminate()
+                raise
+
+        # Sync & report speed if we saw the summary
+        subprocess.run(["sync"])
+        if last_summary:
+            dd_bytes = int(last_summary.group("bytes"))
+            dd_secs = float(last_summary.group("secs"))
+            dd_bps  = int(last_summary.group("bps"))
+            dd_MBps = dd_bps / (1024 * 1024)
+            logging.info(f"Disk image written successfully: {dd_bytes} bytes in {dd_secs:.1f}s ≈ {dd_MBps:.0f} MB/s.")
+        else:
+            logging.info("Disk image written successfully (no summary line parsed).")
+
+
 
     def write_disk_image(self, image_path, use_sudo=True):
         """
@@ -186,53 +300,7 @@ class USBDrive:
 
         image_str = str(image_path)
 
-        try:
-            # Unmount USB drive to prevent conflicts
-            logging.info(f"Unmounting device {self.device_path}...")
-            subprocess.run(["diskutil", "unmountDisk", self.device_path], check=True)
-
-            # Write the .img to the raw device, NOT the mountpoint
-            logging.info(f"Writing image {image_str} to {self.device_path}...")
-
-            dd_command = [
-                "dd",
-                f"if={image_str}",
-                f"of={self.device_path}",  # Use the raw device path
-                "bs=4M",
-                "status=progress"
-            ]
-
-            if use_sudo:
-                dd_command.insert(0, "sudo")
-
-            proc = subprocess.run(dd_command, check=True, capture_output=True, text=True)
-
-            if proc.returncode != 0:
-                raise RuntimeError(proc.stderr or proc.stdout)
-
-            m = DD_SUMMARY_RE.search(proc.stderr)
-            if not m:
-                raise RuntimeError("Could not parse dd output for write speed")
-
-            dd_bytes = int(m.group("bytes"))
-            dd_secs = float(m.group("secs"))
-            dd_bps = int(m.group("bps"))
-            dd_MBps = dd_bps / (1024 * 1024)
-
-            logging.info(f"Disk image written successfully at {dd_MBps: .0f} MBps.")
-
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Command failed: {e.cmd}")
-            logging.error(f"Error message: {e.stderr}")
-            raise RuntimeError(f"An error occurred during execution: {e}")
-
-        except KeyboardInterrupt:
-            logging.error("Process interrupted by user. Aborting write operation.")
-            raise RuntimeError("Disk image writing aborted.")
-
-        except Exception as e:
-            logging.error(f"Unexpected error: {e}")
-            raise RuntimeError(f"An unexpected error occurred: {e}")
+        self.write_image_with_progress(image_str, self.device_path, use_sudo=use_sudo)
 
     def is_empty(self):
         """Check if drive is empty, ignoring system files."""

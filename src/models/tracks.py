@@ -36,8 +36,6 @@ class Tracks:
         if not self.directory.exists() or not self.directory.is_dir():
             raise ValueError(f"Tracks directory missing or inaccessible: {self.directory}")
 
-        logging.debug(f"Loading Tracks from {self.directory.parent.name}/{self.directory.name}")
-
         # Get valid extensions from config (e.g., ['.mp3', '.wav'])
         valid_extensions = self.master.settings.get("valid_extensions", ['.mp3', '.wav'])
 
@@ -47,6 +45,8 @@ class Tracks:
 
         self.files = []
 
+        logging.debug(f"Loading {len(files)} Tracks from {self.directory.parent.name}/{self.directory.name}")
+
         for index, file in enumerate(files, start=1):
             try:
                 track = Track(file, index, self.audio_params, self.tests, **{
@@ -55,6 +55,7 @@ class Tracks:
                     "isbn": self.master.isbn,
                     "sku": self.master.sku
                 })
+                logging.debug(f"........Loaded {file.name}")
                 self.files.append(track)
             except Exception as e:
                 logging.error(f"Failed to load Track {file.name}")

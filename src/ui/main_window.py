@@ -238,8 +238,10 @@ class VoxblockUI:
                     selected_drive = self.usb_listbox.get(selected_index[0])
                     if selected_drive in self.usb_hub.drives:
                         usb_drive = self.usb_hub.drives[selected_drive]
-                        usb_drive.test_speed()
+                        # usb_drive.test_speed()
                         usb_drive.write_disk_image(master_image_file)
+                else:
+                    logging.debug(f"No drive selected {selected_index}")
 
 
             
@@ -350,9 +352,13 @@ class VoxblockUI:
         else:
             messagebox.showerror("Error", "Selected drive not found.")
 
-    def update_usb_list(self, drives):
+    def update_usb_list(self, drivelist):
         if not hasattr(self, 'usb_listbox') or self.usb_listbox is None:
             return  # Ensure listbox exists before updating
+
+        drives = drivelist['snapshot']
+
+        logging.debug(drives)
         
         self.usb_listbox.delete(0, tk.END)
         for drive in drives:

@@ -7,174 +7,252 @@ import platform
 import hashlib
 import logging
 import traceback
+from typing import Dict, List, Callable, Optional
 from models import USBDrive
 
 class USBHub:
-    def __init__(self, callback=None, mountpoint="/Volumes"):
+    def __init__(self, callback: Optional[Callable[[dict], None]] = None,
+                 mountpoint: str = "/Volumes",
+                 poll_interval: float = 2.0):
         """
         Monitor and manage connected USB drives.
 
         Args:
-            callback (function): Function to call when drives are updated.
-            mountpoint (str): Base directory where USB drives are mounted.
-                              Defaults to '/Volumes' (macOS). Use '/media' or '/mnt' on Linux.
+            callback: Called with {"added": {mp: USBDrive}, "removed": {mp: USBDrive}, "snapshot": {mp: USBDrive}}
+                      whenever a change is detected.
+            mountpoint: Base directory where USB drives are mounted (macOS '/Volumes'; Linux '/media' or '/mnt').
+            poll_interval: Seconds between polls.
         """
         self.mountpoint = mountpoint
-        self.drives = {}
-        self.drive_list = []
-        self.callback = callback if callable(callback) else lambda x: None
-        self.lock = threading.Lock()  # Ensure thread safety
+        self.poll_interval = poll_interval
 
-        self.monitor_thread = threading.Thread(target=self.monitor_drives, daemon=True)
+        self.drives: Dict[str, USBDrive] = {}
+        self.drive_list: List[str] = []
+        self.callback = callback if callable(callback) else None
+
+        self.lock = threading.Lock()
+        self._stop = threading.Event()
+
+        self.monitor_thread = threading.Thread(target=self._monitor_loop, name="USBHubMonitor", daemon=True)
         self.monitor_thread.start()
 
         self.ui_context = None
 
+    # ----- lifecycle ---------------------------------------------------------
+
+    def stop(self, timeout: Optional[float] = 5.0):
+        """Stop the background monitoring thread."""
+        self._stop.set()
+        self.monitor_thread.join(timeout=timeout)
+
+    # ----- properties --------------------------------------------------------
+
     @property
-    def has_available_drive(self):
+    def has_available_drive(self) -> bool:
         """Check if at least one USB drive is connected."""
-        return bool(self.drives)
+        with self.lock:
+            return bool(self.drives)
 
     @property
-    def first_available_drive(self):
+    def first_available_drive(self) -> Optional[USBDrive]:
         """Return the first available USBDrive object, or None if no drive is found."""
-        return next(iter(self.drives.values()), None)
+        with self.lock:
+            return next(iter(self.drives.values()), None)
 
+    # ----- monitoring --------------------------------------------------------
 
-    def get_usb_drives(self):
+    def _monitor_loop(self):
+        try:
+            while not self._stop.is_set():
+                try:
+                    self._poll_once()
+                except Exception:
+                    logging.exception("USBHub: unhandled error during poll")
+                finally:
+                    # Sleep even on exception; allow early exit if stop is set
+                    self._stop.wait(self.poll_interval)
+        finally:
+            logging.debug("USBHub: monitor stopped")
+
+    def _poll_once(self):
+        current_drives = self.get_usb_drives()  # {mountpoint: USBDrive}
+
+        with self.lock:
+            prev = self.drives
+            added = {mp: drv for mp, drv in current_drives.items() if mp not in prev}
+            removed = {mp: drv for mp, drv in prev.items() if mp not in current_drives}
+
+            if not added and not removed:
+                # logging.debug("USBHub: no changes detected; polling…")
+                return
+
+            # Apply updates
+            for mp, drv in added.items():
+                logging.info("🔌 New drive: %s (%s)", mp, getattr(drv, "device_path", ""))
+                self.drives[mp] = drv
+
+            for mp in list(removed.keys()):
+                logging.info("💨 Drive removed: %s", mp)
+                self.drives.pop(mp, None)
+
+            # Refresh presentation list
+            self.drive_list = list(self.drives.keys())
+            snapshot = dict(self.drives)
+
+        # Fire callback OUTSIDE the lock
+        if self.callback:
+            try:
+                self.callback({
+                    "added": added,
+                    "removed": removed,
+                    "snapshot": snapshot,
+                })
+            except Exception:
+                logging.exception("USBHub: callback raised an exception")
+
+    # ----- discovery ---------------------------------------------------------
+
+    def get_usb_drives(self) -> Dict[str, USBDrive]:
         """
         Detect connected USB drives and return them as a dictionary.
-
         Returns:
             dict: {mountpoint: USBDrive} of available drives.
         """
-        drives = {}
+        drives: Dict[str, USBDrive] = {}
 
         try:
             for part in psutil.disk_partitions(all=False):
-                if part.mountpoint.startswith(self.mountpoint) and part.fstype in ("exfat", "vfat", "msdos"):
-                    device_path = self.get_device_path(part.mountpoint)
+                # restrict to expected mount base and FAT-like filesystems we care about
+                if not part.mountpoint.startswith(self.mountpoint):
+                    continue
+                if part.fstype.lower() not in ("exfat", "vfat", "msdos", "fat", "fat32"):
+                    continue
 
-                    if device_path:
-                        if part.mountpoint in self.drives:
-                            # Reuse existing USBDrive instance
-                            drives[part.mountpoint] = self.drives[part.mountpoint]
-                        else:
-                            # Create new USBDrive instance only for newly detected drives
-                            logging.debug(f"Creating new USB drive: {part.mountpoint} _ {device_path} ")
+                device_path = self.get_device_path(part.mountpoint)
+                if not device_path:
+                    continue
 
-                            print(f"USBHub ui_context : {self.ui_context}, type: {type(self.ui_context)}")
-
-                            drives[part.mountpoint] = USBDrive(part.mountpoint, device_path, self.ui_context)
+                # Reuse existing instance where possible
+                if part.mountpoint in self.drives:
+                    drives[part.mountpoint] = self.drives[part.mountpoint]
+                else:
+                    logging.debug(f"USBHub: creating USBDrive for {part.mountpoint} @ {device_path}")
+                    drv = USBDrive(part.mountpoint, device_path, self.ui_context)
+                    drives[part.mountpoint] = drv
 
         except Exception as e:
             tb = traceback.extract_tb(e.__traceback__)[-1]
-            logging.debug(f"Error getting USB drives at {tb.filename}:{tb.lineno}: {e}")
+            logging.debug(f"USBHub: error getting USB drives at {tb.filename}:{tb.lineno}: {e}")
 
         return drives
 
-    def monitor_drives(self):
-        """Continuously monitor for USB insertions/removals."""
-        while True:
-            with self.lock:
-                current_drives = self.get_usb_drives()
-                new_drives = {d: drive for d, drive in current_drives.items() if d not in self.drives}
-                removed_drives = {d: drive for d, drive in self.drives.items() if d not in current_drives}
+    def get_snapshot(self) -> List[USBDrive]:
+        """Return a copy of the current drive objects."""
+        with self.lock:
+            return list(self.drives.values())
 
-                # Update stored drives (only modifying what's needed)
-                for mountpoint, drive in new_drives.items():
-                    print(f"🔌 New drive detected: {mountpoint}")
-                    self.drives[mountpoint] = drive  # Store the new drive
+    # ----- helpers -----------------------------------------------------------
 
-                for mountpoint in removed_drives:
-                    print(f"💨 Drive removed: {mountpoint}")
-                    del self.drives[mountpoint]  # Remove disconnected drives
-
-                self.update_drive_list()
-
-            time.sleep(5)  # Polling interval
-
-    
-
-
-    def get_device_path(self, mountpoint):
+    def get_device_path(self, mountpoint: str) -> Optional[str]:
         """
-        Find the raw device path corresponding to a given mountpoint.
-
-        Args:
-            mountpoint (str): The filesystem path (e.g., '/Volumes/MyUSB').
-
-        Returns:
-            str: The raw device path (e.g., '/dev/disk2') or None if not found.
+        Find the raw device path corresponding to a given mountpoint (macOS).
+        Returns '/dev/rdiskX' when available for faster raw I/O; falls back to '/dev/diskX'.
         """
+        if platform.system() != "Darwin":
+            # On Linux you could resolve from /proc/mounts or lsblk; keep your previous approach if needed.
+            return None
+
         try:
             result = subprocess.run(
                 ["diskutil", "info", mountpoint],
                 capture_output=True, text=True, check=True
             )
+            dev_node = None
             for line in result.stdout.splitlines():
-                if "Device Node" in line:
-                    return line.split(":")[-1].strip()
+                if "Device Node:" in line:
+                    dev_node = line.split(":", 1)[-1].strip()
+                    break
+            if not dev_node:
+                return None
+
+            # Prefer raw device if present (rdiskX)
+            raw = dev_node.replace("/dev/disk", "/dev/rdisk")
+            if os.path.exists(raw):
+                return raw
+            return dev_node
         except subprocess.CalledProcessError as e:
-            logging.error(f"Failed to retrieve device path for {mountpoint}: {e}")
-        return None  # Return None if the device path couldn't be determined
+            logging.error(f"USBHub: failed to retrieve device path for {mountpoint}: {e}")
+            return None
 
     def update_drive_list(self):
-        """Update the drive list and notify the UI."""
-        self.drive_list = list(self.drives.keys())
-        self.callback(self.drive_list)  # Notify UI of changes
+        """Kept for backward-compat; prefer callback payload from _poll_once."""
+        with self.lock:
+            self.drive_list = list(self.drives.keys())
+            payload = {"added": {}, "removed": {}, "snapshot": dict(self.drives)}
+        if self.callback:
+            try:
+                self.callback(payload)
+            except Exception:
+                logging.exception("USBHub: callback raised in update_drive_list")
 
-    def get_drive_list(self):
-        """Expose the list of connected drives."""
-        return self.drive_list
+    def get_drive_list(self) -> List[str]:
+        """Expose the list of connected drive mountpoints."""
+        with self.lock:
+            return list(self.drive_list)
 
-    def eject_disk(disk_identifier):
+    # ----- device ops (static) ----------------------------------------------
+
+    @staticmethod
+    def eject_disk(disk_identifier: str) -> bool:
         """
         Ejects a disk on macOS using diskutil.
-        
-        :param disk_identifier: The identifier of the disk (e.g., "disk2", "disk3s1").
-        :return: True if successful, False otherwise.
+        :param disk_identifier: The identifier of the disk (e.g., 'disk2' or 'disk3s1').
         """
         try:
-            result = subprocess.run(["diskutil", "eject", disk_identifier], capture_output=True, text=True, check=True)
-            print(result.stdout.strip())
+            result = subprocess.run(
+                ["diskutil", "eject", disk_identifier],
+                capture_output=True, text=True, check=True
+            )
+            logging.info(result.stdout.strip())
             return True
         except subprocess.CalledProcessError as e:
-            print(f"Error ejecting {disk_identifier}: {e.stderr.strip()}")
+            logging.error(f"Error ejecting {disk_identifier}: {e.stderr.strip()}")
             return False
-            
-    def erase_removable_drive(device_path, filesystem="exfat", label="USB_DRIVE"):
+
+    @staticmethod
+    def erase_removable_drive(device_path: str, filesystem: str = "exfat", label: str = "USB_DRIVE") -> bool:
         """
         Erases a removable drive and formats it with the specified filesystem.
-
-        Args:
-            device_path (str): The raw device path (e.g., '/dev/disk2' on macOS, '/dev/sdb' on Linux).
-            filesystem (str): Filesystem type (default: 'exfat').
-            label (str): Volume label after formatting (default: 'USB_DRIVE').
-
-        Returns:
-            bool: True if successful, False otherwise.
+        On macOS, uses diskutil; on Linux, uses mkfs.* tools.
         """
         system_os = platform.system()
 
         try:
-            # Step 1: Unmount the drive
+            # 1) Unmount whole device
             logging.info(f"Unmounting {device_path}...")
-            if system_os == "Darwin":  # macOS
+            if system_os == "Darwin":
                 subprocess.run(["diskutil", "unmountDisk", device_path], check=True)
             elif system_os == "Linux":
                 subprocess.run(["umount", device_path], check=True)
 
-            # Step 2: Format the drive
+            # 2) Format
             logging.info(f"Formatting {device_path} as {filesystem}...")
-            if system_os == "Darwin":  # macOS
-                subprocess.run(["diskutil", "eraseDisk", filesystem, label, device_path], check=True)
+            if system_os == "Darwin":
+                # NOTE: For super-floppy (no partition table), prefer newfs_msdos directly:
+                #   sudo newfs_msdos -F 32 -v <LABEL> /dev/rdiskX
+                if filesystem.lower() in ("msdos", "fat", "fat32", "vfat"):
+                    raw = device_path.replace("/dev/disk", "/dev/rdisk")
+                    subprocess.run(["newfs_msdos", "-F", "32", "-v", label, raw], check=True)
+                else:
+                    subprocess.run(["diskutil", "eraseDisk", filesystem, label, device_path], check=True)
+
             elif system_os == "Linux":
-                if filesystem.lower() == "exfat":
+                fs = filesystem.lower()
+                if fs == "exfat":
                     subprocess.run(["mkfs.exfat", "-n", label, device_path], check=True)
-                elif filesystem.lower() == "vfat":
+                elif fs in ("vfat", "fat", "fat32", "msdos"):
                     subprocess.run(["mkfs.vfat", "-n", label, device_path], check=True)
-                elif filesystem.lower() == "ext4":
+                elif fs == "ext4":
                     subprocess.run(["mkfs.ext4", "-L", label, device_path], check=True)
                 else:
                     logging.error(f"Unsupported filesystem: {filesystem}")
@@ -187,5 +265,11 @@ class USBHub:
             logging.error(f"Error erasing drive {device_path}: {e}")
             return False
 
+
 if __name__ == "__main__":
     hub = USBHub()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        hub.stop()
