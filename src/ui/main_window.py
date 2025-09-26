@@ -117,7 +117,7 @@ class VoxblockUI:
         ############ ROW 0
         # Input Folder
         tk.Label(self.root, text="Input Folder:").grid(row=0, column=0, sticky='w')
-        tk.Entry(self.root, textvariable=self.draft_vars["input_folder"]).grid(row=0, column=1, columnspan=1, sticky='we')
+        tk.Entry(self.root, textvariable=self.draft_vars["input_folder"]).grid(row=0, column=1, columnspan=2, sticky='we')
         tk.Button(self.root, text="Browse", command=lambda: self.browse_folder(self.draft_vars["input_folder"])).grid(row=0, column=3, sticky='w')
         
         ############ ROW 1
@@ -172,30 +172,30 @@ class VoxblockUI:
         self.write_master_button = tk.Checkbutton( self.root, text="Write image to block", variable=self.ui_state["write_image_mode"]
         ).grid(row=8, column=1, sticky='w')  # adjust row/column for your layout
 
-        # Check Button
-        self.check_master_button = tk.Button(self.root, text="Check Master", command=self.check)
-        self.check_master_button.grid(row=8, column=2, columnspan=2)
-
+        
         ############ ROW 9
         # Webcam panel
         self.webcam_frame = tk.LabelFrame(self.root, borderwidth=2, relief="groove", text="Webcam")
         self.webcam_frame.grid(row=9, column=0, columnspan=2, padx=10, pady=10, sticky="nsew")
+        
         # USB Drives Panel
         self.usbdrives_frame = tk.LabelFrame(self.root, borderwidth=2, relief="groove", text="Waiting for USB devices...")
         self.usbdrives_frame.grid(row=9, column=2, columnspan=1, padx=10, pady=10, sticky="nsew")
         self.usb_listbox = tk.Listbox(self.usbdrives_frame, height=5)
         self.usb_listbox.grid(row=0, column=0, rowspan=10, sticky='w')
+        
 
-        tk.Checkbutton(self.usbdrives_frame, text="Check on mount", variable=self.usb_drive_check_on_mount).grid(row=0, column=1, sticky='w')
-        # tk.Checkbutton(self.usbdrives_frame, text="Silence", variable=self.usb_drive_tests_silence).grid(row=1, column=1, sticky='w')
-        # tk.Checkbutton(self.usbdrives_frame, text="Loudness", variable=self.usb_drive_tests_loudness).grid(row=2, column=1, sticky='w')
-        # tk.Checkbutton(self.usbdrives_frame, text="Metadata", variable=self.usb_drive_tests_metadata).grid(row=3, column=1, sticky='w')
-        # tk.Checkbutton(self.usbdrives_frame, text="Frames", variable=self.usb_drive_tests_frames).grid(row=4, column=1, sticky='w')
-        # tk.Checkbutton(self.usbdrives_frame, text="Speed", variable=self.usb_drive_tests_speed).grid(row=5, column=1, sticky='w')
-
+        # USB Checks Panel
+        self.usbchecks_frame = tk.LabelFrame(self.root, borderwidth=2, relief="groove", text="Checks to run...")
+        self.usbchecks_frame.grid(row=9, column=3, columnspan=1, padx=10, pady=10, sticky="nsew")
+        # Check Button
+        self.check_master_button = tk.Button(self.usbchecks_frame, text="Check Master", command=self.check)
+        self.check_master_button.grid(row=1, column=1)
+        tk.Checkbutton(self.usbchecks_frame, text="Check on mount", variable=self.usb_drive_check_on_mount).grid(row=0, column=1, sticky='w')
         for i, test in enumerate(self.available_tests):
-            tk.Checkbutton(self.usbdrives_frame, text=test, variable=self._checkbox_vars[test], command=self.update_selected_tests).grid(row=i+1, column=1, sticky='w')
+            tk.Checkbutton(self.usbchecks_frame, text=test, variable=self._checkbox_vars[test], command=self.update_selected_tests).grid(row=i+2, column=1, sticky='w')
 
+        
 
         ############ ROW 10
         self.video_label = tk.Label(self.webcam_frame, relief='solid', borderwidth=2)
@@ -219,7 +219,8 @@ class VoxblockUI:
         self.draft.input_folder = input_folder
         self.draft.skip_encoding = skip_encoding
         
-        errors = self.draft.validate()
+        errors = self.draft.validate(use_existing_img=use_existing_img)
+
         if not errors:
             if use_existing_img:
                 master_image_file = self.draft.image_file_path
@@ -242,10 +243,6 @@ class VoxblockUI:
                         usb_drive.write_disk_image(master_image_file)
                 else:
                     logging.debug(f"No drive selected {selected_index}")
-
-
-            
-
         else:
             logging.error(f"Invalid Draft {errors}")
             return
@@ -272,11 +269,8 @@ class VoxblockUI:
                 tests = self.available_tests
                 self.draft.input_folder = usb_drive.mountpoint
                 
-                print (self.draft.validate())
                 # self.candidate_master = MasterDraft
                 self.candidate_master = Master.from_device(self.config, self.settings, usb_drive.mountpoint, tests) #from_device defines the checks to be made
-
-
 
         else:
             logging.warning(f"No usb drive selected")

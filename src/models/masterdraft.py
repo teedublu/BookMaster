@@ -78,10 +78,11 @@ class MasterDraft:
         else returns None.
         """
         if not getattr(self, "sku", None):
-            raise ValueError("Draft has no SKU set — cannot resolve image path.")
+            raise ValueError("Draft has no SKU set — cannot create image path.")
         
         output_path = Path(self.settings["output_folder"])
         img_path = output_path / self.sku / "image" / f"{self.sku}.img"
+
         return img_path if img_path.exists() else None
 
 
@@ -98,7 +99,7 @@ class MasterDraft:
         self.sku = ""
         self.duration = 0
 
-    def validate(self):
+    def validate(self, use_existing_img=None):
         errors = []
         # valid_formats = self.config.get("output_structure",None)
 
@@ -112,7 +113,12 @@ class MasterDraft:
         if not self.sku or not isinstance(self.sku, str):
             errors.append("Missing or invalid SKU")
 
+        if use_existing_img and not self.image_file_path :
+            errors.append("Missing or invalid Image path (can't skip IMG creation)")
+
         input_path = Path(self.input_folder) if self.input_folder else None
+
+
 
         # Check for presence of audio files in supported formats
         if not input_path or not input_path.exists():

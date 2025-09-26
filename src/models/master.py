@@ -257,11 +257,14 @@ class Master:
         diskimage = DiskImage(output_path=self.image_path)
         self.image_file = diskimage.create_disk_image(self.master_structure, self.sku)
 
-        self.logger.info(f"Disk image written to {self.image_path}, {self.image_file}")
+        self.logger.info(f"Disk image written to {self.image_file}")
 
         if usb_drive :
             self.logger.info(f"Attempting to write {self.image_file} to USB {usb_drive}")
             usb_drive.write_disk_image(self.image_file) 
+
+        else:
+            self.logger.info(f"No USB drive selected, not writing image file.")
     
     def load_input_tracks(self, input_folder):
         """Loads the raw input tracks provided by the publisher."""
@@ -321,6 +324,7 @@ class Master:
         processed_path = self.processed_path
         logging.debug(f"Process tracks, skip_encoding={self.skip_encoding}.")
         if self.skip_encoding:
+            logging.debug(f"Skip_encoding requested {self.skip_encoding} checking in {processed_path}.")
             self.processed_tracks = None
             if processed_path.exists() and any(processed_path.iterdir()):
                 processed_files = list(processed_path.glob("*.*"))  # Get processed files list
@@ -335,6 +339,8 @@ class Master:
                     logging.debug("Found processed path, created Tracks from processed files.")
                     self.processed_tracks.tag_all()
                     return
+            else:
+                logging.debug(f"Skip_encoding requested but {processed_path} does not exist. Encoding tracks again anyway.")
 
         # if get here then zap anything in processed path and start encoding again
         remove_folder(processed_path, self.settings, self.logger)
