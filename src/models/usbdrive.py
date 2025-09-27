@@ -166,20 +166,6 @@ class USBDrive:
         num = m.group(1)
         return f"/dev/disk{num}", f"/dev/rdisk{num}"
 
-    def get_device_pathOLD(self):
-        """
-        Find the raw device path corresponding to this mountpoint.
-
-        Returns:
-            str: The raw device path (e.g., '/dev/disk2') or None if not found.
-        """
-        for part in psutil.disk_partitions(all=True):
-            if part.mountpoint == self.mountpoint:
-                return part.device  # Example: "/dev/disk2s1"
-
-        logging.warning(f"Could not find device path for {self.mountpoint}")
-        return None
-
     def get_device_path(self) -> str | None:
         """
         macOS only: map this mountpoint -> /dev/rdiskX (whole disk).
@@ -191,7 +177,6 @@ class USBDrive:
             )
             dev_node = None
             for line in result.stdout.splitlines():
-                logging.debug(f" {line}")
                 if line.strip().startswith("Device Node:"):
                     dev_node = line.split(":", 1)[1].strip()
                     break
@@ -269,61 +254,6 @@ class USBDrive:
         if dd_stderr:
             logging.debug(f"dd process output (stderr):\n{dd_stderr.decode('utf-8')}")
 
-
-        # Build dd command writing to the raw whole disk
-        # dd_cmd = [
-        #     "dd",
-        #     f"if={image_str}",
-        #     f"of={raw_whole}",
-        #     "bs=4M",
-        #     "iflag=fullblock",
-        #     "conv=fsync",
-        # ]
-        # if use_sudo:
-        #     # -n = non-interactive; fail immediately if sudo would prompt
-        #     dd_cmd = ["sudo"] + dd_cmd
-
-        # logging.info("Running command: %s", " ".join(shlex.quote(x) for x in dd_cmd))
-
-        # last_summary = None
-        # # Stream stderr so progress is logged live
-        # with subprocess.Popen(dd_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1) as proc:
-        #     try:
-        #         for line in proc.stderr:
-        #             line = line.rstrip()
-        #             if not line:
-        #                 continue
-        #             logging.info("[dd] %s", line)
-        #             m = DD_SUMMARY_RE.search(line)
-        #             if m:
-        #                 last_summary = m
-        #         ret = proc.wait()
-        #         if ret != 0:
-        #             # If sudo -n failed, make that obvious
-        #             if use_sudo and ret == 1:
-        #                 logging.error("dd exited 1; sudo may have required a password. Run `sudo -v` first or disable sudo.")
-        #             # Capture any remaining output
-        #             err = proc.stderr.read() if proc.stderr else ""
-        #             out = proc.stdout.read() if proc.stdout else ""
-        #             raise RuntimeError(err or out or f"dd exited with {ret}")
-        #     except KeyboardInterrupt:
-        #         proc.terminate()
-        #         raise
-
-        # # Sync & report speed if we saw the summary
-        # subprocess.run(["sync"])
-        # if last_summary:
-        #     dd_bytes = int(last_summary.group("bytes"))
-        #     dd_secs = float(last_summary.group("secs"))
-        #     dd_bps  = int(last_summary.group("bps"))
-        #     dd_MBps = dd_bps / (1024 * 1024)
-        #     logging.info(f"Disk image written successfully: {dd_bytes} bytes in {dd_secs:.1f}s ≈ {dd_MBps:.0f} MB/s.")
-        # else:
-        #     logging.info("Disk image written successfully (no summary line parsed).")
-
-
-
-    
 
     def is_empty(self):
         """Check if drive is empty, ignoring system files."""

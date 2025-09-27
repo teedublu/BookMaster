@@ -39,6 +39,7 @@ class Config:
         }
 
         self.params = self.load_config()
+        logging.debug(f"Config {self.params}")
 
     def __str__(self):
         return json.dumps({
