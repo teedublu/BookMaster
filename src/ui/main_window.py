@@ -1,5 +1,5 @@
 # ui.py
-import os, csv
+import os, csv, re
 import tkinter as tk
 from tkinter import messagebox, filedialog
 from tkinter.scrolledtext import ScrolledText
@@ -10,8 +10,9 @@ from models import Master
 from utils import find_input_folder_from_isbn, parse_time_to_minutes
 from utils.custom_logging import setup_logging
 from ui.masterdraftuiwrapper import MasterDraftUIWrapper
-from models import MasterDraft, MasterValidator  # Import Master class
+from models import MasterDraft  # Import Master class
 from settings import save_settings
+from ui.write_dialog import WriteDialog
 
 class VoxblockUI:
     def __init__(self, usb_hub, config, settings):
@@ -94,6 +95,17 @@ class VoxblockUI:
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+    @property
+    def selected_drive(self):
+        """Return the selected USBDrive object, or None if nothing is selected."""
+        selected_index = self.usb_listbox.curselection()
+        if not selected_index:
+            return None
+
+        selected_drive = self.usb_listbox.get(selected_index[0])
+        return self.usb_hub.drives.get(selected_drive)
+
+
     def _on_var_change(self, key):
         """Creates a callback function for trace_add to sync UI changes with Master."""
         def callback(*args):
@@ -134,7 +146,7 @@ class VoxblockUI:
 
         # Radio button for Webcam
         self.use_webcam_field = tk.BooleanVar(value=False) 
-        tk.Checkbutton(self.root, text="Use Webcam to Detect ISBN", variable=self.use_webcam_field, command=self.toggle_webcam).grid(row=3, column=3, sticky='w')
+        tk.Checkbutton(self.root, text="Webcam ISBN", variable=self.use_webcam_field, command=self.toggle_webcam).grid(row=3, column=3, sticky='w')
 
         ############ ROW 4
         # SKU Entry
@@ -150,7 +162,7 @@ class VoxblockUI:
         tk.Label(self.root, text="Title:").grid(row=5, column=0, sticky='w')
         self.title_entry = tk.Entry(self.root, textvariable=self.draft_vars["title"], state='normal')
         self.title_entry.grid(row=5, column=1, sticky='w')
-        tk.Button(self.root, text="Batch Create from CSV", command=lambda: self.load_isbn_csv_and_create_masters()).grid(row=5, column=3, sticky='w')
+        tk.Button(self.root, text="Batch Create", command=lambda: self.load_isbn_csv_and_create_masters()).grid(row=5, column=3, sticky='w')
         
         ############ ROW 6
         # Author Entry
@@ -181,9 +193,27 @@ class VoxblockUI:
         # USB Drives Panel
         self.usbdrives_frame = tk.LabelFrame(self.root, borderwidth=2, relief="groove", text="Waiting for USB devices...")
         self.usbdrives_frame.grid(row=9, column=2, columnspan=1, padx=10, pady=10, sticky="nsew")
-        self.usb_listbox = tk.Listbox(self.usbdrives_frame, height=5)
-        self.usb_listbox.grid(row=0, column=0, rowspan=10, sticky='w')
+        self.usb_listbox = tk.Listbox(self.usbdrives_frame, height=2)
+        self.usb_listbox.grid(row=0, column=0, sticky='w')
         
+        self.usb_details = tk.LabelFrame(self.usbdrives_frame, text="Existing Content")
+        self.usb_details.grid(row=1, column=0, sticky="n", rowspan=1)
+        self._detail_vars = {
+            # "mount": tk.StringVar(),
+            # "device": tk.StringVar(),
+            "capacity": tk.StringVar(),
+            "free": tk.StringVar(),
+            "fs": tk.StringVar(),
+            "content": tk.StringVar(),
+            "files": tk.StringVar(),
+            "sku": tk.StringVar(),
+            "isbn": tk.StringVar(),
+        }
+        r = 0
+        for k in ["capacity","free","fs","content","files","sku","isbn"]:
+            tk.Label(self.usb_details, text=f"{k.capitalize()}:").grid(row=r+1, column=0, sticky="e")
+            tk.Label(self.usb_details, textvariable=self._detail_vars[k]).grid(row=r+1, column=1, sticky="w")
+            r += 1
 
         # USB Checks Panel
         self.usbchecks_frame = tk.LabelFrame(self.root, borderwidth=2, relief="groove", text="Checks to run...")
@@ -191,7 +221,7 @@ class VoxblockUI:
         # Check Button
         self.check_master_button = tk.Button(self.usbchecks_frame, text="Check Master", command=self.check)
         self.check_master_button.grid(row=1, column=1)
-        tk.Checkbutton(self.usbchecks_frame, text="Check on mount", variable=self.usb_drive_check_on_mount).grid(row=0, column=1, sticky='w')
+        tk.Checkbutton(self.usbchecks_frame, text="Check on mount", variable=self.ui_state["usb_drive_check_on_mount"]).grid(row=0, column=1, sticky='w')
         for i, test in enumerate(self.available_tests):
             tk.Checkbutton(self.usbchecks_frame, text=test, variable=self._checkbox_vars[test], command=self.update_selected_tests).grid(row=i+2, column=1, sticky='w')
 
@@ -207,6 +237,24 @@ class VoxblockUI:
         self.log_text = ScrolledText(self.root, height=30, width=100, state='normal', wrap="none")
         self.log_text.grid(row=13, column=0, columnspan=4)
         setup_logging(self.log_text)
+
+    def _populate_details(self, d):
+        info = self.selected_drive.info
+        content = self.selected_drive.content        
+        # self._detail_vars["mount"].set(str(info.mountpoint))
+        # self._detail_vars["device"].set(info.device_node)
+        self._detail_vars["capacity"].set(info.capacity_gb)
+        self._detail_vars["free"].set(info.free_gb)
+        self._detail_vars["fs"].set(info.fs_type)
+        self._detail_vars["content"].set("Valid" if info.is_valid_master else "Invalid")
+        # self._detail_vars["files"].set(info["files"])
+        # self._detail_vars["last_test"].set(info["last_test"])
+        self._detail_vars["sku"].set(content.sku)
+        self._detail_vars["isbn"].set(content.id)
+        if not info.is_valid_master:
+            logging.warning(f"Drive content is not valid master {info.is_valid_master}")
+        else:
+            logging.info(f"Drive content is valid master!")
 
     def create(self):
      
@@ -234,20 +282,18 @@ class VoxblockUI:
                 if not master_image_file:
                     raise ValueError("Draft image path is None.")
                     return
-                selected_index = self.usb_listbox.curselection()
-                if selected_index:
-                    selected_drive = self.usb_listbox.get(selected_index[0])
-                    if selected_drive in self.usb_hub.drives:
-                        usb_drive = self.usb_hub.drives[selected_drive]
-                        # usb_drive.test_speed()
-                        usb_drive.write_disk_image(master_image_file)
+                usb_drive = self.selected_drive
+                if usb_drive:
+                    # usb_drive.test_speed()
+                    # usb_drive.write_disk_image(master_image_file)
+                    WriteDialog(self.root, usb_drive, master_image_file)
+                    logging.info(f"Disk image written")
                 else:
-                    logging.debug(f"No drive selected {selected_index}")
+                    logging.warning(f"No drive selected!")
         else:
             logging.error(f"Invalid Draft {errors}")
             return
 
-                
     def check(self):
         # path = "/Users/thomaswilliams/Documents/VoxblockMaster/output/BK-74107-CLAE/master"
 
@@ -341,7 +387,7 @@ class VoxblockUI:
         selected_drive = self.usb_listbox.get(selected_index[0])
         
         if selected_drive in self.usb_hub.drives:
-            result = self.usb_hub.drives[selected_drive].get_capacity()
+            result = self.usb_hub.drives[selected_drive].capacity_gb()
             messagebox.showinfo("Drive Test", result)
         else:
             messagebox.showerror("Error", "Selected drive not found.")
@@ -351,8 +397,6 @@ class VoxblockUI:
             return  # Ensure listbox exists before updating
 
         drives = drivelist['snapshot']
-
-        logging.debug(drives)
         
         self.usb_listbox.delete(0, tk.END)
         for drive in drives:
@@ -361,6 +405,7 @@ class VoxblockUI:
         if drives:
             self.usb_listbox.selection_set(0)  # Select the first drive automatically
             self.usb_listbox.activate(0)
+            self._populate_details(self.usb_listbox)
 
         self.usbdrives_frame.config(text="Write to..." if drives else "No drives detected.")
 
@@ -422,6 +467,8 @@ class VoxblockUI:
         self.settings['usb_drive_check_on_mount'] = self.ui_state["usb_drive_check_on_mount"].get()
         self.settings['usb_drive_tests'] = self.ui_state["usb_drive_tests"].get()  # Save as a string
 
+        logging.debug(f"WTF {self.ui_state["usb_drive_check_on_mount"].get()}")
+
         self.settings['past_master'] = {
             'isbn': self.draft_vars["isbn"].get(),
             'sku': self.draft_vars["sku"].get(),
@@ -433,7 +480,7 @@ class VoxblockUI:
     def on_closing(self):
         """Saves settings and exits the application."""
         self.update_settings()  # Ensure settings are updated before saving
-        save_settings(self.settings)  # Pass app.settings instead of app
+        save_settings(self.settings)  
         self.root.destroy()
 
     # Inline lookup function

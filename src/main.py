@@ -33,7 +33,7 @@ def start_app(debug=False):
     hub = USBHub()
     main_window = VoxblockUI(hub, config, settings)
     hub.ui_context = main_window
-    
+
 
     # Start the UI (if applicable)
     main_window.run()

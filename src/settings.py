@@ -21,7 +21,8 @@ DEFAULT_SETTINGS = {
     "find_isbn_folder": False,
     "skip_encoding": False,
     "skip_image_creation": False,
-    "write_image_mode": False
+    "write_image_mode": False,
+    "usb_drive_check_on_mount": False
 }
 
 def load_settings():
@@ -41,8 +42,7 @@ def load_settings():
 
 def save_settings(settings):
     """Saves per-user UI settings."""
-    print (settings)
     
     with open(SETTINGS_FILE, 'w') as file:
         json.dump(settings, file, indent=4)
-    logging.info(f"Settings saved to {SETTINGS_FILE}")
+    logging.info(f"Settings saved to {SETTINGS_FILE} : {settings}")

@@ -92,7 +92,7 @@ class USBHub:
                 self.drives[mp] = drv
 
             for mp in list(removed.keys()):
-                logging.info("Drive removed: %s", mp)
+                logging.info("[USBHUB] Drive removed: %s", mp)
                 self.drives.pop(mp, None)
 
             # Refresh presentation list
