@@ -234,7 +234,7 @@ class VoxblockUI:
 
         ############ ROW 13
         # FEEDBACK OUTPUT
-        self.log_text = ScrolledText(self.root, height=30, width=100, state='normal', wrap="none")
+        self.log_text = ScrolledText(self.root, height=10, width=100, state='normal', wrap="none")
         self.log_text.grid(row=13, column=0, columnspan=4)
         setup_logging(self.log_text)
 
@@ -249,8 +249,8 @@ class VoxblockUI:
         self._detail_vars["content"].set("Valid" if info.is_valid_master else "Invalid")
         # self._detail_vars["files"].set(info["files"])
         # self._detail_vars["last_test"].set(info["last_test"])
-        self._detail_vars["sku"].set(content.sku)
-        self._detail_vars["isbn"].set(content.id)
+        self._detail_vars["sku"].set(getattr(content, "sku", None))
+        self._detail_vars["isbn"].set(getattr(content, "id", None))
         if not info.is_valid_master:
             logging.warning(f"Drive content is not valid master {info.is_valid_master}")
         else:

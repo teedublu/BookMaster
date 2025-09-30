@@ -102,13 +102,13 @@ class MasterValidator:
     # ----------------- checks -----------------
 
     def _system_files(self, fix_system_files):
-        # --- NEW: system files check / optional fix ---
         system_paths = self._scan_system_artifacts()
         if system_paths:
             # show short, readable relative list
             rels = [p.relative_to(self.root).as_posix() for p in system_paths]
             if fix_system_files:
                 removed, fails = self._delete_paths(system_paths)
+                logging.debug(f"removed={removed}, fails={fails}")
                 if removed:
                     # warn that we changed the filesystem
                     preview = ", ".join(rels[:10]) + (" …" if len(rels) > 10 else "")
@@ -304,6 +304,7 @@ class MasterValidator:
         """Delete files/dirs under root. Returns (removed_count, failures[relpath])."""
         removed = 0
         failures: list[str] = []
+
         for p in paths:
             # safety: ensure inside root
             try:

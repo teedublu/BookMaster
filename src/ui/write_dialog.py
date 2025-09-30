@@ -1,5 +1,6 @@
 # ui/write_dialog.py
 import tkinter as tk
+from pathlib import Path
 from tkinter import ttk, messagebox
 
 class WriteDialog(tk.Toplevel):
@@ -7,6 +8,10 @@ class WriteDialog(tk.Toplevel):
         super().__init__(parent)
         self.title("Writing image…")
         self.resizable(False, False)
+
+        if not isinstance(image_path, Path): 
+            image_path = Path(image_path)
+
 
         self.var = tk.IntVar(value=0)
         ttk.Label(self, text=f"Writing {image_path.name} to {usb_drive.device_path}").pack(padx=12, pady=(12,6))

@@ -191,7 +191,7 @@ class USBDrive:
                 return node
         return None
 
-    def _usb_node_by_locid(locid_want: str | None) -> dict | None:
+    def _usb_node_by_locid(self, locid_want: str | None) -> dict | None:
         if not locid_want:
             return None
         import json, subprocess
@@ -206,13 +206,35 @@ class USBDrive:
             for c in n.get("_items", []) or []:
                 yield from walk(c)
 
-        locid_want = _normalize_locid(locid_want)
+        locid_want = self._normalize_locid(locid_want)
         for r in roots:
             for n in walk(r):
-                loc = _normalize_locid(n.get("location_id"))
+                loc = self._normalize_locid(n.get("location_id"))
                 if loc and loc == locid_want:
                     return n
         return None
+
+
+    def _normalize_locid(self, locid: str | None) -> str | None:
+        """Normalize USB location_id strings from system_profiler."""
+        if not locid:
+            return None
+
+        locid = str(locid).strip().lower()
+
+        # Remove any " / <port>" suffix
+        if " / " in locid:
+            locid = locid.split(" / ")[0]
+
+        # Ensure hex is normalized (drop 0x, pad consistently)
+        if locid.startswith("0x"):
+            locid = locid[2:]
+
+        # Strip non-hex characters, just in case
+        locid = re.sub(r"[^0-9a-f]", "", locid)
+
+        return locid or None
+
 
     # ---------- Properties ----------
     @property
@@ -280,7 +302,7 @@ class USBDrive:
         usb_node = self._usb_node_by_bsd_name(bsd) if bsd else None
         # usb_node = self._usb_match_by_location(io_path)
         if not usb_node:
-            usb_node = _usb_node_by_locid(di.get("DeviceTreePath") or di.get("IORegistryEntryPath"))
+            usb_node = self._usb_node_by_locid(di.get("DeviceTreePath") or di.get("IORegistryEntryPath"))
 
         def norm(d, *keys):
             """Pick first present key from d and return a trimmed string or None."""
