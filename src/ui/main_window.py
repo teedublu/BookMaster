@@ -287,7 +287,6 @@ class VoxblockUI:
                     # usb_drive.test_speed()
                     # usb_drive.write_disk_image(master_image_file)
                     WriteDialog(self.root, usb_drive, master_image_file)
-                    logging.info(f"Disk image written")
                 else:
                     logging.warning(f"No drive selected!")
         else:
@@ -466,8 +465,6 @@ class VoxblockUI:
         self.settings["write_image_mode"] = self.ui_state["write_image_mode"].get()
         self.settings['usb_drive_check_on_mount'] = self.ui_state["usb_drive_check_on_mount"].get()
         self.settings['usb_drive_tests'] = self.ui_state["usb_drive_tests"].get()  # Save as a string
-
-        logging.debug(f"WTF {self.ui_state["usb_drive_check_on_mount"].get()}")
 
         self.settings['past_master'] = {
             'isbn': self.draft_vars["isbn"].get(),

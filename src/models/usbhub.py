@@ -130,6 +130,7 @@ class USBHub:
 
                 device_path = self.get_device_path(part.mountpoint)
                 if not device_path:
+                    logging.debug(f"USBHub: get_device_path is None")
                     continue
 
                 # Reuse existing instance where possible

@@ -145,10 +145,11 @@ class Tracks:
         return None
 
     def convert_all(self, destination_path, bit_rate):
-        for track in natsorted(self.files, key=lambda t: t.file_path.name):
+        total = len(self.files)
+        for i, track in enumerate(natsorted(self.files, key=lambda t: t.file_path.name), start=1):
+            self.logger.info(f"Encoding track {i}/{total}: {track.file_path.name} → {destination_path.name}")
             track.convert(destination_path, bit_rate)
-            self.logger.info(f"Encoding track: {track.file_path.parent.name}/{track.file_path.name} and moving to -> {destination_path.name}")
-
+            logging.debug(f"Completed {i} of {total} tracks ({track.file_path.name})")
 
     def tag_all(self):
         for track in self.files:

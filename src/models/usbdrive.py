@@ -1,5 +1,5 @@
 import psutil
-import os, sys, plistlib
+import os, sys, plistlib, shutil
 import re
 import logging
 import time
@@ -171,6 +171,111 @@ class USBDrive:
                     if isinstance(b, str) and (b == want_bsd or b.startswith(want_bsd + "s")):
                         return n
         return None
+
+    @staticmethod
+    def _safe_unmount_whole(diskutil_node: str) -> None:
+        """
+        Attempt to unmount the whole device. If it's not mounted (e.g. no filesystem),
+        treat that as success instead of raising.
+        """
+        # Ask diskutil for current mount state
+        info = USBDrive._diskutil_info_plist(diskutil_node) or {}
+        mounted = bool(info.get("Mounted"))
+        mount_point = info.get("MountPoint")
+
+        # If disk isn’t mounted (no FS or already unmounted), nothing to do.
+        if not mounted and not mount_point:
+            logging.info("Device %s is not mounted; skipping unmount.", diskutil_node)
+            return
+
+        # Otherwise, try to unmount but don’t explode on harmless failures.
+        res = subprocess.run(["diskutil", "unmountDisk", diskutil_node], capture_output=True, text=True)
+        if res.returncode != 0:
+            # If diskutil still says “not mounted”, that’s fine; otherwise bubble up.
+            if "not currently mounted" in (res.stdout + res.stderr).lower():
+                logging.info("Device %s already not mounted; continuing.", diskutil_node)
+                return
+            raise subprocess.CalledProcessError(res.returncode, res.args, output=res.stdout, stderr=res.stderr)
+
+
+    @staticmethod
+    def _diskutil_list_plist(node: str) -> dict:
+        # node can be "/dev/disk4" or "disk4"
+        ident = node.split("/")[-1]
+        res = subprocess.run(
+            ["/usr/sbin/diskutil", "list", "-plist", ident],
+            capture_output=True, check=True
+        )
+        return plistlib.loads(res.stdout or b"{}")
+
+    @staticmethod
+    def _force_unmount_all_slices(whole_disk: str) -> None:
+        """
+        Force-unmount any mounted partitions/slices first, then the whole disk.
+        Tolerant if nothing is mounted.
+        """
+        info = USBDrive._diskutil_list_plist(whole_disk)
+        # Unmount children first (diskXsY)
+        for ent in info.get("AllDisksAndPartitions", []):
+            if ent.get("DeviceIdentifier") and ent["DeviceIdentifier"].startswith("disk"):
+                # child slices:
+                for part in ent.get("Partitions", []) or []:
+                    did = part.get("DeviceIdentifier")
+                    if did:
+                        subprocess.run(
+                            ["/usr/sbin/diskutil", "unmount", "force", f"/dev/{did}"],
+                            capture_output=True
+                        )
+        # Then the whole device
+        subprocess.run(
+            ["/usr/sbin/diskutil", "unmountDisk", "force", whole_disk],
+            capture_output=True
+        )
+
+    @staticmethod
+    def _ensure_exclusive_access(whole_disk: str, retries: int = 8, delay: float = 0.75) -> None:
+        """
+        Try (force) unmounts + check if anything still holds the device.
+        Raises if we cannot get exclusive access after retries.
+        """
+        # 1) Try our tolerant helper (no-op if already not mounted)
+        try:
+            USBDrive._safe_unmount_whole(whole_disk)
+        except Exception:
+            # fall through to a harder approach
+            pass
+
+        # 2) Force-unmount slices and whole device (best-effort)
+        USBDrive._force_unmount_all_slices(whole_disk)
+
+        # 3) Wait for Disk Arbitration / Spotlight to let go
+        lsof_bin = shutil.which("lsof")
+        raw = whole_disk.replace("/dev/disk", "/dev/rdisk")
+
+        for i in range(retries):
+            # Quick probe: try to open the raw device for exclusive write (dd dry-run)
+            # macOS can't 'touch' block device; instead rely on lsof if available
+            busy = False
+            if lsof_bin:
+                proc = subprocess.run(
+                    [lsof_bin, "-Fn", raw, whole_disk],
+                    capture_output=True, text=True
+                )
+                # Any output lines that aren't headers suggest holders
+                busy = bool(proc.stdout.strip())
+
+            if not busy:
+                return  # exclusive enough
+
+            time.sleep(delay)
+
+        # Last-ditch: try one more force unmount and fail if still busy
+        USBDrive._force_unmount_all_slices(whole_disk)
+        if lsof_bin:
+            proc = subprocess.run([lsof_bin, "-Fn", raw, whole_disk],
+                                  capture_output=True, text=True)
+            if proc.stdout.strip():
+                raise RuntimeError(f"Device still busy: {whole_disk}\n{proc.stdout}")
 
     def _usb_match_by_location(self, io_registry_path: Optional[str]) -> dict | None:
         """Match USB node by Location ID parsed from diskutil IORegistry path."""
@@ -443,9 +548,16 @@ class USBDrive:
         # Resolve to whole-disk nodes
         diskutil_node, raw_whole = self._normalize_to_nodes(devnode)
 
+        logging.info("Preparing device %s for imaging…", diskutil_node)
+        USBDrive._ensure_exclusive_access(diskutil_node)
+
         # Unmount the *whole* device
         logging.info(f"Unmounting whole device {diskutil_node} …")
-        subprocess.run(["diskutil", "unmountDisk", diskutil_node], check=True)
+        # subprocess.run(["diskutil", "unmountDisk", diskutil_node], check=True)
+        diskutil_node, raw_whole = self._normalize_to_nodes(devnode)
+        logging.info(f"Unmounting whole device {diskutil_node} …")
+        self._safe_unmount_whole(diskutil_node)
+
 
         cmd = f"pv {image_str} | sudo dd of={raw_whole} bs=4m conv=fsync"
         
