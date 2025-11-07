@@ -271,9 +271,11 @@ class VoxblockUI:
 
         if not errors:
             if use_existing_img:
+                logging.debug(f"Using existing IMG")
                 master_image_file = self.draft.image_file_path
                 logging.debug(f"Draft image file should be {master_image_file}")
             else:
+                logging.debug(f"Creating IMG from source {input_folder}")
                 self.draft.load_tracks()
                 self.master = self.draft.to_master(output_path)
                 master_image_file = self.master.image_file
