@@ -11,6 +11,7 @@ struct ContentView: View {
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var usbMonitor: USBMonitor
     @StateObject private var log = LogStore()
+    @StateObject private var camera = CameraScanner()
     @State private var selectedDriveID: String?
     @State private var loggedDriveIDs: Set<String> = []
 
@@ -51,6 +52,22 @@ struct ContentView: View {
             if let selectedDriveID, !currentIDs.contains(selectedDriveID) {
                 self.selectedDriveID = nil
             }
+        }
+        .onChange(of: settingsStore.settings.useWebcam) { enabled in
+            if enabled {
+                log.append("Requesting camera access\u{2026}")
+                camera.start()
+            } else {
+                camera.stop()
+            }
+        }
+        .onChange(of: camera.lastDetectedISBN) { isbn in
+            guard let isbn else { return }
+            settingsStore.settings.isbn = isbn
+            log.append("Webcam detected ISBN \(isbn)")
+        }
+        .onChange(of: camera.errorMessage) { error in
+            if let error { log.append("Camera error: \(error)") }
         }
     }
 
@@ -150,15 +167,33 @@ struct ContentView: View {
 
     private var webcamPanel: some View {
         GroupBox("Webcam") {
-            VStack {
-                Rectangle()
-                    .fill(Color.gray.opacity(0.15))
-                    .frame(width: 220, height: 160)
-                    .overlay(Text("Camera not wired yet\n(Phase 5 — Vision/AVFoundation)")
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
-                        .font(.caption))
+            VStack(spacing: 4) {
+                if camera.isRunning {
+                    CameraPreviewView(session: camera.session)
+                        .frame(width: 220, height: 160)
+                } else {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.15))
+                        .frame(width: 220, height: 160)
+                        .overlay(Text(cameraStatusMessage)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                            .padding(8))
+                }
+                if let error = camera.errorMessage {
+                    Text(error).font(.caption2).foregroundStyle(.red)
+                }
             }
+        }
+    }
+
+    private var cameraStatusMessage: String {
+        switch camera.authorization {
+        case .notDetermined: return "Enable \"Webcam ISBN\" to request camera access."
+        case .denied: return "Camera access denied.\nEnable it in System Settings \u{2192} Privacy & Security \u{2192} Camera."
+        case .restricted: return "Camera access is restricted on this Mac."
+        case .authorized: return "Starting camera\u{2026}"
         }
     }
 

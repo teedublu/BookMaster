@@ -121,13 +121,43 @@ Test: `swift test`. The package now has three targets — `BookMasterCore`
   write to a real `/dev/rdiskN`. Needs a human, real hardware, a drive
   deliberately designated as expendable scratch.
 
+## Phase 5 — live camera barcode scanning (new)
+
+- **`Services/CameraScanner.swift`** is real, running `AVCaptureSession`
+  + `VNDetectBarcodesRequest` wired into the actual UI (not just a
+  design sketch this time): toggling "Webcam ISBN" requests camera
+  access, starts the session, shows a live preview
+  (`Views/CameraPreviewView.swift`, an `NSViewRepresentable` wrapping
+  `AVCaptureVideoPreviewLayer`), and auto-fills the ISBN field the
+  moment a plausible EAN-13 is detected — same 13-digit-numeric
+  validation as `update_isbn()` in the Python UI, now a tested pure
+  function (`isPlausibleISBN13`, 3 tests).
+- **Resolved Phase 0's open question empirically, not by assumption.**
+  Wrote and ran two throwaway probes (an interpreted `swift script.swift`
+  and a compiled+ad-hoc-signed `swift build` product, both deleted after
+  the check) calling `AVCaptureDevice.requestAccess`: both return
+  `granted=false` **instantly, with no OS permission dialog at all**,
+  and `authorizationStatus` stays `.notDetermined` rather than
+  transitioning to `.denied`. `codesign -dv` on the compiled binary
+  confirms why: `Info.plist=not bound` — there's no
+  `NSCameraUsageDescription` for TCC to show a prompt for. This
+  confirms a real `.app` bundle with a proper `Info.plist` is a **hard
+  requirement** before camera access can work at all, not just best
+  practice — the UI code above is real and correct, but genuinely
+  cannot be exercised end-to-end until Phase 9 produces a real bundle.
+- Frame-rate throttling (~3 Vision calls/sec, not 30) done directly on
+  the capture delegate's own serial queue rather than hopping to the
+  main actor first — avoids doing the throttle check itself as slowly
+  as the thing it's throttling.
+
 ## What's deliberately stubbed
 
 - **Create Master / Check Master / Batch Create buttons** just append a
   log line. No `MasterDraft`/`Master` equivalent exists yet — that's
   Phase 7, which is also where `DiskImageBuilder` gets wired into the UI.
-- **Webcam panel** shows a placeholder rectangle. Real capture is Phase
-  5, building on `../Spikes/Sources/BarcodeSpike`.
+- **Webcam panel** shows a placeholder rectangle until camera access is
+  granted — the code is real (Phase 5), but per above it can't actually
+  be exercised until Phase 9 produces a real app bundle.
 
 ## Deliberate design choices worth flagging
 
