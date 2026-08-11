@@ -21,6 +21,7 @@
 		5494326BDEDC8B9E93798053 /* MasterReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62317B067E905A79B4500F37 /* MasterReader.swift */; };
 		60ED62A7A20305FE955A4C1F /* RawDeviceWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 179802A6F6113FBF97DD79F1 /* RawDeviceWriterTests.swift */; };
 		630076DB54DADE57663A5D49 /* DiskImageBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3610DD2CAE2FF93FB02F64CA /* DiskImageBuilderTests.swift */; };
+		678D2C6E1F66387434B6C0BF /* AppDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1AFCC49CF0B95CF9A140E052 /* AppDatabase.swift */; };
 		6928E62949623A57EFA24752 /* CameraPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E46D46DDA641B213C06EDBA /* CameraPreviewView.swift */; };
 		762D2979140A0CAC0213E0D0 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BA9C970C114F8016740DF6D /* ContentView.swift */; };
 		775C98ED3467E2D0285251E8 /* BooksCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E33B9F2D3F9F34BBA91D61E /* BooksCatalog.swift */; };
@@ -28,9 +29,11 @@
 		8520B774339BF0D48B23C6D5 /* Shell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36D221FF39661572A52A75C0 /* Shell.swift */; };
 		8BBE10ADC5A7BB64F2E978AC /* BookMasterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77993DDBC5B4D0E2BBA11AC /* BookMasterApp.swift */; };
 		90F3843EEB8FFBDDEBCC257A /* FFmpegEncoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B18C9268736E05D14BC64F8 /* FFmpegEncoderTests.swift */; };
+		AF719BC5EC8A903FB0C343A9 /* ProductionLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D42E6F20DA4293009AC137E8 /* ProductionLogTests.swift */; };
 		BAB05E5631C3063122DB2ED8 /* MasterBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F84EC8E959D50BF682616C67 /* MasterBuilder.swift */; };
 		BEAC654CA3F4753FBAC46945 /* PlaceholderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB980C4E495321B7DB7D54FC /* PlaceholderTests.swift */; };
 		BFE97A39ECF449C96332C593 /* FFmpegEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AE462DBA774B808155C5B76 /* FFmpegEncoder.swift */; };
+		C027EE7C4DF3DFAB33419205 /* DupeRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E441EB789A120FB1ECE7FE /* DupeRow.swift */; };
 		CE9D2FC4C985BCD44F1BB882 /* BitrateFittingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25BC7173B44E25CF5071670C /* BitrateFittingTests.swift */; };
 		D4B629C4A545068195D5C107 /* MasterBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04DA644A47CAA4D7E935203E /* MasterBuilderTests.swift */; };
 		D967B0D15D6614B18413C343 /* NaturalSort.swift in Sources */ = {isa = PBXBuildFile; fileRef = D59F4B47359321E57167094A /* NaturalSort.swift */; };
@@ -38,8 +41,10 @@
 		DCE6096B335DA39C4B7E0119 /* config.json in Resources */ = {isa = PBXBuildFile; fileRef = 1CA0858216CAFC29555344B3 /* config.json */; };
 		DD4D8BFF07C7240270DE2E54 /* USBDriveInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED3182A0187CB1B22CD99A76 /* USBDriveInfo.swift */; };
 		E1640018640C7D231BA86810 /* RawDeviceWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5015289B996C6BEDC64DFF /* RawDeviceWriter.swift */; };
+		E44016E16615949553C3FB1B /* ProductionLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E5F9A2C61AF0A85AC9240D /* ProductionLog.swift */; };
 		E952EE538991D29F7FC56049 /* Slug.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE2C3EEA3254805EAB63E9A9 /* Slug.swift */; };
 		EB14C659F782814C235F6C17 /* BitrateFitting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9241D20BFEA5F754FBF3676 /* BitrateFitting.swift */; };
+		EB7EE4CD0A23E471E79D47B1 /* DatabaseRecords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F34F65D189C67CA4BCC2043 /* DatabaseRecords.swift */; };
 		F16A8B552B35CA430B04932F /* books.csv in Resources */ = {isa = PBXBuildFile; fileRef = 0555437F37A4B6F2AF9E47CC /* books.csv */; };
 		FB1275420A4EEDF974B2944D /* CameraScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0030998D8C09A9148F9A4D41 /* CameraScannerTests.swift */; };
 /* End PBXBuildFile section */
@@ -61,7 +66,9 @@
 		0555437F37A4B6F2AF9E47CC /* books.csv */ = {isa = PBXFileReference; path = books.csv; sourceTree = "<group>"; };
 		0BC1B5F1452EF892820A7BB8 /* USBMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = USBMonitor.swift; sourceTree = "<group>"; };
 		179802A6F6113FBF97DD79F1 /* RawDeviceWriterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawDeviceWriterTests.swift; sourceTree = "<group>"; };
+		1AFCC49CF0B95CF9A140E052 /* AppDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDatabase.swift; sourceTree = "<group>"; };
 		1CA0858216CAFC29555344B3 /* config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = config.json; sourceTree = "<group>"; };
+		1F34F65D189C67CA4BCC2043 /* DatabaseRecords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseRecords.swift; sourceTree = "<group>"; };
 		2241F49FAD10EA532B517D64 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
 		25BC7173B44E25CF5071670C /* BitrateFittingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BitrateFittingTests.swift; sourceTree = "<group>"; };
 		2AE462DBA774B808155C5B76 /* FFmpegEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegEncoder.swift; sourceTree = "<group>"; };
@@ -75,9 +82,11 @@
 		6E33B9F2D3F9F34BBA91D61E /* BooksCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BooksCatalog.swift; sourceTree = "<group>"; };
 		786412822CF06260E571ECA3 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		95F091F77CF7A03CBCD4F6AF /* MasterReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterReaderTests.swift; sourceTree = "<group>"; };
+		99E441EB789A120FB1ECE7FE /* DupeRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DupeRow.swift; sourceTree = "<group>"; };
 		9B18C9268736E05D14BC64F8 /* FFmpegEncoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegEncoderTests.swift; sourceTree = "<group>"; };
 		9B549C420B5A9BEE2894C72C /* AudioDuration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDuration.swift; sourceTree = "<group>"; };
 		9E46D46DDA641B213C06EDBA /* CameraPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewView.swift; sourceTree = "<group>"; };
+		A4E5F9A2C61AF0A85AC9240D /* ProductionLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionLog.swift; sourceTree = "<group>"; };
 		A75C44A52A0AB09C18972DE0 /* BookMaster.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BookMaster.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A77993DDBC5B4D0E2BBA11AC /* BookMasterApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookMasterApp.swift; sourceTree = "<group>"; };
 		A9241D20BFEA5F754FBF3676 /* BitrateFitting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BitrateFitting.swift; sourceTree = "<group>"; };
@@ -87,6 +96,7 @@
 		BF591AEBFF7C127544A02CCE /* BookMasterTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BookMasterTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CB980C4E495321B7DB7D54FC /* PlaceholderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderTests.swift; sourceTree = "<group>"; };
 		D2AB8F50D25B4BB91C27715D /* CameraScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraScanner.swift; sourceTree = "<group>"; };
+		D42E6F20DA4293009AC137E8 /* ProductionLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionLogTests.swift; sourceTree = "<group>"; };
 		D59F4B47359321E57167094A /* NaturalSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NaturalSort.swift; sourceTree = "<group>"; };
 		E9E8B5B741411F10AD474CE1 /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
 		EBC22281304C21632EF9372F /* ConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStore.swift; sourceTree = "<group>"; };
@@ -125,6 +135,7 @@
 				04DA644A47CAA4D7E935203E /* MasterBuilderTests.swift */,
 				95F091F77CF7A03CBCD4F6AF /* MasterReaderTests.swift */,
 				CB980C4E495321B7DB7D54FC /* PlaceholderTests.swift */,
+				D42E6F20DA4293009AC137E8 /* ProductionLogTests.swift */,
 				179802A6F6113FBF97DD79F1 /* RawDeviceWriterTests.swift */,
 			);
 			path = BookMasterTests;
@@ -155,6 +166,7 @@
 		6E805A4C12DE8A25E1E4BFB2 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				1AFCC49CF0B95CF9A140E052 /* AppDatabase.swift */,
 				9B549C420B5A9BEE2894C72C /* AudioDuration.swift */,
 				A9241D20BFEA5F754FBF3676 /* BitrateFitting.swift */,
 				6E33B9F2D3F9F34BBA91D61E /* BooksCatalog.swift */,
@@ -165,6 +177,7 @@
 				F84EC8E959D50BF682616C67 /* MasterBuilder.swift */,
 				62317B067E905A79B4500F37 /* MasterReader.swift */,
 				D59F4B47359321E57167094A /* NaturalSort.swift */,
+				A4E5F9A2C61AF0A85AC9240D /* ProductionLog.swift */,
 				AA5015289B996C6BEDC64DFF /* RawDeviceWriter.swift */,
 				36D221FF39661572A52A75C0 /* Shell.swift */,
 				BE2C3EEA3254805EAB63E9A9 /* Slug.swift */,
@@ -187,6 +200,8 @@
 			children = (
 				E9E8B5B741411F10AD474CE1 /* AppConfig.swift */,
 				786412822CF06260E571ECA3 /* Constants.swift */,
+				1F34F65D189C67CA4BCC2043 /* DatabaseRecords.swift */,
+				99E441EB789A120FB1ECE7FE /* DupeRow.swift */,
 				2241F49FAD10EA532B517D64 /* Settings.swift */,
 				ED3182A0187CB1B22CD99A76 /* USBDriveInfo.swift */,
 			);
@@ -293,6 +308,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				4697B71C4D0840C10385E537 /* AppConfig.swift in Sources */,
+				678D2C6E1F66387434B6C0BF /* AppDatabase.swift in Sources */,
 				0368274F5CE9D85459EC8CB7 /* AudioDuration.swift in Sources */,
 				EB14C659F782814C235F6C17 /* BitrateFitting.swift in Sources */,
 				8BBE10ADC5A7BB64F2E978AC /* BookMasterApp.swift in Sources */,
@@ -303,12 +319,15 @@
 				01D9E97C232720DEFA392978 /* ConfigStore.swift in Sources */,
 				DA09C85748E8165AE0EB0FB6 /* Constants.swift in Sources */,
 				762D2979140A0CAC0213E0D0 /* ContentView.swift in Sources */,
+				EB7EE4CD0A23E471E79D47B1 /* DatabaseRecords.swift in Sources */,
 				0DDE55DB47952D607C5FB04A /* DiskImageBuilder.swift in Sources */,
+				C027EE7C4DF3DFAB33419205 /* DupeRow.swift in Sources */,
 				BFE97A39ECF449C96332C593 /* FFmpegEncoder.swift in Sources */,
 				0D038F62D1FA42FB9038FA86 /* LogStore.swift in Sources */,
 				BAB05E5631C3063122DB2ED8 /* MasterBuilder.swift in Sources */,
 				5494326BDEDC8B9E93798053 /* MasterReader.swift in Sources */,
 				D967B0D15D6614B18413C343 /* NaturalSort.swift in Sources */,
+				E44016E16615949553C3FB1B /* ProductionLog.swift in Sources */,
 				E1640018640C7D231BA86810 /* RawDeviceWriter.swift in Sources */,
 				13E5532C533A3697F65D1234 /* Settings.swift in Sources */,
 				06DD6E8EB8D16F3B9AA4435C /* SettingsStore.swift in Sources */,
@@ -331,6 +350,7 @@
 				D4B629C4A545068195D5C107 /* MasterBuilderTests.swift in Sources */,
 				3AC401A9B9A2000A2A91F36A /* MasterReaderTests.swift in Sources */,
 				BEAC654CA3F4753FBAC46945 /* PlaceholderTests.swift in Sources */,
+				AF719BC5EC8A903FB0C343A9 /* ProductionLogTests.swift in Sources */,
 				60ED62A7A20305FE955A4C1F /* RawDeviceWriterTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
