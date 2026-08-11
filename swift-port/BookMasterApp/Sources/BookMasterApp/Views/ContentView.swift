@@ -8,7 +8,10 @@ import AppKit
 /// the Python app just log a "(stub)" line here.
 struct ContentView: View {
     @EnvironmentObject private var settingsStore: SettingsStore
+    @EnvironmentObject private var usbMonitor: USBMonitor
     @StateObject private var log = LogStore()
+    @State private var selectedDriveID: String?
+    @State private var loggedDriveIDs: Set<String> = []
 
     private let availableTests = ["Silence", "Loudness", "Metadata", "Frames", "Speed"]
 
@@ -34,6 +37,19 @@ struct ContentView: View {
         }
         .onChange(of: settingsStore.settings) { _ in
             settingsStore.save()
+        }
+        .onChange(of: usbMonitor.drives) { newDrives in
+            let currentIDs = Set(newDrives.map(\.id))
+            for drive in newDrives where !loggedDriveIDs.contains(drive.id) {
+                log.append("USB candidate appeared: \(drive.bsdName) (\(drive.volumeName ?? "unmounted"), \(ByteCountFormatter.string(fromByteCount: drive.sizeBytes, countStyle: .file)))")
+            }
+            for id in loggedDriveIDs where !currentIDs.contains(id) {
+                log.append("USB candidate removed: \(id)")
+            }
+            loggedDriveIDs = currentIDs
+            if let selectedDriveID, !currentIDs.contains(selectedDriveID) {
+                self.selectedDriveID = nil
+            }
         }
     }
 
@@ -146,26 +162,42 @@ struct ContentView: View {
     }
 
     private var usbDrivesPanel: some View {
-        GroupBox("USB Drives") {
+        GroupBox(usbMonitor.drives.isEmpty ? "No drives detected" : "Write to...") {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Waiting for USB devices...")
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
-                Text("Detection not wired yet — Phase 0's DiskArbitrationSpike\nbecomes the real implementation in Phase 2.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                if usbMonitor.drives.isEmpty {
+                    Text("Waiting for USB devices...")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                } else {
+                    List(usbMonitor.drives, selection: $selectedDriveID) { drive in
+                        Text("\(drive.volumeName ?? drive.bsdName) (\(drive.bsdName))")
+                            .tag(drive.id as String?)
+                    }
+                    .frame(height: 60)
+                }
                 Divider()
                 Group {
-                    detailRow("Capacity", "-")
-                    detailRow("Free", "-")
-                    detailRow("FS", "-")
-                    detailRow("Content", "-")
-                    detailRow("SKU", "-")
-                    detailRow("ISBN", "-")
+                    detailRow("Capacity", selectedDrive.map { formatBytes($0.totalCapacityBytes) } ?? "-")
+                    detailRow("Free", selectedDrive.map { formatBytes($0.availableCapacityBytes) } ?? "-")
+                    detailRow("FS", selectedDrive?.volumeKind ?? "-")
+                    detailRow("Volume", selectedDrive?.volumeName ?? "-")
+                    detailRow("Device", selectedDrive?.rawDevicePath ?? "-")
                 }
+                Text("Content/SKU/ISBN validity reading is Phase 7 work,\nnot wired up yet.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
-            .frame(width: 220, alignment: .leading)
+            .frame(width: 240, alignment: .leading)
         }
+    }
+
+    private var selectedDrive: USBDriveInfo? {
+        usbMonitor.drives.first { $0.id == selectedDriveID }
+    }
+
+    private func formatBytes(_ bytes: Int64?) -> String {
+        guard let bytes else { return "-" }
+        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
     private func detailRow(_ label: String, _ value: String) -> some View {
@@ -246,5 +278,7 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView().environmentObject(SettingsStore())
+    ContentView()
+        .environmentObject(SettingsStore())
+        .environmentObject(USBMonitor())
 }
