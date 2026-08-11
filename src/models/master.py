@@ -9,6 +9,7 @@ from natsort import natsorted
 from utils import remove_folder, compute_sha256, get_first_audiofile, get_metadata_from_audio, generate_sku, generate_isbn, parse_time_to_minutes
 from .tracks import Tracks
 from .diskimage import DiskImage
+from .drive_size import resolve_max_drive_size
 from utils import MasterValidator
 from constants import VERSION
 
@@ -35,6 +36,7 @@ class Master:
         self.processed_tracks = None  # Tracks: Encoded and cleaned tracks
         self.master_tracks = None  # Tracks: Loaded from either USB drive or disk image
         self.master_structure = None
+        self.max_drive_size = resolve_max_drive_size(self.config, settings)
 
         
         self.master_path.mkdir(parents=True, exist_ok=True) 
@@ -223,6 +225,7 @@ class Master:
             "file_count_observed": self.file_count_observed,
             "status": self.status,
             "skip_encoding": self.skip_encoding,
+            "max_drive_size": self.max_drive_size,
             "infer_data": self.infer_data,
             # "lookup_csv": self.lookup_csv, # this should not be passed UI specific only
             "usb_drive_tests": self.usb_drive_tests
@@ -420,7 +423,7 @@ class Master:
         Adjusts encoding bitrate to ensure total file size fits within 95% of drive capacity.
         This accounts for filesystem and slack, assuming no post-write testing.
         """
-        MAX_DRIVE_SIZE = self.config.params["max_drive_size"]
+        MAX_DRIVE_SIZE = self.max_drive_size
         SAFETY_MARGIN = 0.1  # Always reserve 10%
         USABLE_DRIVE_SIZE = MAX_DRIVE_SIZE * (1 - SAFETY_MARGIN)
 
@@ -456,4 +459,3 @@ class Master:
         )
 
         return adjusted_bit_rate
-

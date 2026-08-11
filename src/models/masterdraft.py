@@ -10,6 +10,7 @@ from utils import remove_folder, compute_sha256, get_first_audiofile, get_metada
 from .tracks import Tracks
 from models import Master
 from .diskimage import DiskImage
+from .drive_size import resolve_max_drive_size
 
 
 class MasterDraft:
@@ -17,9 +18,9 @@ class MasterDraft:
     Represents the draft of master audiobook collection, managing inputs
     Does not process files just ensures valid input
     """
-    def __init__(self, config=None, settings=None, isbn=None, sku=None, author=None, title=None, expected_count=None, input_folder=None, skip_encoding=False):
+    def __init__(self, config=None, settings=None, isbn=None, sku=None, author=None, title=None, expected_count=None, input_folder=None, skip_encoding=False, max_drive_size=None):
         self.config = config # config of audio settings 
-        self.settings = settings # UI and file locations NOT NEEDED should be called inputs
+        self.settings = settings or {} # UI and file locations NOT NEEDED should be called inputs
         self.params = getattr(self.config, "params", {}) # NOT NEEDED
         # self.output_path = Path(settings.get("output_folder","default_output")) # NOT NEEDED
         self.input_folder = None  # Tracks: Raw publisher files Tracks
@@ -35,7 +36,8 @@ class MasterDraft:
         self._duration = 0
         self._checksum_computed = None
         self.status = None
-        self.skip_encoding = False
+        self.skip_encoding = skip_encoding
+        self.max_drive_size = max_drive_size
         self.tracks = None
         
         # self.lookup_csv = settings.get("lookup_csv", False)
@@ -149,7 +151,7 @@ class MasterDraft:
 
         # Fetch values from config
         config = self.config.params
-        max_drive_size = int(config["max_drive_size"])  # e.g., 1_000_000_000 for ~1GB
+        max_drive_size = self.max_drive_size or resolve_max_drive_size(self.config, self.settings)
         current_bit_rate = int(config["encoding"]["bit_rate"])  # e.g., 96000
         current_size_bytes = self.tracks.total_target_size
 
@@ -196,7 +198,8 @@ class MasterDraft:
             "author": self.author,
             "input_folder": self.input_folder,
             "file_count_expected": self.file_count_expected,
-            "skip_encoding": self.skip_encoding
+            "skip_encoding": self.skip_encoding,
+            "max_drive_size": self.max_drive_size or resolve_max_drive_size(self.config, self.settings)
         })
 
     def to_master(self, output_path: Path) -> Master:

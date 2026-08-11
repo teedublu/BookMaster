@@ -21,6 +21,7 @@ DEFAULT_SETTINGS = {
     "find_isbn_folder": False,
     "skip_encoding": False,
     "skip_image_creation": False,
+    "max_drive_size_mb": "",
     "write_image_mode": False,
     "usb_drive_check_on_mount": False
 }

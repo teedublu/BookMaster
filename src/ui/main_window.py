@@ -11,6 +11,7 @@ from utils import find_input_folder_from_isbn, parse_time_to_minutes
 from utils.custom_logging import setup_logging
 from ui.masterdraftuiwrapper import MasterDraftUIWrapper
 from models import MasterDraft  # Import Master class
+from models.drive_size import drive_size_bytes_to_mb, drive_size_mb_to_bytes
 from settings import save_settings
 from ui.write_dialog import WriteDialog
 
@@ -33,6 +34,10 @@ class VoxblockUI:
         self.usb_drive_check_on_mount = tk.BooleanVar(value=settings.get('usb_drive_check_on_mount', False))
         self.usb_drive_tests_var = tk.StringVar(value=settings.get('usb_drive_tests', ""))  # Comma-separated string
         self.draft = MasterDraft(config, settings)
+        stored_max_drive_size_mb = str(
+            settings.get("max_drive_size_mb") or drive_size_bytes_to_mb(config.params["max_drive_size"])
+        ).strip()
+        default_max_drive_size_mb = "480" if stored_max_drive_size_mb.startswith("480") else "980"
 
         self.ui_state = {
             "find_isbn_folder": tk.BooleanVar(value=settings.get("find_isbn_folder", False)),
@@ -41,6 +46,7 @@ class VoxblockUI:
             "usb_drive_tests": tk.StringVar(value=settings.get("usb_drive_tests", "")),
             "skip_encoding": tk.BooleanVar(value=settings.get("skip_encoding", False)),
             "skip_image_creation": tk.BooleanVar(value=settings.get("skip_image_creation", False)),
+            "max_drive_size_mb": tk.StringVar(value=default_max_drive_size_mb),
             "write_image_mode": tk.BooleanVar(value=self.settings.get("write_image_mode", False)),
         }
         past_master = settings.get("past_master",{})
@@ -136,6 +142,12 @@ class VoxblockUI:
         
         tk.Checkbutton(self.root, text="Skip Image Creation", variable=self.ui_state["skip_image_creation"]).grid(row=1, column=2, sticky='w')
         tk.Checkbutton(self.root, text="Skip encoding", variable=self.ui_state["skip_encoding"]).grid(row=1, column=3, sticky='w')
+
+        ############ ROW 2
+        # Max drive size override
+        tk.Label(self.root, text="Max Drive Size:").grid(row=2, column=0, sticky='w')
+        tk.Radiobutton(self.root, text="480 MB", variable=self.ui_state["max_drive_size_mb"], value="480").grid(row=2, column=1, sticky='w')
+        tk.Radiobutton(self.root, text="980 MB", variable=self.ui_state["max_drive_size_mb"], value="980").grid(row=2, column=2, sticky='w')
 
         ############ ROW 3
         # ISBN Entry
@@ -263,9 +275,19 @@ class VoxblockUI:
         use_existing_img = self.ui_state["skip_image_creation"].get()
         skip_encoding = self.ui_state["skip_encoding"].get()
         write_mode = self.ui_state["write_image_mode"].get()
+        max_drive_size_mb = self.ui_state["max_drive_size_mb"].get()
+
+        try:
+            max_drive_size = drive_size_mb_to_bytes(max_drive_size_mb)
+        except ValueError as e:
+            messagebox.showerror("Invalid Drive Size", str(e))
+            logging.error(f"Invalid max drive size: {e}")
+            return
 
         self.draft.input_folder = input_folder
         self.draft.skip_encoding = skip_encoding
+        self.draft.max_drive_size = max_drive_size
+        self.settings["max_drive_size_mb"] = max_drive_size_mb
         
         errors = self.draft.validate(use_existing_img=use_existing_img)
 
@@ -464,6 +486,7 @@ class VoxblockUI:
         self.settings['lookup_csv'] = self.ui_state["lookup_csv"].get()
         self.settings['skip_encoding'] = self.ui_state["skip_encoding"].get()
         self.settings['skip_image_creation'] = self.ui_state["skip_image_creation"].get()
+        self.settings["max_drive_size_mb"] = self.ui_state["max_drive_size_mb"].get()
         self.settings["write_image_mode"] = self.ui_state["write_image_mode"].get()
         self.settings['usb_drive_check_on_mount'] = self.ui_state["usb_drive_check_on_mount"].get()
         self.settings['usb_drive_tests'] = self.ui_state["usb_drive_tests"].get()  # Save as a string
@@ -573,9 +596,6 @@ class VoxblockUI:
                 logging.warning(f"  - ISBN {isbn}: {reason}")
 
         logging.info(f"Batch Processing Summary: {len(success)} masters created. {len(failed)} failed.")
-
-
-
 
 
 
