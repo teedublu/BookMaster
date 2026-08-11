@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var isBuilding = false
     @State private var verificationResult: VerificationResult?
     @State private var isVerifying = false
+    @State private var productionStats: ProductionStats?
     // Lightweight local instance for now; Phase 14 promotes this to a
     // shared environment object once block-history lookups need it too.
     private let productionLog: ProductionLog? = try? ProductionLog()
@@ -33,6 +34,7 @@ struct ContentView: View {
                     webcamPanel
                     usbDrivesPanel
                     usbChecksPanel
+                    productionPanel
                 }
                 logSection
             }
@@ -403,6 +405,49 @@ struct ContentView: View {
                 }
             }
             .frame(width: 160, alignment: .leading)
+        }
+    }
+
+    // MARK: Production log / duplicator ingestion (ports voxmaster's ingest-dupe/match-dupe/stats)
+
+    private var productionPanel: some View {
+        GroupBox("Production Log") {
+            VStack(alignment: .leading, spacing: 6) {
+                Button("Import Duplicator Log\u{2026}") { importDuplicatorLog() }
+                if let stats = productionStats {
+                    detailRow("Total Runs", String(stats.totalDuplicatorRuns))
+                    detailRow("Unique", String(stats.uniqueMatches))
+                    detailRow("Ambiguous", String(stats.ambiguousMatches))
+                    detailRow("Unmatched", String(stats.unmatchedRuns))
+                } else {
+                    Text("No duplicator log ingested yet.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 180, alignment: .leading)
+        }
+    }
+
+    private func importDuplicatorLog() {
+        guard let productionLog else {
+            log.append("Production database unavailable.")
+            return
+        }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.text, .plainText]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let rows = try DuplicatorLogParser.parseLog(at: url)
+            let inserted = try productionLog.insertDuplicatorRuns(sourceFile: url.path, rows: rows)
+            log.append("Ingested \(rows.count) row(s) from \(url.lastPathComponent) (inserted \(inserted)).")
+            productionStats = try productionLog.stats()
+        } catch {
+            log.append("Failed to ingest duplicator log: \(error)")
         }
     }
 
