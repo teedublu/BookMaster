@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>BookMaster</string>
+	<key>CFBundleDisplayName</key>
+	<string>BookMaster</string>
+	<key>CFBundleIdentifier</key>
+	<string>co.uk.voxblock.bookmaster</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleExecutable</key>
+	<string>BookMaster</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<!--
+	 The specific gap Phase 5 found empirically: without this key, TCC
+	 refuses camera access outright, with no prompt at all, for any
+	 process (interpreted script or compiled+ad-hoc-signed binary) that
+	 has no Info.plist bound to its code signature. This is the fix.
+	-->
+	<key>NSCameraUsageDescription</key>
+	<string>BookMaster uses the camera to scan a book's ISBN barcode.</string>
+</dict>
+</plist>

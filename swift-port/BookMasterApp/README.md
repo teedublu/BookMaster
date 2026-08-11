@@ -1,12 +1,22 @@
 # BookMasterApp — Swift port
 
-A SwiftUI macOS app reproducing `src/ui/main_window.py`, built up phase
-by phase per the migration plan. Settings/config, native USB detection,
-and FAT image authoring are real and tested; encoding and the raw write
-are next.
+A SwiftUI macOS app reproducing `src/ui/main_window.py`, built phase by
+phase per the migration plan (Phases 0-9 below). Every core capability
+— settings, native USB detection, FAT image authoring, a type-enforced
+raw-write safety gate, live camera barcode scanning, ffmpeg encoding,
+and the full Create/Check Master pipeline — is real, wired into the
+running app, and covered by tests that exercise real system tools
+(`hdiutil`, `newfs_msdos`, `ffmpeg`, `AVFoundation`), not simulations.
+A real `.app` bundle can be produced via `Packaging/package-app.sh`.
+
+**What this is not, yet**: production-ready. Real-hardware validation
+(an actual USB drive appearing, an actual device write), Developer ID
+signing/notarization, and — most importantly — the decision to cut real
+users over from the Python app are all explicitly out of scope for this
+branch. See "Not done here, and why" under Phase 9.
 
 Run: `swift run` from this directory (`swift-port/BookMasterApp`).
-Test: `swift test`. The package now has three targets — `BookMasterCore`
+Test: `swift test` (31 tests as of Phase 8). Package: `BookMasterCore`
 (library: models/stores/services, unit-tested), `BookMasterApp`
 (executable: views + app entry), `BookMasterCoreTests`.
 
@@ -145,6 +155,8 @@ Test: `swift test`. The package now has three targets — `BookMasterCore`
   requirement** before camera access can work at all, not just best
   practice — the UI code above is real and correct, but genuinely
   cannot be exercised end-to-end until Phase 9 produces a real bundle.
+  **Update from Phase 9**: confirmed fixed, with one more nuance —
+  see Phase 9 below.
 - Frame-rate throttling (~3 Vision calls/sec, not 30) done directly on
   the capture delegate's own serial queue rather than hopping to the
   main actor first — avoids doing the throttle check itself as slowly
@@ -274,6 +286,95 @@ payoff versus just testing the classification logic directly, which is
 where the actual safety property lives. Also not attempted: hardware-
 in-the-loop testing against a real USB drive — that remains a human,
 not an agent session, holding physical scratch hardware.
+
+## Phase 9 — packaging scaffolding (stops short of shipping/cutover)
+
+**`Packaging/`** contains what's needed to produce a real, launchable
+`.app` for local testing:
+
+- **`Info.plist`** — bundle identifier (`co.uk.voxblock.bookmaster`),
+  version, and critically `NSCameraUsageDescription` (the exact key
+  Phase 5 found missing).
+- **`package-app.sh`** — since SwiftPM doesn't produce `.app` bundles
+  natively, this builds a release binary, assembles
+  `Contents/{MacOS,Resources}`, carries the SwiftPM-generated resource
+  bundle (`config.json`/`books.csv`) across into `Contents/Resources`,
+  and ad-hoc signs the result. Run it: `./Packaging/package-app.sh`.
+  The produced `.app` is gitignored (a build artifact, not source).
+
+**Camera access confirmed working end-to-end, with a real nuance found
+along the way.** Built the actual bundle, then (since I can't click a
+system permission dialog myself) wrapped an identical throwaway probe
+in the same kind of bundle to test empirically:
+
+- Running the bundled binary **directly** (`Contents/MacOS/BookMaster`
+  from a shell) still returns `granted=false` **instantly** — even with
+  `Info.plist` correctly bound this time. Turns out the bundle fixes
+  necessary-but-not-sufficient: TCC also needs the process launched
+  through **LaunchServices** (`open`, or a real double-click), not
+  executed directly, to have a WindowServer session capable of showing
+  a permission UI at all.
+- Launched via `open` instead: **`requestAccess` returned `granted=true`
+  in ~2.6 seconds** — a real transition to `.authorized`, not the
+  instant permanent `false` from before. Confirms the fix genuinely
+  works when the app is actually launched the way a real user would
+  launch it.
+- Practical takeaway for Phase 1-8's testing pattern of launching the
+  built binary directly to check for startup crashes: that's still
+  fine for what it was checking (does it crash, does settings.json get
+  written), but any *future* TCC-gated capability needs to be verified
+  via `open`, not direct execution, or a false "doesn't work" reading
+  is possible.
+
+## Not done here, and why — the real gap before this can ship or replace the Python app
+
+None of this happened in this session, deliberately:
+
+- **Developer ID signing.** The bundle above is ad-hoc signed
+  (`codesign --sign -`) — fine for local testing, Gatekeeper will block
+  it for anyone else. Needs a paid Apple Developer Program membership
+  and a real Developer ID Application certificate, neither of which
+  exist in this environment.
+- **Notarization.** Requires the Developer ID cert above plus
+  `notarytool` credentials (an App Store Connect API key or
+  Apple ID + app-specific password) submitted to Apple's notary
+  service — infrastructure, not code.
+- **Bundling and signing `ffmpeg`.** Phase 6 shells out to whatever
+  `ffmpeg` it finds on `$PATH`/Homebrew. Shipping this app to someone
+  without Homebrew's ffmpeg installed means bundling a real ffmpeg
+  binary inside the app and giving it its own valid signature under the
+  same Developer ID — not attempted.
+- **Entitlements / hardened runtime.** A signed, notarized app
+  typically runs under the hardened runtime, which restricts things
+  like loading unsigned executable code — the bundled ffmpeg binary
+  above would need an explicit entitlement
+  (`com.apple.security.cs.allow-unsigned-executable-memory` or similar)
+  to keep working under it. Not investigated.
+- **A privileged write helper.** Phase 4 deliberately left this
+  unsolved — writing to `/dev/rdiskN` needs either the console user
+  already having device permissions (untested against real hardware)
+  or a proper SMJobBless/XPC helper (needs the signing infrastructure
+  above to even build).
+- **App icon.** None included — needs a real design asset, not
+  something to fabricate here.
+- **Sparkle auto-updates.** Needs a real hosted appcast feed and its
+  own signing key — infrastructure decision for whoever owns
+  distribution, not something to stand up speculatively.
+- **Settings/config migration from the Python app.** Still
+  deliberately isolated (`~/Library/Application Support/BookMasterSwift/`,
+  a bundled `books.csv`/`config.json` snapshot) — see Phase 1's design
+  notes. Reconciling with the real production `VoxblockMaster` settings
+  and the live `books.csv` is a deliberate decision for whoever owns
+  cutover, not a default to fall into.
+- **Cutover itself.** This branch does not touch, disable, or replace
+  anything in the Python app (`src/`) or `main` in any way. Nothing
+  about finishing Phase 9's packaging changes that — moving real users
+  onto this requires: real hardware validation of Phases 2 and 4
+  (positive-case USB detection, an actual device write) by a human, the
+  signing/notarization work above, and an explicit decision from
+  whoever owns this product about timing and rollback plan. That
+  decision is not made by, and should not be inferred from, this
+  branch existing.
 
 ## What's deliberately stubbed
 
