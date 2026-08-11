@@ -231,6 +231,50 @@ This is where everything from Phases 3-6 gets tied together and the
   test (mutates a file after the checksum was written, confirms
   `MasterReader` catches it). 12 new tests, all passing — **29 total**.
 
+## Phase 8 — safety-critical test harness
+
+Every prior phase added real tests as it went (TDD-ish, not a
+end-of-project batch) — 29 tests existed before this phase started.
+Phase 8's job was to find and close the remaining gaps, and make the
+safety-critical coverage easy for a future maintainer to find, not to
+start testing from zero.
+
+**Gaps closed:**
+- `DiskImageBuilderTests.testBuildImageWithEmptySourceFolderHitsSizeFloor`
+  — an empty source folder must still hit the 10MB size floor rather
+  than producing something degenerate.
+- `RawDeviceWriterTests.testAuthorizeRejectsWhenRawDevicePathDisagreesWithLiveCandidate`
+  — same `bsdName` but a different raw device path between the caller's
+  selection and the live candidate list must reject, not trust either
+  side blindly.
+
+**The safety-critical inventory** — these specific tests are the ones
+that must never be weakened or deleted without a deliberate, reviewed
+decision, because they're the automated proof behind the two central
+findings from Phase 0 (removability alone isn't a safe USB signal;
+path-pattern matching alone isn't a safe write-target signal):
+
+| Test | File | Invariant it protects |
+|---|---|---|
+| `testAuthorizeRejectsInternalBootDiskDespitePatternMatch` | RawDeviceWriterTests | An internal boot disk must never be authorized, even though its path matches the raw-device pattern |
+| `testAuthorizeRejectsRemovableNonUSBDevice` | RawDeviceWriterTests | Removable-but-not-USB (e.g. a virtual/simulator volume) must never be authorized |
+| `testAuthorizeRejectsSliceNotWholeDisk` | RawDeviceWriterTests | A partition slice must never be authorized, only a whole disk |
+| `testAuthorizeRejectsWhenNoLongerInCurrentCandidateList` | RawDeviceWriterTests | A device absent from the *live* candidate list must never be authorized, even from a plausible-looking cached selection |
+| `testAuthorizeRejectsWhenRawDevicePathDisagreesWithLiveCandidate` | RawDeviceWriterTests | A `bsdName`/path mismatch between selection and live state must never be authorized |
+| `testWriteRoundTripsChecksum` | RawDeviceWriterTests | The write mechanics themselves are lossless (checksum-verified) |
+| `testDetectsChecksumMismatch` | MasterReaderTests | A tampered/corrupted drive is detected, not silently trusted |
+
+**Deliberately not attempted here, and shouldn't be**: mocking
+`DASession`/`DADisk` to unit-test `USBMonitor`'s event-handling code
+path itself (as opposed to the pure `isCandidate` classification logic,
+which is what the table above actually exercises) — `DADisk` is an
+opaque CoreFoundation type backed by a real disk arbitration session,
+and fabricating one convincingly is a project of its own with dubious
+payoff versus just testing the classification logic directly, which is
+where the actual safety property lives. Also not attempted: hardware-
+in-the-loop testing against a real USB drive — that remains a human,
+not an agent session, holding physical scratch hardware.
+
 ## What's deliberately stubbed
 
 - **Batch Create button** still just logs — CSV-driven batch creation

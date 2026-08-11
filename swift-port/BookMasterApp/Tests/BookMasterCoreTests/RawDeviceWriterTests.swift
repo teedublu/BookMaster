@@ -113,6 +113,19 @@ final class RawDeviceWriterTests: XCTestCase {
         let result = RawWriteAuthorization.authorize(drive: staleSelection, currentCandidates: [])
         XCTAssertNil(try? result.get(), "a device absent from the live candidate list must never be authorized")
     }
+
+    /// Phase 8 gap-closing: same bsdName, but the live candidate's
+    /// rawDevicePath disagrees with what the caller passed in (e.g. a
+    /// BSD name got reused for a different physical device between
+    /// selection and write). Must reject rather than trust the caller's
+    /// path over the live lookup's.
+    func testAuthorizeRejectsWhenRawDevicePathDisagreesWithLiveCandidate() {
+        let staleSelection = makeDrive(bsdName: "disk4", removable: true, whole: true, proto: "USB")
+        var currentButDifferentPath = staleSelection
+        currentButDifferentPath.rawDevicePath = "/dev/rdisk7" // same bsdName, different actual device path
+        let result = RawWriteAuthorization.authorize(drive: staleSelection, currentCandidates: [currentButDifferentPath])
+        XCTAssertNil(try? result.get(), "a raw device path mismatch between selection and live state must never be authorized")
+    }
 }
 
 enum TestHelpers {

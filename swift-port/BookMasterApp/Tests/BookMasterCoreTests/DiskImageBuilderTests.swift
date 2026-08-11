@@ -70,4 +70,23 @@ final class DiskImageBuilderTests: XCTestCase {
             outputPath: FileManager.default.temporaryDirectory
         ))
     }
+
+    /// Phase 8 gap-closing: an empty source folder must still produce a
+    /// valid (10MB-floor) image rather than crashing or producing a
+    /// zero-byte/unformattable file -- diskimage.py's own sizing math
+    /// has this floor built in (`max(..., 10)`), so an empty input
+    /// shouldn't be able to violate it.
+    func testBuildImageWithEmptySourceFolderHitsSizeFloor() throws {
+        let fm = FileManager.default
+        let sourceDir = fm.temporaryDirectory.appendingPathComponent("dib-empty-\(UUID().uuidString)")
+        let outputDir = fm.temporaryDirectory.appendingPathComponent("dib-empty-out-\(UUID().uuidString)")
+        try fm.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        defer {
+            try? fm.removeItem(at: sourceDir)
+            try? fm.removeItem(at: outputDir)
+        }
+
+        let result = try DiskImageBuilder.buildImage(fromSourceFolder: sourceDir, volumeLabel: "EMPTY", outputPath: outputDir)
+        XCTAssertEqual(result.sizeBytes, 10 * 1024 * 1024)
+    }
 }
