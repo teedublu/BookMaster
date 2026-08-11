@@ -1,0 +1,24 @@
+{
+    "encoding": {
+        "bit_rate": 96000,
+        "bit_rate_comment": "without k as comparisons > < are performed",
+        "sample_rate": 44100,
+        "channels": 1,
+        "target_lufs": -19
+    },
+    "max_drive_size": 980000000,
+    "patterns_to_remove" : [
+        "._*", "*.DS_Store", ".fseventsd", ".Trashes", ".TemporaryItems", 
+        ".Spotlight-V100", ".DocumentRevisions-V100", "System Volume Information", "*.tmp"
+    ],
+    "output_structure" : {
+        "tracks_path": "tracks",
+        "info_path": "bookInfo",
+        "id_file": "bookInfo/id.txt",
+        "count_file": "bookInfo/count.txt",
+        "metadata_file": ".metadata_never_index",
+        "checksum_file": "bookInfo/checksum.txt",
+        "version_file": "bookInfo/version.txt"
+    },
+    "valid_formats": [".mp3", ".wav"]
+}
