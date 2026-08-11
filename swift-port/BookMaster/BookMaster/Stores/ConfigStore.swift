@@ -12,7 +12,7 @@ public enum ConfigStore {
     public static let shared: AppConfig = load()
 
     private static func load() -> AppConfig {
-        guard let url = Bundle.module.url(forResource: "config", withExtension: "json"),
+        guard let url = Bundle.main.url(forResource: "config", withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let config = try? JSONDecoder().decode(AppConfig.self, from: data) else {
             print("WARNING: could not load bundled config.json, using built-in fallback values")

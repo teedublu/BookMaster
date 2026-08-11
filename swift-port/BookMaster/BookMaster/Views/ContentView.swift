@@ -1,6 +1,5 @@
 import SwiftUI
 import AppKit
-import BookMasterCore
 
 /// Phase 1 app shell: reproduces every field/control from
 /// src/ui/main_window.py's create_widgets(), backed by real Codable

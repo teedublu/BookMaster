@@ -1,6 +1,5 @@
 import SwiftUI
 import AVFoundation
-import BookMasterCore
 
 /// Wraps AVCaptureVideoPreviewLayer for SwiftUI — AppKit has no native
 /// SwiftUI camera-preview view, so this is the standard bridge.

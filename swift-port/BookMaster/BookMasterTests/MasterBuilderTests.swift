@@ -1,5 +1,5 @@
 import XCTest
-@testable import BookMasterCore
+@testable import BookMaster
 
 /// End-to-end: synthesizes short "publisher" audio tracks with ffmpeg
 /// (standing in for real book chapters), runs the full

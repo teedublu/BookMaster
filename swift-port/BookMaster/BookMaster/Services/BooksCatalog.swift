@@ -82,7 +82,7 @@ public enum BooksCatalog {
     }
 
     private static func load() -> [String: BookRow] {
-        guard let url = Bundle.module.url(forResource: "books", withExtension: "csv"),
+        guard let url = Bundle.main.url(forResource: "books", withExtension: "csv"),
               let text = try? String(contentsOf: url, encoding: .utf8) else {
             print("WARNING: could not load bundled books.csv")
             return [:]

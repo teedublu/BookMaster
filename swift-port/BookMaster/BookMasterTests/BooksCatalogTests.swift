@@ -1,5 +1,5 @@
 import XCTest
-@testable import BookMasterCore
+@testable import BookMaster
 
 final class BooksCatalogTests: XCTestCase {
     func testLoadsBundledCatalogAndLooksUpByISBN() {

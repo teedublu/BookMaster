@@ -1,6 +1,6 @@
 import XCTest
 import AVFoundation
-@testable import BookMasterCore
+@testable import BookMaster
 
 /// Exercises the real ffmpeg pipeline end-to-end: generates a synthetic
 /// test tone (no real book audio needed), reads its duration natively,

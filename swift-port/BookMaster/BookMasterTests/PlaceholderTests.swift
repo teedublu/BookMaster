@@ -1,5 +1,5 @@
 import XCTest
-@testable import BookMasterCore
+@testable import BookMaster
 
 /// Real coverage starts in Phase 8 — this just proves the test target
 /// is wired up correctly so Phase 3+ work can add tests incrementally

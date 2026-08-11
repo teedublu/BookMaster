@@ -1,5 +1,5 @@
 import XCTest
-@testable import BookMasterCore
+@testable import BookMaster
 
 final class MasterReaderTests: XCTestCase {
     func testReadsBackWhatBuilderWrote() async throws {

@@ -1,6 +1,6 @@
 import XCTest
 import CryptoKit
-@testable import BookMasterCore
+@testable import BookMaster
 
 final class RawDeviceWriterTests: XCTestCase {
 

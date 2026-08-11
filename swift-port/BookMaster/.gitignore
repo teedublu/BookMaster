@@ -4,3 +4,4 @@ xcuserdata/
 DerivedData/
 .swiftpm/
 *.xcworkspace/xcuserdata/
+.DS_Store

@@ -1,5 +1,5 @@
 import XCTest
-@testable import BookMasterCore
+@testable import BookMaster
 
 /// Exercises the real service (not just Phase 0's throwaway spike)
 /// end-to-end: builds a FAT image from a scratch source folder, then

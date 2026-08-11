@@ -4,19 +4,14 @@ options:
     macOS: "13.0"
   bundleIdPrefix: co.uk.voxblock
 
-packages:
-  BookMasterCore:
-    path: ../BookMasterApp
-
 targets:
   BookMaster:
     type: application
     platform: macOS
     sources:
       - path: BookMaster
-    dependencies:
-      - package: BookMasterCore
-        product: BookMasterCore
+        excludes:
+          - "Info.plist"
     info:
       path: BookMaster/Info.plist
       properties:
@@ -27,8 +22,8 @@ targets:
         NSHighResolutionCapable: true
         NSPrincipalClass: NSApplication
         # The exact key Phase 5/9 found is a hard requirement before
-        # camera access will work at all -- see swift-port/BookMasterApp
-        # README's Phase 5/9 sections for how that was discovered.
+        # camera access will work at all -- see HISTORY.md's Phase 5/9
+        # sections for how that was discovered.
         NSCameraUsageDescription: "BookMaster uses the camera to scan a book's ISBN barcode."
     settings:
       base:
@@ -39,5 +34,37 @@ targets:
         SWIFT_VERSION: "5.0"
         MACOSX_DEPLOYMENT_TARGET: "13.0"
         ENABLE_HARDENED_RUNTIME: NO
-        # Deliberately no App Sandbox: Phase 4's raw device write and
-        # Phase 2's DiskArbitration access are not sandbox-compatible.
+        # Deliberately no App Sandbox: the raw device write and
+        # DiskArbitration access this app needs are not sandbox-compatible.
+
+  BookMasterTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: BookMasterTests
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        GENERATE_INFOPLIST_FILE: YES
+        # Hosted inside the app process (matching Xcode's own "Unit
+        # Testing Bundle" template default) so `@testable import
+        # BookMaster` can see the app target's internal declarations --
+        # a plain executable's symbols aren't importable without this.
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/BookMaster.app/Contents/MacOS/BookMaster"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+    dependencies:
+      - target: BookMaster
+
+schemes:
+  BookMaster:
+    build:
+      targets:
+        BookMaster: all
+        BookMasterTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - BookMasterTests

@@ -1,5 +1,5 @@
 import XCTest
-@testable import BookMasterCore
+@testable import BookMaster
 
 final class CameraScannerTests: XCTestCase {
     func testPlausibleISBN13AcceptsThirteenDigits() {

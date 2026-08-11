@@ -1,17 +1,23 @@
-# BookMasterCore — Swift port (non-UI logic)
+# BookMaster Swift port — phase-by-phase history
 
-> **The app itself now lives at [`../BookMaster/`](../BookMaster/),
-> a real Xcode project** — `BookMaster.xcodeproj`, generated via
-> `xcodegen` from `project.yml`. This package was split down to just
-> `BookMasterCore` (the library) + its tests when that project was
-> created, because a real `.app` (proper `Info.plist`, asset catalog,
-> Signing & Capabilities UI) needs an actual Xcode app target, which a
-> SwiftPM executable product can't provide. `swift run` no longer
-> launches anything from this directory — open `../BookMaster/BookMaster.xcodeproj`
-> in Xcode instead. Everything below is the phase-by-phase history of
-> how this logic was built; it's all still accurate for
-> `BookMasterCore` itself, just read "the app" as "the app, now over in
-> ../BookMaster/" wherever it comes up.
+> **This is a history document, not the current structure.** All the
+> code described below now lives directly inside
+> [`BookMaster.xcodeproj`](BookMaster.xcodeproj) as one unified Xcode
+> project — see [`README.md`](README.md) for the current layout. There
+> is no more separate `BookMasterApp`/`BookMasterCore` SwiftPM package;
+> that existed for a while during the port (first as the whole app via
+> `swift run`, then briefly as a local package dependency the Xcode
+> project referenced) and was folded entirely into this project on the
+> next iteration once it became clear a single unified project was
+> wanted over a package-plus-thin-app-target split. `swift test`/
+> `swift run` no longer apply anywhere in `swift-port/` — use
+> `xcodebuild` or Xcode itself (see README.md).
+>
+> Paths mentioned below like `Sources/BookMasterCore/Services/X.swift`
+> reflect where things lived *at the time each phase was written*, not
+> where they are now (now: `BookMaster/Services/X.swift`, directly in
+> the Xcode project). The technical content — what was built, how it
+> was tested, what findings came out of it — is all still accurate.
 
 A SwiftUI macOS app reproducing `src/ui/main_window.py`, built phase by
 phase per the migration plan (Phases 0-9 below). Every core capability
@@ -26,10 +32,6 @@ running app, and covered by tests that exercise real system tools
 signing/notarization, and — most importantly — the decision to cut real
 users over from the Python app are all explicitly out of scope for this
 branch. See "Not done here, and why" under Phase 9.
-
-Test this package: `swift test` from this directory (31 tests as of
-Phase 8). Package: `BookMasterCore` (library: models/stores/services,
-unit-tested) + `BookMasterCoreTests`.
 
 ## What's real
 
