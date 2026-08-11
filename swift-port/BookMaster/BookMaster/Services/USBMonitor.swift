@@ -130,7 +130,8 @@ public final class USBMonitor: ObservableObject {
             volumeKind: volumeKind,
             mountPath: volumeURL?.path,
             totalCapacityBytes: total,
-            availableCapacityBytes: available
+            availableCapacityBytes: available,
+            serialNumber: USBSerialLookup.serialNumber(forBSDName: bsdName)
         )
     }
 }

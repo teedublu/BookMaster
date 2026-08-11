@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var verificationResult: VerificationResult?
     @State private var isVerifying = false
     @State private var productionStats: ProductionStats?
+    @State private var blockHistory: DeviceHistory?
     // Lightweight local instance for now; Phase 14 promotes this to a
     // shared environment object once block-history lookups need it too.
     private let productionLog: ProductionLog? = try? ProductionLog()
@@ -24,21 +25,15 @@ struct ContentView: View {
     private let availableTests = ["Silence", "Loudness", "Metadata", "Frames", "Speed"]
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                inputFolderSection
-                optionsSection
-                metadataSection
-                actionsSection
-                HStack(alignment: .top, spacing: 16) {
-                    webcamPanel
-                    usbDrivesPanel
-                    usbChecksPanel
-                    productionPanel
-                }
-                logSection
+        VStack(alignment: .leading, spacing: 0) {
+            TabView {
+                createMasterTab
+                    .tabItem { Label("Create Master", systemImage: "square.and.pencil") }
+                verifyMasterTab
+                    .tabItem { Label("Verify Master", systemImage: "checkmark.shield") }
             }
-            .padding(16)
+            logSection
+                .padding([.horizontal, .bottom], 16)
         }
         .onAppear {
             log.append("Loaded settings from \(settingsStore.settingsFilePath)")
@@ -51,6 +46,7 @@ struct ContentView: View {
             let currentIDs = Set(newDrives.map(\.id))
             for drive in newDrives where !loggedDriveIDs.contains(drive.id) {
                 log.append("USB candidate appeared: \(drive.bsdName) (\(drive.volumeName ?? "unmounted"), \(ByteCountFormatter.string(fromByteCount: drive.sizeBytes, countStyle: .file)))")
+                announceHistory(for: drive)
             }
             for id in loggedDriveIDs where !currentIDs.contains(id) {
                 log.append("USB candidate removed: \(id)")
@@ -81,6 +77,43 @@ struct ContentView: View {
         }
         .onChange(of: selectedDriveID) { _ in
             verificationResult = nil
+            blockHistory = lookUpHistory(for: selectedDrive)
+        }
+    }
+
+    // MARK: Create Master / Verify Master tabs
+    //
+    // Splits the single Python window into the two sides the app
+    // actually has: authoring a new master image (left of the old
+    // layout) versus inspecting/verifying a connected drive (right of
+    // it). The log stays shared and visible under both tabs since both
+    // sides write to it.
+
+    private var createMasterTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                inputFolderSection
+                optionsSection
+                metadataSection
+                createActionsSection
+                webcamPanel
+            }
+            .padding(16)
+        }
+    }
+
+    private var verifyMasterTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                verifyActionsSection
+                HStack(alignment: .top, spacing: 16) {
+                    usbDrivesPanel
+                    usbChecksPanel
+                    blockHistoryPanel
+                    productionPanel
+                }
+            }
+            .padding(16)
         }
     }
 
@@ -193,9 +226,9 @@ struct ContentView: View {
         }
     }
 
-    // MARK: Row 8 — Actions
+    // MARK: Create Master actions
 
-    private var actionsSection: some View {
+    private var createActionsSection: some View {
         GroupBox {
             HStack(spacing: 16) {
                 Button(isBuilding ? "Building\u{2026}" : "Create Master") {
@@ -206,10 +239,22 @@ struct ContentView: View {
                 if isBuilding { ProgressView().controlSize(.small) }
                 Toggle("Write image to block", isOn: $settingsStore.settings.writeImageMode)
                 Spacer()
+            }
+        }
+    }
+
+    // MARK: Verify Master actions
+
+    private var verifyActionsSection: some View {
+        GroupBox {
+            HStack(spacing: 16) {
                 Button(isVerifying ? "Verifying\u{2026}" : "Check Master") {
                     checkMaster()
                 }
+                .keyboardShortcut(.defaultAction)
                 .disabled(selectedDrive == nil || isVerifying)
+                if isVerifying { ProgressView().controlSize(.small) }
+                Spacer()
             }
         }
     }
@@ -278,7 +323,7 @@ struct ContentView: View {
                     skipSpeedTest: false,
                     deepAudioInspect: true,
                     productionLog: productionLog,
-                    serial: nil // Phase 14 adds USB serial capture via IOKit
+                    serial: drive.serialNumber
                 )
                 verificationResult = result
                 let rateNote = result.encodingRateAnomaly ? " \u{26A0}\u{FE0F} encoding rate anomaly" : ""
@@ -295,6 +340,80 @@ struct ContentView: View {
                 log.append("Verification failed: \(error)")
             }
             isVerifying = false
+        }
+    }
+
+    // MARK: Block history ("see the history of any block added to the dock")
+
+    /// Looks up prior writes/duplicator runs for the physical device behind
+    /// `drive`, keyed by its IOKit hardware serial (USBSerialLookup), and
+    /// logs a one-line summary the moment it's plugged in — this is what
+    /// makes history visible on connect, not just after a manual check.
+    private func announceHistory(for drive: USBDriveInfo) {
+        guard let serial = drive.serialNumber else {
+            log.append("\(drive.bsdName): no readable USB serial, history lookup unavailable.")
+            return
+        }
+        guard let history = lookUpHistory(for: drive) else {
+            log.append("\(drive.bsdName): production log unavailable.")
+            return
+        }
+        if history.isEmpty {
+            log.append("\(drive.bsdName): no prior history for serial \(serial).")
+        } else {
+            let lastWrite = history.writes.last
+            log.append(
+                "\(drive.bsdName): \(history.writes.count) prior write(s), \(history.duplicatorRuns.count) duplicator run(s)"
+                + (lastWrite.map { " — last written as \($0.sku) at \($0.timestamp)" } ?? "")
+                + " (serial \(serial))."
+            )
+        }
+    }
+
+    private func lookUpHistory(for drive: USBDriveInfo?) -> DeviceHistory? {
+        guard let serial = drive?.serialNumber, let productionLog else { return nil }
+        return try? productionLog.deviceHistory(serial: serial)
+    }
+
+    private var blockHistoryPanel: some View {
+        GroupBox("Block History") {
+            VStack(alignment: .leading, spacing: 6) {
+                if selectedDrive?.serialNumber == nil {
+                    Text("No readable USB serial for this device.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else if let blockHistory {
+                    if blockHistory.isEmpty {
+                        Text("No prior history for this device.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        detailRow("Writes", String(blockHistory.writes.count))
+                        detailRow("Duplicator Runs", String(blockHistory.duplicatorRuns.count))
+                        Divider()
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(Array(blockHistory.writes.enumerated()), id: \.offset) { _, write in
+                                    Text("\(write.timestamp): \(write.sku)")
+                                        .font(.caption2)
+                                }
+                                ForEach(Array(blockHistory.duplicatorRuns.enumerated()), id: \.offset) { _, run in
+                                    Text("\(run.dt ?? "-"): dupe run \(run.result ?? "-")")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(height: 80)
+                    }
+                } else {
+                    Text("Select a device to view history.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 200, alignment: .leading)
         }
     }
 

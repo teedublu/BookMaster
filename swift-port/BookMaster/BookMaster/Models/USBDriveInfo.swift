@@ -33,6 +33,13 @@ public struct USBDriveInfo: Identifiable, Equatable {
     public var totalCapacityBytes: Int64?
     public var availableCapacityBytes: Int64?
 
+    /// The physical device's hardware serial number, resolved via
+    /// IOKit (USBSerialLookup) -- not available from DiskArbitration's
+    /// description directly. This is the key everything in Phase 10's
+    /// ProductionLog (devices/writes/duplicator_runs) is keyed by, so
+    /// it's what makes "history of this exact physical block" possible.
+    public var serialNumber: String?
+
     /// The exact safety gate: removable + whole-disk + physically USB.
     /// See Phase 0's DiskArbitrationSpike README for why `isRemovable`
     /// alone isn't sufficient (CoreSimulator volumes are removable but

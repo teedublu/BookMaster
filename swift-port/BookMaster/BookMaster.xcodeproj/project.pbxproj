@@ -42,6 +42,7 @@
 		BEAC654CA3F4753FBAC46945 /* PlaceholderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB980C4E495321B7DB7D54FC /* PlaceholderTests.swift */; };
 		BFE97A39ECF449C96332C593 /* FFmpegEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AE462DBA774B808155C5B76 /* FFmpegEncoder.swift */; };
 		C027EE7C4DF3DFAB33419205 /* DupeRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E441EB789A120FB1ECE7FE /* DupeRow.swift */; };
+		CCB8ABC648D6CAD00537B866 /* USBSerialLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF1DA32446563A084CC06454 /* USBSerialLookup.swift */; };
 		CE9D2FC4C985BCD44F1BB882 /* BitrateFittingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25BC7173B44E25CF5071670C /* BitrateFittingTests.swift */; };
 		D4B629C4A545068195D5C107 /* MasterBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04DA644A47CAA4D7E935203E /* MasterBuilderTests.swift */; };
 		D967B0D15D6614B18413C343 /* NaturalSort.swift in Sources */ = {isa = PBXBuildFile; fileRef = D59F4B47359321E57167094A /* NaturalSort.swift */; };
@@ -52,6 +53,7 @@
 		DF2D9D9346B9FE42DFD86B6A /* MBRImageBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C2E92077E14003FCA19489D /* MBRImageBuilder.swift */; };
 		E1640018640C7D231BA86810 /* RawDeviceWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA5015289B996C6BEDC64DFF /* RawDeviceWriter.swift */; };
 		E44016E16615949553C3FB1B /* ProductionLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4E5F9A2C61AF0A85AC9240D /* ProductionLog.swift */; };
+		E649C9B324752A6F22C1140B /* USBSerialLookupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D22689F2C4CF61E38F2FD0E0 /* USBSerialLookupTests.swift */; };
 		E952EE538991D29F7FC56049 /* Slug.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE2C3EEA3254805EAB63E9A9 /* Slug.swift */; };
 		EB14C659F782814C235F6C17 /* BitrateFitting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9241D20BFEA5F754FBF3676 /* BitrateFitting.swift */; };
 		EB7EE4CD0A23E471E79D47B1 /* DatabaseRecords.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F34F65D189C67CA4BCC2043 /* DatabaseRecords.swift */; };
@@ -114,9 +116,11 @@
 		B8A310DE63610EEB8323933F /* MBRImageBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MBRImageBuilderTests.swift; sourceTree = "<group>"; };
 		BAB7948B5D4B05947D3A3B07 /* BooksCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BooksCatalogTests.swift; sourceTree = "<group>"; };
 		BE2C3EEA3254805EAB63E9A9 /* Slug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Slug.swift; sourceTree = "<group>"; };
+		BF1DA32446563A084CC06454 /* USBSerialLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = USBSerialLookup.swift; sourceTree = "<group>"; };
 		BF591AEBFF7C127544A02CCE /* BookMasterTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BookMasterTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C75B95AEDC06BB2C48625C6F /* DriveVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriveVerifier.swift; sourceTree = "<group>"; };
 		CB980C4E495321B7DB7D54FC /* PlaceholderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceholderTests.swift; sourceTree = "<group>"; };
+		D22689F2C4CF61E38F2FD0E0 /* USBSerialLookupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = USBSerialLookupTests.swift; sourceTree = "<group>"; };
 		D2AB8F50D25B4BB91C27715D /* CameraScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraScanner.swift; sourceTree = "<group>"; };
 		D42E6F20DA4293009AC137E8 /* ProductionLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionLogTests.swift; sourceTree = "<group>"; };
 		D59F4B47359321E57167094A /* NaturalSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NaturalSort.swift; sourceTree = "<group>"; };
@@ -163,6 +167,7 @@
 				CB980C4E495321B7DB7D54FC /* PlaceholderTests.swift */,
 				D42E6F20DA4293009AC137E8 /* ProductionLogTests.swift */,
 				179802A6F6113FBF97DD79F1 /* RawDeviceWriterTests.swift */,
+				D22689F2C4CF61E38F2FD0E0 /* USBSerialLookupTests.swift */,
 			);
 			path = BookMasterTests;
 			sourceTree = "<group>";
@@ -215,6 +220,7 @@
 				BE2C3EEA3254805EAB63E9A9 /* Slug.swift */,
 				9F8FA7CDFFC480AC2D770D3B /* URL+Canonical.swift */,
 				0BC1B5F1452EF892820A7BB8 /* USBMonitor.swift */,
+				BF1DA32446563A084CC06454 /* USBSerialLookup.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -375,6 +381,7 @@
 				3F958BD9623DDB742DAB369F /* URL+Canonical.swift in Sources */,
 				DD4D8BFF07C7240270DE2E54 /* USBDriveInfo.swift in Sources */,
 				1591148ADB9107E0B907665F /* USBMonitor.swift in Sources */,
+				CCB8ABC648D6CAD00537B866 /* USBSerialLookup.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -396,6 +403,7 @@
 				BEAC654CA3F4753FBAC46945 /* PlaceholderTests.swift in Sources */,
 				AF719BC5EC8A903FB0C343A9 /* ProductionLogTests.swift in Sources */,
 				60ED62A7A20305FE955A4C1F /* RawDeviceWriterTests.swift in Sources */,
+				E649C9B324752A6F22C1140B /* USBSerialLookupTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
