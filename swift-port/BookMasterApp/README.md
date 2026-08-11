@@ -150,6 +150,32 @@ Test: `swift test`. The package now has three targets — `BookMasterCore`
   main actor first — avoids doing the throttle check itself as slowly
   as the thing it's throttling.
 
+## Phase 6 — ffmpeg encoding bridge (new)
+
+- **`Services/FFmpegEncoder.swift`** ports `track.py`'s `Track.convert()`
+  **byte-for-byte** as a command line — same `filter_complex` string
+  (pink-noise dither mixed in at `a=0.0001` before `loudnorm`), same
+  output args (`-ar`, `-ab`, `-ac 1`, `-f mp3`, `-acodec libmp3lame`).
+  This is known-working production audio processing; the port
+  reproduces it exactly rather than reinterpreting it.
+- **`Services/AudioDuration.swift`** reads input duration via
+  `AVFoundation` (`AVURLAsset.load(.duration)`) instead of shelling to
+  `ffprobe` — one less subprocess, and it's already on every Mac.
+- **`Services/BitrateFitting.swift`** ports `master.py`'s
+  `calculate_encoding_for_drive_capacity()` as a pure, tested function:
+  reduce bitrate proportionally when estimated size exceeds 90% of
+  drive capacity, floored at 32kbps, never increased above the original.
+- **AVFoundation was deliberately not used for the encoding itself** —
+  it has no equivalent to `loudnorm`, and subtly-wrong loudness
+  normalization would make every audiobook sound different depending on
+  which engine built it. ffmpeg stays an external dependency; Phase 9
+  needs to bundle+sign it.
+- **Tested for real, not simulated**: generates an actual 2-second
+  440Hz test tone via ffmpeg (no book audio needed), runs it through the
+  exact production filter graph, and verifies the output is a valid MP3
+  with the right duration and a single mono track. 6 new tests (4 for
+  bitrate math, 2 for the encode pipeline), all passing — 19 total now.
+
 ## What's deliberately stubbed
 
 - **Create Master / Check Master / Batch Create buttons** just append a
