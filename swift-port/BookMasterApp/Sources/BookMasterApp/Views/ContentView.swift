@@ -14,6 +14,8 @@ struct ContentView: View {
     @StateObject private var camera = CameraScanner()
     @State private var selectedDriveID: String?
     @State private var loggedDriveIDs: Set<String> = []
+    @State private var isBuilding = false
+    @State private var checkedContent: MasterContent?
 
     private let availableTests = ["Silence", "Loudness", "Metadata", "Frames", "Speed"]
 
@@ -69,6 +71,35 @@ struct ContentView: View {
         .onChange(of: camera.errorMessage) { error in
             if let error { log.append("Camera error: \(error)") }
         }
+        .onChange(of: settingsStore.settings.isbn) { isbn in
+            lookupISBNIfEnabled(isbn)
+        }
+        .onChange(of: selectedDriveID) { _ in
+            checkedContent = nil
+        }
+    }
+
+    // MARK: ISBN CSV lookup (ports _on_isbn_change)
+
+    private func lookupISBNIfEnabled(_ isbn: String) {
+        guard settingsStore.settings.lookupCsv else { return }
+        guard isbn.count == 13, isbn.allSatisfy(\.isNumber) else {
+            log.append("Invalid ISBN '\(isbn)': must be 13 digits.")
+            return
+        }
+        guard let row = BooksCatalog.lookup(isbn: isbn) else {
+            log.append("No catalog data found for \(isbn)")
+            settingsStore.settings.sku = ""
+            settingsStore.settings.title = ""
+            settingsStore.settings.author = ""
+            settingsStore.settings.pastMaster.fileCountExpected = 0
+            return
+        }
+        settingsStore.settings.sku = row["SKU"] ?? ""
+        settingsStore.settings.title = row["Title"] ?? ""
+        settingsStore.settings.author = row["Author"] ?? ""
+        settingsStore.settings.pastMaster.fileCountExpected = Int(row["ExpectedFileCount"] ?? "") ?? 0
+        log.append("Catalog match for \(isbn): \(row["Title"] ?? "-") by \(row["Author"] ?? "-")")
     }
 
     // MARK: Row 0 — Input Folder
@@ -150,16 +181,78 @@ struct ContentView: View {
     private var actionsSection: some View {
         GroupBox {
             HStack(spacing: 16) {
-                Button("Create Master") {
-                    log.append("Create Master (stub — Phase 2-4 wire real encode/image/write)")
+                Button(isBuilding ? "Building\u{2026}" : "Create Master") {
+                    createMaster()
                 }
                 .keyboardShortcut(.defaultAction)
+                .disabled(isBuilding)
+                if isBuilding { ProgressView().controlSize(.small) }
                 Toggle("Write image to block", isOn: $settingsStore.settings.writeImageMode)
                 Spacer()
                 Button("Check Master") {
-                    log.append("Check Master (stub — Phase 2/7 wire real drive checks)")
+                    checkMaster()
                 }
+                .disabled(selectedDrive == nil)
             }
+        }
+    }
+
+    // MARK: Create / Check Master
+
+    private func createMaster() {
+        let settings = settingsStore.settings
+        let maxDriveSizeBytes: Int64
+        if let mb = Double(settings.maxDriveSizeMB), mb > 0 {
+            maxDriveSizeBytes = Int64(mb * 1_000_000)
+        } else {
+            maxDriveSizeBytes = Int64(ConfigStore.shared.maxDriveSize)
+        }
+
+        let inputs = MasterInputs(
+            isbn: settings.isbn, sku: settings.sku, title: settings.title, author: settings.author,
+            inputFolder: URL(fileURLWithPath: settings.inputFolder),
+            outputFolder: URL(fileURLWithPath: settings.outputFolder),
+            skipEncoding: settings.skipEncoding,
+            maxDriveSizeBytes: maxDriveSizeBytes
+        )
+
+        let errors = MasterBuilder.validate(inputs: inputs)
+        guard errors.isEmpty else {
+            log.append("Cannot create master: \(errors.joined(separator: "; "))")
+            return
+        }
+
+        isBuilding = true
+        log.append("Creating master for \(settings.sku)\u{2026}")
+        Task {
+            do {
+                let result = try await MasterBuilder.build(inputs: inputs) { message in
+                    Task { @MainActor in log.append(message) }
+                }
+                log.append("Master created: \(result.imagePath.path) (\(result.fileCount) tracks, bitrate \(result.bitRateUsed)bps)")
+                if settings.writeImageMode {
+                    log.append("\"Write image to block\" is on, but writing to a real device needs a selected drive and is not driven from this button in an unattended way \u{2014} select a drive and confirm manually (Phase 4/9: no privileged write helper yet).")
+                }
+            } catch {
+                log.append("Master creation failed: \(error)")
+            }
+            isBuilding = false
+        }
+    }
+
+    private func checkMaster() {
+        guard let drive = selectedDrive, let mountPath = drive.mountPath else {
+            log.append("No mounted drive selected to check.")
+            return
+        }
+        log.append("Checking master at \(mountPath)\u{2026}")
+        let content = MasterReader.read(mountPath: URL(fileURLWithPath: mountPath))
+        checkedContent = content
+        if content.isbn == nil {
+            log.append("No master found on \(drive.bsdName) (missing bookInfo/id.txt).")
+        } else {
+            let checksumStatus = content.checksumMatches == true ? "OK" : (content.checksumMatches == false ? "MISMATCH" : "unknown")
+            log.append("Master found: ISBN=\(content.isbn ?? "-") files=\(content.fileCount.map(String.init) ?? "-") checksum=\(checksumStatus)")
         }
     }
 
@@ -219,9 +312,13 @@ struct ContentView: View {
                     detailRow("Volume", selectedDrive?.volumeName ?? "-")
                     detailRow("Device", selectedDrive?.rawDevicePath ?? "-")
                 }
-                Text("Content/SKU/ISBN validity reading is Phase 7 work,\nnot wired up yet.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                Divider()
+                Group {
+                    detailRow("Content", checkedContent == nil ? "-" : (checkedContent?.isbn == nil ? "Invalid" : "Valid"))
+                    detailRow("ISBN", checkedContent?.isbn ?? "-")
+                    detailRow("Files", checkedContent?.fileCount.map(String.init) ?? "-")
+                    detailRow("Checksum", checkedContent?.checksumMatches.map { $0 ? "OK" : "MISMATCH" } ?? "-")
+                }
             }
             .frame(width: 240, alignment: .leading)
         }

@@ -15,7 +15,8 @@ let package = Package(
             name: "BookMasterCore",
             path: "Sources/BookMasterCore",
             resources: [
-                .copy("Resources/config.json")
+                .copy("Resources/config.json"),
+                .copy("Resources/books.csv"),
             ]
         ),
         .executableTarget(

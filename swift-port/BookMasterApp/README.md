@@ -176,11 +176,65 @@ Test: `swift test`. The package now has three targets — `BookMasterCore`
   with the right duration and a single mono track. 6 new tests (4 for
   bitrate math, 2 for the encode pipeline), all passing — 19 total now.
 
+## Phase 7 — metadata, checksums, and the full Create/Check Master pipeline (new)
+
+This is where everything from Phases 3-6 gets tied together and the
+"Create Master" / "Check Master" buttons stop being stubs.
+
+- **`Services/BooksCatalog.swift`** ports `config.py`'s `_load_books_csv()`
+  — a small hand-written CSV parser (RFC4180-ish: quoted fields, `""`
+  escaping; no dependency pulled in for something this contained) over a
+  bundled `books.csv` snapshot, keyed by ISBN. Faithfully reproduces an
+  existing quirk rather than fixing it: `main_window.py` reads a
+  non-existent `ExpectedFileCount` column and always silently gets `0`
+  — the Swift version does the same, documented in a test, not "fixed"
+  behind the scenes.
+- **`Services/Checksum.swift`** ports `compute_sha256()`: one running
+  SHA-256 fed each file's relative path then its contents, in
+  natural-sorted order, excluding a handful of housekeeping files
+  (`.DS_Store`, `version.txt`, `checksum.txt`, ...) so writing
+  `checksum.txt` doesn't change the hash it just recorded.
+- **`Services/NaturalSort.swift`** ports `natsort.natsorted` for real —
+  publisher input filenames aren't zero-padded (`Chapter 2.mp3` vs.
+  `Chapter 10.mp3`), so this isn't cosmetic; a test proves 1/2/10 encode
+  in that order, not 1/10/2.
+- **`Services/MasterBuilder.swift`** is the `MasterDraft`/`Master`
+  equivalent: validates inputs (ports `MasterDraft.validate()`), finds
+  and naturally-sorts input audio files, reuses already-processed tracks
+  when `skip_encoding` is set and the count still matches (ports
+  `process_tracks()`'s reuse check), encodes each track (Phase 6) at a
+  drive-capacity-fitted bitrate (Phase 6's `BitrateFitting`), assembles
+  the exact `output_structure` (`bookInfo/id.txt`, `count.txt`,
+  `version.txt`, `.metadata_never_index`, `tracks/`), computes and
+  writes the checksum, then builds the disk image (Phase 3). One
+  function, same order of operations as the Python version, including
+  the "checksum after tracks are copied, before checksum.txt is
+  written" ordering dependency.
+- **`Services/MasterReader.swift`** is the "Check Master" counterpart:
+  reads `id.txt`/`count.txt` back off a mounted drive and re-verifies
+  the stored checksum against a fresh computation — catching a tampered
+  or corrupted drive, not just a missing one.
+- **UI wiring**: ISBN field changes trigger the CSV lookup (when "CSV
+  lookup" is on) exactly like `_on_isbn_change()`; "Create Master" runs
+  the real async pipeline with progress logged live; "Check Master"
+  reads the selected USB candidate's mounted content into the same
+  detail panel Phase 2 built, replacing the "Phase 7 work" placeholder.
+- **Still NOT wired to a real device write from the UI**: "Write image
+  to block" is present but deliberately not auto-triggering
+  `RawDeviceWriter` on a button click without the user explicitly
+  selecting and confirming a drive — see Phase 4 and Phase 9 for why.
+- **Tested for real, end-to-end, not simulated**: synthesizes three
+  "publisher" tracks named non-sequentially (`Chapter 1/2/10.wav`), runs
+  the *entire* pipeline, and asserts on the real result — correct
+  natural-sort encoding order, `bookInfo` file contents, checksum
+  presence, a FAT image that actually exists — plus a tamper-detection
+  test (mutates a file after the checksum was written, confirms
+  `MasterReader` catches it). 12 new tests, all passing — **29 total**.
+
 ## What's deliberately stubbed
 
-- **Create Master / Check Master / Batch Create buttons** just append a
-  log line. No `MasterDraft`/`Master` equivalent exists yet — that's
-  Phase 7, which is also where `DiskImageBuilder` gets wired into the UI.
+- **Batch Create button** still just logs — CSV-driven batch creation
+  (looping the pipeline above per ISBN) hasn't been wired up.
 - **Webcam panel** shows a placeholder rectangle until camera access is
   granted — the code is real (Phase 5), but per above it can't actually
   be exercised until Phase 9 produces a real app bundle.
