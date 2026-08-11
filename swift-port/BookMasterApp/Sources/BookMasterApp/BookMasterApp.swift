@@ -1,4 +1,5 @@
 import SwiftUI
+import BookMasterCore
 
 @main
 struct BookMasterApp: App {

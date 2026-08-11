@@ -1,11 +1,14 @@
-# Phase 1/2 — App shell + settings + native USB detection
+# BookMasterApp — Swift port
 
-A SwiftUI macOS app reproducing every field/control from
-`src/ui/main_window.py`, backed by real settings persistence and now
-real, native USB drive detection. Encoding, disk image authoring, and
-writing are still not wired in — that's Phase 3 onward.
+A SwiftUI macOS app reproducing `src/ui/main_window.py`, built up phase
+by phase per the migration plan. Settings/config, native USB detection,
+and FAT image authoring are real and tested; encoding and the raw write
+are next.
 
 Run: `swift run` from this directory (`swift-port/BookMasterApp`).
+Test: `swift test`. The package now has three targets — `BookMasterCore`
+(library: models/stores/services, unit-tested), `BookMasterApp`
+(executable: views + app entry), `BookMasterCoreTests`.
 
 ## What's real
 
@@ -59,10 +62,37 @@ Run: `swift run` from this directory (`swift-port/BookMasterApp`).
   Python `USBDrive.content`/`is_valid_master` did. The panel says so
   explicitly rather than showing stale/fake values.
 
+## Phase 3 — FAT image authoring (new)
+
+- **`Services/DiskImageBuilder.swift`** ports `diskimage.py`'s
+  `create_disk_image()`: sizes a raw image from the source folder's
+  actual disk usage (`du -sk`, same 5%-or-5MB buffer / 10MB floor math),
+  formats it, copies files in (respecting `config.json`'s
+  `patterns_to_remove` via real `fnmatch(3)`, matching Python's
+  `fnmatch.fnmatchcase`), and publishes to the output path with the same
+  read-only lock (`chmod 444` + `chflags uchg`) the Python version used.
+- **Resolves Phase 0's open follow-up.** Rather than `hdiutil create`
+  (UDIF-wrapped, needs flattening before it's byte-exact) this builds a
+  bare truncated file directly and forces `hdiutil attach -imagekey
+  diskimage-class=CRawDiskImage` to treat it as a raw device — verified
+  the file's byte size never changes across the whole attach/format/
+  mount/copy/detach cycle, so the result is already the flat image
+  Phase 4 needs, no separate conversion step required.
+- **Deliberately not ported**: the Google Drive watermarking/slot-log
+  step (`claim_unique_slot_and_log`) — a business-process integration,
+  not disk-image authoring.
+- **Tested for real** (`Tests/BookMasterCoreTests/DiskImageBuilderTests.swift`):
+  builds an image from a scratch folder with a nested directory, a
+  normal file, and files matching exclude patterns; re-attaches
+  read-only; asserts the FAT filesystem, correct file contents, and that
+  excluded files were never copied. Not simulated — real `hdiutil`/
+  `newfs_msdos` calls, real assertions on the result.
+
 ## What's deliberately stubbed
 
 - **Create Master / Check Master / Batch Create buttons** just append a
-  log line. No `MasterDraft`/`Master` equivalent exists yet.
+  log line. No `MasterDraft`/`Master` equivalent exists yet — that's
+  Phase 7, which is also where `DiskImageBuilder` gets wired into the UI.
 - **Webcam panel** shows a placeholder rectangle. Real capture is Phase
   5, building on `../Spikes/Sources/BarcodeSpike`.
 

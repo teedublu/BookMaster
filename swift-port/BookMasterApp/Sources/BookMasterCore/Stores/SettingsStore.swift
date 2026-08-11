@@ -13,12 +13,12 @@ import Combine
 /// both installed. Phase 9 (cutover) is where the two get reconciled,
 /// deliberately, with the user's sign-off — not implicitly here.
 @MainActor
-final class SettingsStore: ObservableObject {
-    @Published var settings: AppSettings
+public final class SettingsStore: ObservableObject {
+    @Published public var settings: AppSettings
 
     private let fileURL: URL
 
-    init() {
+    public init() {
         let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("BookMasterSwift", isDirectory: true)
         try? FileManager.default.createDirectory(at: supportDir, withIntermediateDirectories: true)
@@ -35,7 +35,7 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    func save() {
+    public func save() {
         try? persist(settings)
     }
 
@@ -46,5 +46,5 @@ final class SettingsStore: ObservableObject {
         try data.write(to: fileURL, options: .atomic)
     }
 
-    var settingsFilePath: String { fileURL.path }
+    public var settingsFilePath: String { fileURL.path }
 }

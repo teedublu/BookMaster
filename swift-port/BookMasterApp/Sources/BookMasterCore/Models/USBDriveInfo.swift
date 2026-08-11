@@ -10,39 +10,39 @@ import Foundation
 /// implies it's safe to write to; Phase 4 re-checks this same
 /// classification live, immediately before writing, rather than
 /// trusting a value cached this far upstream in the flow.
-struct USBDriveInfo: Identifiable, Equatable {
-    var id: String { bsdName }
+public struct USBDriveInfo: Identifiable, Equatable {
+    public var id: String { bsdName }
 
-    var bsdName: String
-    var rawDevicePath: String
-    var isRemovable: Bool
-    var isEjectable: Bool
-    var isWhole: Bool
-    var protocolName: String
-    var sizeBytes: Int64
-    var mediaName: String?
-    var volumeName: String?
-    var volumeKind: String?
-    var mountPath: String?
+    public var bsdName: String
+    public var rawDevicePath: String
+    public var isRemovable: Bool
+    public var isEjectable: Bool
+    public var isWhole: Bool
+    public var protocolName: String
+    public var sizeBytes: Int64
+    public var mediaName: String?
+    public var volumeName: String?
+    public var volumeKind: String?
+    public var mountPath: String?
 
     /// Total/available capacity of the mounted volume, if mounted.
     /// Filesystem-level info, not available from DiskArbitration's own
     /// media-level description — read via URL resource values instead
     /// of shelling out to `diskutil info`/`system_profiler` the way the
     /// Python USBDrive did.
-    var totalCapacityBytes: Int64?
-    var availableCapacityBytes: Int64?
+    public var totalCapacityBytes: Int64?
+    public var availableCapacityBytes: Int64?
 
     /// The exact safety gate: removable + whole-disk + physically USB.
     /// See Phase 0's DiskArbitrationSpike README for why `isRemovable`
     /// alone isn't sufficient (CoreSimulator volumes are removable but
     /// not USB) and why this must be re-checked live at write time
     /// rather than trusted from here.
-    var isCandidate: Bool {
+    public var isCandidate: Bool {
         isRemovable && isWhole && protocolName == "USB"
     }
 
-    static func == (lhs: USBDriveInfo, rhs: USBDriveInfo) -> Bool {
+    public static func == (lhs: USBDriveInfo, rhs: USBDriveInfo) -> Bool {
         lhs.bsdName == rhs.bsdName &&
         lhs.mountPath == rhs.mountPath &&
         lhs.volumeName == rhs.volumeName &&

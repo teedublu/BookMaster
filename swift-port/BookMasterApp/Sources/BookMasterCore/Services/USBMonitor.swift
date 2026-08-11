@@ -14,12 +14,12 @@ import Combine
 /// is exactly this kind of device, so surfacing anything else in the
 /// picker just invites picking the wrong thing.
 @MainActor
-final class USBMonitor: ObservableObject {
-    @Published private(set) var drives: [USBDriveInfo] = []
+public final class USBMonitor: ObservableObject {
+    @Published public private(set) var drives: [USBDriveInfo] = []
 
     private var session: DASession?
 
-    init() {
+    public init() {
         start()
     }
 

@@ -8,13 +8,13 @@ import Foundation
 /// Python DEFAULT_SETTINGS did, decoded tolerantly so a settings.json
 /// missing newer keys (or written by an older version of either app)
 /// still loads instead of failing.
-struct PastMaster: Codable, Equatable {
-    var isbn: String = ""
-    var sku: String = ""
-    var author: String = ""
-    var title: String = ""
-    var inputFolder: String = ""
-    var fileCountExpected: Int = 0
+public struct PastMaster: Codable, Equatable {
+    public var isbn: String = ""
+    public var sku: String = ""
+    public var author: String = ""
+    public var title: String = ""
+    public var inputFolder: String = ""
+    public var fileCountExpected: Int = 0
 
     enum CodingKeys: String, CodingKey {
         case isbn, sku, author, title
@@ -22,9 +22,9 @@ struct PastMaster: Codable, Equatable {
         case fileCountExpected = "file_count_expected"
     }
 
-    init() {}
+    public init() {}
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         isbn = try c.decodeIfPresent(String.self, forKey: .isbn) ?? ""
         sku = try c.decodeIfPresent(String.self, forKey: .sku) ?? ""
@@ -35,32 +35,32 @@ struct PastMaster: Codable, Equatable {
     }
 }
 
-struct AppSettings: Codable, Equatable {
-    var useWebcam: Bool = false
-    var inputFolder: String = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/VoxblockMaster")
-    var outputFolder: String = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/VoxblockMaster/output")
-    var isbn: String = ""
-    var manualData: Bool = false
-    var lookupCsv: Bool = false
-    var findIsbnFolder: Bool = false
-    var skipEncoding: Bool = false
-    var skipImageCreation: Bool = false
+public struct AppSettings: Codable, Equatable {
+    public var useWebcam: Bool = false
+    public var inputFolder: String = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/VoxblockMaster")
+    public var outputFolder: String = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/VoxblockMaster/output")
+    public var isbn: String = ""
+    public var manualData: Bool = false
+    public var lookupCsv: Bool = false
+    public var findIsbnFolder: Bool = false
+    public var skipEncoding: Bool = false
+    public var skipImageCreation: Bool = false
     /// Radio-button value: "480", "980", or "" (unset -> falls back to config.max_drive_size).
     /// Kept as a String, matching the Python UI's tk.StringVar, rather than
     /// an enum, so a value written by an older/newer build doesn't fail to
-    /// decode — see drive_size.swift's resolveMaxDriveSize equivalent (Phase 2/3).
-    var maxDriveSizeMB: String = ""
-    var writeImageMode: Bool = false
-    var usbDriveCheckOnMount: Bool = false
+    /// decode — see DriveSize.swift's resolveMaxDriveSize equivalent.
+    public var maxDriveSizeMB: String = ""
+    public var writeImageMode: Bool = false
+    public var usbDriveCheckOnMount: Bool = false
     /// Comma-separated, matching the Python UI's usb_drive_tests StringVar
     /// (e.g. "Silence,Loudness,Metadata"). Kept as a raw string rather than
     /// [String] to stay byte-compatible with settings.json files written
     /// by the Python app.
-    var usbDriveTests: String = ""
-    var sku: String = ""
-    var title: String = ""
-    var author: String = ""
-    var pastMaster: PastMaster = PastMaster()
+    public var usbDriveTests: String = ""
+    public var sku: String = ""
+    public var title: String = ""
+    public var author: String = ""
+    public var pastMaster: PastMaster = PastMaster()
 
     enum CodingKeys: String, CodingKey {
         case useWebcam = "use_webcam"
@@ -80,9 +80,9 @@ struct AppSettings: Codable, Equatable {
         case pastMaster = "past_master"
     }
 
-    init() {}
+    public init() {}
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = AppSettings()
         useWebcam = try c.decodeIfPresent(Bool.self, forKey: .useWebcam) ?? defaults.useWebcam

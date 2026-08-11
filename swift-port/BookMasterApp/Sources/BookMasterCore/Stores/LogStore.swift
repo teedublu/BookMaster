@@ -7,10 +7,12 @@ import Combine
 /// os_log/Logger-backed version comes with Phase 2+ once there's actual
 /// work happening to report on.
 @MainActor
-final class LogStore: ObservableObject {
-    @Published private(set) var lines: [String] = []
+public final class LogStore: ObservableObject {
+    @Published public private(set) var lines: [String] = []
 
-    func append(_ message: String) {
+    public init() {}
+
+    public func append(_ message: String) {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
         lines.append("[\(formatter.string(from: Date()))] \(message)")

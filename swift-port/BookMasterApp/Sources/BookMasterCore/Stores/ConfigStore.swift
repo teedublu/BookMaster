@@ -8,8 +8,8 @@ import Foundation
 /// scaffolding time; Phase 9 packaging needs to decide the long-term
 /// story (bundled default vs. an editable file in Application Support)
 /// rather than this silently drifting from src/config/config.json.
-enum ConfigStore {
-    static let shared: AppConfig = load()
+public enum ConfigStore {
+    public static let shared: AppConfig = load()
 
     private static func load() -> AppConfig {
         guard let url = Bundle.module.url(forResource: "config", withExtension: "json"),

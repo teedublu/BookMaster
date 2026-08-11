@@ -2,11 +2,11 @@ import Foundation
 
 /// Mirrors src/config/config.json. Read-only from the app's perspective —
 /// the Python side never writes this file at runtime, only settings.json.
-struct EncodingConfig: Codable, Equatable {
-    var bitRate: Int
-    var sampleRate: Int
-    var channels: Int
-    var targetLufs: Double
+public struct EncodingConfig: Codable, Equatable {
+    public var bitRate: Int
+    public var sampleRate: Int
+    public var channels: Int
+    public var targetLufs: Double
 
     enum CodingKeys: String, CodingKey {
         case bitRate = "bit_rate"
@@ -16,14 +16,14 @@ struct EncodingConfig: Codable, Equatable {
     }
 }
 
-struct OutputStructure: Codable, Equatable {
-    var tracksPath: String
-    var infoPath: String
-    var idFile: String
-    var countFile: String
-    var metadataFile: String
-    var checksumFile: String
-    var versionFile: String
+public struct OutputStructure: Codable, Equatable {
+    public var tracksPath: String
+    public var infoPath: String
+    public var idFile: String
+    public var countFile: String
+    public var metadataFile: String
+    public var checksumFile: String
+    public var versionFile: String
 
     enum CodingKeys: String, CodingKey {
         case tracksPath = "tracks_path"
@@ -36,12 +36,12 @@ struct OutputStructure: Codable, Equatable {
     }
 }
 
-struct AppConfig: Codable, Equatable {
-    var encoding: EncodingConfig
-    var maxDriveSize: Int
-    var patternsToRemove: [String]
-    var outputStructure: OutputStructure
-    var validFormats: [String]
+public struct AppConfig: Codable, Equatable {
+    public var encoding: EncodingConfig
+    public var maxDriveSize: Int
+    public var patternsToRemove: [String]
+    public var outputStructure: OutputStructure
+    public var validFormats: [String]
 
     enum CodingKeys: String, CodingKey {
         case encoding
@@ -57,7 +57,7 @@ struct AppConfig: Codable, Equatable {
     /// but a GUI app crashing on launch because a config file is missing
     /// is worse UX than falling back with a visible warning (see
     /// ConfigStore.swift).
-    static let fallback = AppConfig(
+    public static let fallback = AppConfig(
         encoding: EncodingConfig(bitRate: 96000, sampleRate: 44100, channels: 1, targetLufs: -19),
         maxDriveSize: 980_000_000,
         patternsToRemove: ["._*", "*.DS_Store", ".fseventsd", ".Trashes", ".TemporaryItems",
