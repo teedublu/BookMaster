@@ -1,0 +1,43 @@
+name: BookMaster
+options:
+  deploymentTarget:
+    macOS: "13.0"
+  bundleIdPrefix: co.uk.voxblock
+
+packages:
+  BookMasterCore:
+    path: ../BookMasterApp
+
+targets:
+  BookMaster:
+    type: application
+    platform: macOS
+    sources:
+      - path: BookMaster
+    dependencies:
+      - package: BookMasterCore
+        product: BookMasterCore
+    info:
+      path: BookMaster/Info.plist
+      properties:
+        CFBundleDisplayName: BookMaster
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        LSMinimumSystemVersion: "13.0"
+        NSHighResolutionCapable: true
+        NSPrincipalClass: NSApplication
+        # The exact key Phase 5/9 found is a hard requirement before
+        # camera access will work at all -- see swift-port/BookMasterApp
+        # README's Phase 5/9 sections for how that was discovered.
+        NSCameraUsageDescription: "BookMaster uses the camera to scan a book's ISBN barcode."
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: co.uk.voxblock.bookmaster
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "5.0"
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        ENABLE_HARDENED_RUNTIME: NO
+        # Deliberately no App Sandbox: Phase 4's raw device write and
+        # Phase 2's DiskArbitration access are not sandbox-compatible.

@@ -1,16 +1,23 @@
 // swift-tools-version:5.10
 import PackageDescription
 
+// This package now holds only the app's non-UI logic (settings/config
+// models, DiskArbitration monitor, disk image authoring, encoding,
+// etc.), unit-tested independently of any UI. The app itself lives in
+// ../BookMaster/BookMaster.xcodeproj, a native Xcode app target that
+// depends on this package -- see that project's README for why: a real
+// Info.plist, asset catalog, and Signing & Capabilities UI need an
+// actual Xcode app target, which SwiftPM executable products don't
+// provide.
 let package = Package(
-    name: "BookMasterApp",
+    name: "BookMasterCore",
     platforms: [
         .macOS(.v13)
     ],
+    products: [
+        .library(name: "BookMasterCore", targets: ["BookMasterCore"])
+    ],
     targets: [
-        // Non-UI logic: settings/config models, DiskArbitration monitor,
-        // disk image authoring, etc. Split out from the app executable
-        // so it's unit-testable (Phase 8) and independently exercisable
-        // without a running UI (used that way for Phase 3's validation).
         .target(
             name: "BookMasterCore",
             path: "Sources/BookMasterCore",
@@ -18,11 +25,6 @@ let package = Package(
                 .copy("Resources/config.json"),
                 .copy("Resources/books.csv"),
             ]
-        ),
-        .executableTarget(
-            name: "BookMasterApp",
-            dependencies: ["BookMasterCore"],
-            path: "Sources/BookMasterApp"
         ),
         .testTarget(
             name: "BookMasterCoreTests",

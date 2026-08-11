@@ -1,4 +1,17 @@
-# BookMasterApp — Swift port
+# BookMasterCore — Swift port (non-UI logic)
+
+> **The app itself now lives at [`../BookMaster/`](../BookMaster/),
+> a real Xcode project** — `BookMaster.xcodeproj`, generated via
+> `xcodegen` from `project.yml`. This package was split down to just
+> `BookMasterCore` (the library) + its tests when that project was
+> created, because a real `.app` (proper `Info.plist`, asset catalog,
+> Signing & Capabilities UI) needs an actual Xcode app target, which a
+> SwiftPM executable product can't provide. `swift run` no longer
+> launches anything from this directory — open `../BookMaster/BookMaster.xcodeproj`
+> in Xcode instead. Everything below is the phase-by-phase history of
+> how this logic was built; it's all still accurate for
+> `BookMasterCore` itself, just read "the app" as "the app, now over in
+> ../BookMaster/" wherever it comes up.
 
 A SwiftUI macOS app reproducing `src/ui/main_window.py`, built phase by
 phase per the migration plan (Phases 0-9 below). Every core capability
@@ -7,7 +20,6 @@ raw-write safety gate, live camera barcode scanning, ffmpeg encoding,
 and the full Create/Check Master pipeline — is real, wired into the
 running app, and covered by tests that exercise real system tools
 (`hdiutil`, `newfs_msdos`, `ffmpeg`, `AVFoundation`), not simulations.
-A real `.app` bundle can be produced via `Packaging/package-app.sh`.
 
 **What this is not, yet**: production-ready. Real-hardware validation
 (an actual USB drive appearing, an actual device write), Developer ID
@@ -15,10 +27,9 @@ signing/notarization, and — most importantly — the decision to cut real
 users over from the Python app are all explicitly out of scope for this
 branch. See "Not done here, and why" under Phase 9.
 
-Run: `swift run` from this directory (`swift-port/BookMasterApp`).
-Test: `swift test` (31 tests as of Phase 8). Package: `BookMasterCore`
-(library: models/stores/services, unit-tested), `BookMasterApp`
-(executable: views + app entry), `BookMasterCoreTests`.
+Test this package: `swift test` from this directory (31 tests as of
+Phase 8). Package: `BookMasterCore` (library: models/stores/services,
+unit-tested) + `BookMasterCoreTests`.
 
 ## What's real
 
