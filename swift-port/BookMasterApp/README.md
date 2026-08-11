@@ -88,6 +88,39 @@ Test: `swift test`. The package now has three targets — `BookMasterCore`
   excluded files were never copied. Not simulated — real `hdiutil`/
   `newfs_msdos` calls, real assertions on the result.
 
+## Phase 4 — raw write with a double safety gate (new)
+
+- **`Services/RawDeviceWriter.swift`** ports the write mechanics only:
+  chunked POSIX `open`/`write`/`fsync` (proven correct via checksum
+  round-trip in Phase 0), replacing `dd of=<raw_whole> bs=4m conv=fsync`.
+- **`RawWriteAuthorization`** turns Phase 0/2's safety finding into a
+  type, not just a runtime check: `RawDeviceWriter.write()` only accepts
+  an `authorization` value, never a bare path — and the only way to get
+  one is `authorize(drive:currentCandidates:)`, which requires **both**
+  the `/dev/rdiskN` pattern match **and** a live re-lookup against the
+  *current* candidate list (not a cached selection) confirming
+  DiskArbitration still reports it as removable+whole+USB right now.
+  Structurally impossible to write without passing both gates.
+- **Deliberately NOT ported**: the Python version's `sudo -A dd ...`
+  privilege escalation. Shelling out to `sudo` isn't something to carry
+  into a signed, distributed app — the real replacement (a signed
+  XPC/SMJobBless helper, or an AuthorizationServices prompt) needs
+  actual signing infrastructure and belongs in Phase 9, not here. This
+  writer just attempts a direct POSIX open/write and surfaces whatever
+  `errno` comes back; macOS often grants the console user direct access
+  to a *removable* device's node without elevation (unlike internal
+  disks), so this may just work as-is — untested against real hardware
+  either way.
+- **Tested for real**: 7 tests, all passing — checksum round-trip on the
+  write mechanics against a scratch file, and every gate-rejection case
+  from Phase 0/2 as an actual assertion rather than a README claim:
+  rejects the internal boot disk despite matching the path pattern,
+  rejects a removable-but-non-USB device, rejects a partition slice,
+  rejects a device no longer present in the live candidate list.
+- **Not tested, and must not be, from an agent session**: an actual
+  write to a real `/dev/rdiskN`. Needs a human, real hardware, a drive
+  deliberately designated as expendable scratch.
+
 ## What's deliberately stubbed
 
 - **Create Master / Check Master / Batch Create buttons** just append a
