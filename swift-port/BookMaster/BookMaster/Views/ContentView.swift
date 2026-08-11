@@ -131,6 +131,18 @@ struct ContentView: View {
                     .pickerStyle(.radioGroup)
                     .horizontalRadioGroupLayout()
                 }
+                HStack {
+                    Text("Image Format:").frame(width: 110, alignment: .trailing)
+                    Picker("", selection: $settingsStore.settings.imageFormat) {
+                        Text("Superfloppy").tag("superfloppy")
+                        Text("MBR").tag("mbr")
+                    }
+                    .pickerStyle(.radioGroup)
+                    .horizontalRadioGroupLayout()
+                    Text("(MBR = partitioned FAT32, for hardware that needs a real partition table)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
@@ -212,7 +224,8 @@ struct ContentView: View {
             inputFolder: URL(fileURLWithPath: settings.inputFolder),
             outputFolder: URL(fileURLWithPath: settings.outputFolder),
             skipEncoding: settings.skipEncoding,
-            maxDriveSizeBytes: maxDriveSizeBytes
+            maxDriveSizeBytes: maxDriveSizeBytes,
+            imageFormat: ImageFormat(rawValue: settings.imageFormat) ?? .superfloppy
         )
 
         let errors = MasterBuilder.validate(inputs: inputs)

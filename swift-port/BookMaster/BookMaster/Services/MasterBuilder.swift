@@ -1,5 +1,14 @@
 import Foundation
 
+/// Superfloppy (bare FAT, no partition table -- this app's original and
+/// still-default layout) vs. MBR-partitioned FAT32 (ported from
+/// voxmaster's rebuild-mbr, for target hardware that expects a real
+/// partition table).
+public enum ImageFormat: String, Equatable, CaseIterable {
+    case superfloppy
+    case mbr
+}
+
 public struct MasterInputs {
     public let isbn: String
     public let sku: String
@@ -9,8 +18,9 @@ public struct MasterInputs {
     public let outputFolder: URL
     public let skipEncoding: Bool
     public let maxDriveSizeBytes: Int64
+    public let imageFormat: ImageFormat
 
-    public init(isbn: String, sku: String, title: String, author: String, inputFolder: URL, outputFolder: URL, skipEncoding: Bool, maxDriveSizeBytes: Int64) {
+    public init(isbn: String, sku: String, title: String, author: String, inputFolder: URL, outputFolder: URL, skipEncoding: Bool, maxDriveSizeBytes: Int64, imageFormat: ImageFormat = .superfloppy) {
         self.isbn = isbn
         self.sku = sku
         self.title = title
@@ -19,6 +29,7 @@ public struct MasterInputs {
         self.outputFolder = outputFolder
         self.skipEncoding = skipEncoding
         self.maxDriveSizeBytes = maxDriveSizeBytes
+        self.imageFormat = imageFormat
     }
 }
 
@@ -76,6 +87,7 @@ public enum MasterBuilder {
     public static func build(
         inputs: MasterInputs,
         config: AppConfig = ConfigStore.shared,
+        productionLog: ProductionLog? = nil,
         log: @escaping (String) -> Void = { _ in }
     ) async throws -> MasterBuildResult {
         let validationErrors = validate(inputs: inputs, validFormats: config.validFormats)
@@ -168,13 +180,34 @@ public enum MasterBuilder {
         }
         log("Master structure assembled at \(masterPath.path), checksum=\(checksum ?? "nil")")
 
-        let imageResult = try DiskImageBuilder.buildImage(
-            fromSourceFolder: masterPath,
-            volumeLabel: inputs.sku,
-            outputPath: imageOutputPath,
-            patternsToExclude: config.patternsToRemove,
-            log: log
-        )
+        let imageResult: DiskImageResult
+        switch inputs.imageFormat {
+        case .superfloppy:
+            imageResult = try DiskImageBuilder.buildImage(
+                fromSourceFolder: masterPath,
+                volumeLabel: inputs.sku,
+                outputPath: imageOutputPath,
+                patternsToExclude: config.patternsToRemove,
+                log: log
+            )
+        case .mbr:
+            imageResult = try MBRImageBuilder.buildImage(
+                fromSourceFolder: masterPath,
+                volumeLabel: inputs.sku,
+                outputPath: imageOutputPath,
+                patternsToExclude: config.patternsToRemove,
+                log: log
+            )
+        }
+
+        if let productionLog {
+            try? productionLog.upsertMasterCatalog(
+                sku: inputs.sku, imgPath: imageResult.imagePath.path, imageBytes: imageResult.sizeBytes,
+                imageMib1dp: Self.mib1dp(imageResult.sizeBytes),
+                usedMib1dp: Self.mib1dp(estimatedTotalBytes), imageFileCount: processedFiles.count,
+                imageTrackCount: processedFiles.count, imageIsbn: inputs.isbn
+            )
+        }
 
         return MasterBuildResult(
             masterPath: masterPath,
@@ -186,6 +219,10 @@ public enum MasterBuilder {
     }
 
     // MARK: - Helpers
+
+    static func mib1dp(_ bytes: Int64) -> Double {
+        (Double(bytes) / 1024.0 / 1024.0 * 10).rounded() / 10
+    }
 
     static func outputFilename(index: Int, isbn: String, sku: String) -> String {
         let indexStr = String(format: "%03d", index)

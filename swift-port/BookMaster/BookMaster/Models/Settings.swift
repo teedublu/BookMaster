@@ -61,6 +61,12 @@ public struct AppSettings: Codable, Equatable {
     public var title: String = ""
     public var author: String = ""
     public var pastMaster: PastMaster = PastMaster()
+    /// "superfloppy" (bare FAT, this app's original default) or "mbr"
+    /// (MBR-partitioned FAT32, ported from voxmaster's rebuild-mbr, for
+    /// target hardware that expects a real partition table). Stored as a
+    /// raw string, not the ImageFormat enum directly, for the same
+    /// forward/backward-compatibility reason as maxDriveSizeMB.
+    public var imageFormat: String = "superfloppy"
 
     enum CodingKeys: String, CodingKey {
         case useWebcam = "use_webcam"
@@ -78,6 +84,7 @@ public struct AppSettings: Codable, Equatable {
         case usbDriveTests = "usb_drive_tests"
         case sku, title, author
         case pastMaster = "past_master"
+        case imageFormat = "image_format"
     }
 
     public init() {}
@@ -111,5 +118,6 @@ public struct AppSettings: Codable, Equatable {
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? defaults.title
         author = try c.decodeIfPresent(String.self, forKey: .author) ?? defaults.author
         pastMaster = try c.decodeIfPresent(PastMaster.self, forKey: .pastMaster) ?? defaults.pastMaster
+        imageFormat = try c.decodeIfPresent(String.self, forKey: .imageFormat) ?? defaults.imageFormat
     }
 }
