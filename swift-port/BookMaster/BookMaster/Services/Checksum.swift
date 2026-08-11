@@ -15,7 +15,13 @@ public enum Checksum {
 
     public static func compute(rootDirectory: URL) throws -> String? {
         let fm = FileManager.default
-        guard let enumerator = fm.enumerator(at: rootDirectory, includingPropertiesForKeys: [.isDirectoryKey]) else {
+        // See URL.canonicalized()'s doc comment: without this, a root
+        // under a firmlinked path (e.g. anywhere under /tmp or /var --
+        // true of every test in this suite, via
+        // FileManager.temporaryDirectory) produces a checksum keyed on
+        // corrupted relative paths instead of the real ones.
+        let root = rootDirectory.canonicalized()
+        guard let enumerator = fm.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey]) else {
             return nil
         }
 
@@ -31,7 +37,7 @@ public enum Checksum {
 
         var hasher = SHA256()
         for file in files.naturalSorted(by: { $0.path }) {
-            let relPath = String(file.path.dropFirst(rootDirectory.path.count + 1))
+            let relPath = String(file.path.dropFirst(root.path.count + 1))
             hasher.update(data: Data(relPath.utf8))
             guard let handle = try? FileHandle(forReadingFrom: file) else { continue }
             defer { try? handle.close() }

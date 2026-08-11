@@ -220,10 +220,15 @@ public enum MBRImageBuilder {
 
     private static func copyContents(of sourceFolder: URL, to destination: URL, excluding patterns: [String], log: (String) -> Void) throws {
         let fm = FileManager.default
+        // See URL.canonicalized()'s doc comment: contentsOfDirectory's
+        // returned entries resolve through APFS firmlinks, so isExcluded's
+        // relative-path check needs a canonicalized root to line up.
+        let canonicalSourceFolder = sourceFolder.canonicalized()
+
         func copyRecursive(_ dir: URL, destDir: URL) throws {
             let entries = try fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: [])
             for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-                if isExcluded(entry, relativeTo: sourceFolder, patterns: patterns) { continue }
+                if isExcluded(entry, relativeTo: canonicalSourceFolder, patterns: patterns) { continue }
                 let isDirEntry = (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
                 let destEntry = destDir.appendingPathComponent(entry.lastPathComponent)
                 if isDirEntry {
@@ -235,6 +240,6 @@ public enum MBRImageBuilder {
                 }
             }
         }
-        try copyRecursive(sourceFolder, destDir: destination)
+        try copyRecursive(canonicalSourceFolder, destDir: destination)
     }
 }

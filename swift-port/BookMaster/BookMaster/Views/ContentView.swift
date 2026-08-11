@@ -14,7 +14,11 @@ struct ContentView: View {
     @State private var selectedDriveID: String?
     @State private var loggedDriveIDs: Set<String> = []
     @State private var isBuilding = false
-    @State private var checkedContent: MasterContent?
+    @State private var verificationResult: VerificationResult?
+    @State private var isVerifying = false
+    // Lightweight local instance for now; Phase 14 promotes this to a
+    // shared environment object once block-history lookups need it too.
+    private let productionLog: ProductionLog? = try? ProductionLog()
 
     private let availableTests = ["Silence", "Loudness", "Metadata", "Frames", "Speed"]
 
@@ -74,7 +78,7 @@ struct ContentView: View {
             lookupISBNIfEnabled(isbn)
         }
         .onChange(of: selectedDriveID) { _ in
-            checkedContent = nil
+            verificationResult = nil
         }
     }
 
@@ -200,10 +204,10 @@ struct ContentView: View {
                 if isBuilding { ProgressView().controlSize(.small) }
                 Toggle("Write image to block", isOn: $settingsStore.settings.writeImageMode)
                 Spacer()
-                Button("Check Master") {
+                Button(isVerifying ? "Verifying\u{2026}" : "Check Master") {
                     checkMaster()
                 }
-                .disabled(selectedDrive == nil)
+                .disabled(selectedDrive == nil || isVerifying)
             }
         }
     }
@@ -252,19 +256,43 @@ struct ContentView: View {
         }
     }
 
+    /// Ports voxmaster's verify(): deep verification (read-speed probe,
+    /// audio content inspection, SKU/ISBN cross-validation, artifact
+    /// cleanup) — replaces the old checksum-only Check Master
+    /// (MasterReader is still available for anything that specifically
+    /// wants the build-time checksum, but this is the primary path now).
     private func checkMaster() {
         guard let drive = selectedDrive, let mountPath = drive.mountPath else {
             log.append("No mounted drive selected to check.")
             return
         }
-        log.append("Checking master at \(mountPath)\u{2026}")
-        let content = MasterReader.read(mountPath: URL(fileURLWithPath: mountPath))
-        checkedContent = content
-        if content.isbn == nil {
-            log.append("No master found on \(drive.bsdName) (missing bookInfo/id.txt).")
-        } else {
-            let checksumStatus = content.checksumMatches == true ? "OK" : (content.checksumMatches == false ? "MISMATCH" : "unknown")
-            log.append("Master found: ISBN=\(content.isbn ?? "-") files=\(content.fileCount.map(String.init) ?? "-") checksum=\(checksumStatus)")
+        log.append("Verifying \(mountPath)\u{2026}")
+        isVerifying = true
+        Task {
+            do {
+                let result = try await DriveVerifier.verify(
+                    mountPoint: URL(fileURLWithPath: mountPath),
+                    rawDevicePath: drive.rawDevicePath,
+                    skipSpeedTest: false,
+                    deepAudioInspect: true,
+                    productionLog: productionLog,
+                    serial: nil // Phase 14 adds USB serial capture via IOKit
+                )
+                verificationResult = result
+                let rateNote = result.encodingRateAnomaly ? " \u{26A0}\u{FE0F} encoding rate anomaly" : ""
+                log.append(
+                    "Verified: SKU=\(result.detectedSKU ?? "-") ISBN=\(result.detectedISBN ?? "-") "
+                    + "tracks=\(result.trackCount) read=\(result.readSpeedMibS.map { "\($0) MiB/s" } ?? "skipped") "
+                    + "encoding=\(result.encodingKbps.map { "\($0)kbps" } ?? "-")\(rateNote)"
+                )
+                if result.foundArtifactCount > 0 {
+                    log.append("Removed \(result.removedArtifactCount)/\(result.foundArtifactCount) unexpected artifacts: \(result.removedArtifactSamples.joined(separator: ", "))")
+                }
+            } catch {
+                verificationResult = nil
+                log.append("Verification failed: \(error)")
+            }
+            isVerifying = false
         }
     }
 
@@ -325,15 +353,27 @@ struct ContentView: View {
                     detailRow("Device", selectedDrive?.rawDevicePath ?? "-")
                 }
                 Divider()
+                if isVerifying {
+                    HStack { ProgressView().controlSize(.small); Text("Verifying\u{2026}").font(.caption) }
+                }
                 Group {
-                    detailRow("Content", checkedContent == nil ? "-" : (checkedContent?.isbn == nil ? "Invalid" : "Valid"))
-                    detailRow("ISBN", checkedContent?.isbn ?? "-")
-                    detailRow("Files", checkedContent?.fileCount.map(String.init) ?? "-")
-                    detailRow("Checksum", checkedContent?.checksumMatches.map { $0 ? "OK" : "MISMATCH" } ?? "-")
+                    detailRow("Content", verificationResult == nil ? "-" : (verificationResult!.isValid ? "Valid" : "Invalid"))
+                    detailRow("SKU", verificationResult?.detectedSKU ?? "-")
+                    detailRow("ISBN", verificationResult?.detectedISBN ?? "-")
+                    detailRow("Tracks", verificationResult.map { String($0.trackCount) } ?? "-")
+                    detailRow("Used", verificationResult?.stickUsedMib.map { "\($0) MiB" } ?? "-")
+                    detailRow("Read Speed", verificationResult?.readSpeedMibS.map { "\($0) MiB/s" } ?? "-")
+                    detailRow("Encoding", encodingRow)
+                    detailRow("Artifacts Cleaned", verificationResult.map { "\($0.removedArtifactCount)/\($0.foundArtifactCount)" } ?? "-")
                 }
             }
             .frame(width: 240, alignment: .leading)
         }
+    }
+
+    private var encodingRow: String {
+        guard let result = verificationResult, let kbps = result.encodingKbps else { return "-" }
+        return result.encodingRateAnomaly ? "\(kbps)kbps \u{26A0}\u{FE0F}" : "\(kbps)kbps"
     }
 
     private var selectedDrive: USBDriveInfo? {
