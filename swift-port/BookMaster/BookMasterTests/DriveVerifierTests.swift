@@ -92,6 +92,12 @@ final class DriveVerifierTests: XCTestCase {
         XCTAssertEqual(result.detectedISBN, "9781234567897")
         XCTAssertEqual(result.trackCount, 1)
         XCTAssertNotNil(result.expectedDurationSeconds)
+        // tracksSizeMib is what the Verify Master UI's "Tracks Size" row
+        // shows next to the catalog/inferred duration comparison. Not
+        // asserting > 0 here: this fixture's 2s/96kbps clip is ~24KB,
+        // which legitimately rounds to 0.0 at 1dp -- the field being
+        // populated (not nil) is what matters.
+        XCTAssertNotNil(result.tracksSizeMib)
     }
 
     func testVerifyThrowsWhenIdentitySignalsAreMissing() async throws {

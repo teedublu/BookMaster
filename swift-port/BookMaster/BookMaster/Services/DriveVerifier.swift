@@ -5,6 +5,7 @@ public struct VerificationResult: Equatable {
     public let detectedISBN: String?
     public let trackCount: Int
     public let stickUsedMib: Double?
+    public let tracksSizeMib: Double?
     public let readSpeedMibS: Double?
     public let expectedDurationSeconds: Int?
     public let encodingKbps: Double?
@@ -209,11 +210,14 @@ public enum DriveVerifier {
 
         var expectedSeconds: Int?
         var encodingKbps: Double?
+        var tracksSizeMib: Double?
         if hasTracksDir {
             log("Inspecting audio content (\(deepAudioInspect ? "full scan" : "quick estimate"))...")
             let profile = await AudioProfiler.inspectTracksAudioProfile(tracksPath: tracksPath, fullScan: deepAudioInspect)
             expectedSeconds = profile.durationSeconds
             encodingKbps = profile.averageKbps
+            let (totalBytes, _) = AudioProfiler.measureTrackAudioBytes(tracksPath: tracksPath)
+            tracksSizeMib = (Double(totalBytes) / 1024.0 / 1024.0 * 10).rounded() / 10
         }
         let rateAnomaly = encodingKbps.map { abs($0 - expectedBitRateBPS / 1000.0) > 0.5 } ?? false
 
@@ -226,9 +230,9 @@ public enum DriveVerifier {
 
         let result = VerificationResult(
             detectedSKU: sku, detectedISBN: isbn, trackCount: trackCount, stickUsedMib: stickUsedMib,
-            readSpeedMibS: readSpeed, expectedDurationSeconds: expectedSeconds, encodingKbps: encodingKbps,
-            encodingRateAnomaly: rateAnomaly, removedArtifactCount: removed, foundArtifactCount: found,
-            removedArtifactSamples: samples, validationErrors: validationErrors
+            tracksSizeMib: tracksSizeMib, readSpeedMibS: readSpeed, expectedDurationSeconds: expectedSeconds,
+            encodingKbps: encodingKbps, encodingRateAnomaly: rateAnomaly, removedArtifactCount: removed,
+            foundArtifactCount: found, removedArtifactSamples: samples, validationErrors: validationErrors
         )
 
         guard validationErrors.isEmpty else {

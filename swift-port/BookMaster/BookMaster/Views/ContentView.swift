@@ -38,6 +38,9 @@ struct ContentView: View {
         .onAppear {
             log.append("Loaded settings from \(settingsStore.settingsFilePath)")
             log.append("Config: bit_rate=\(ConfigStore.shared.encoding.bitRate) max_drive_size=\(ConfigStore.shared.maxDriveSize)")
+            if selectedDriveID == nil, let first = usbMonitor.drives.first {
+                selectedDriveID = first.id
+            }
         }
         .onChange(of: settingsStore.settings) { _ in
             settingsStore.save()
@@ -54,6 +57,13 @@ struct ContentView: View {
             loggedDriveIDs = currentIDs
             if let selectedDriveID, !currentIDs.contains(selectedDriveID) {
                 self.selectedDriveID = nil
+            }
+            // Autoselect rather than making the user click a row first --
+            // with only one candidate list (this app only ever writes to
+            // exactly the kind of device that shows up here), the first
+            // one in bsdName order is as good a default as any.
+            if selectedDriveID == nil, let first = newDrives.first {
+                selectedDriveID = first.id
             }
         }
         .onChange(of: settingsStore.settings.useWebcam) { enabled in
@@ -108,6 +118,7 @@ struct ContentView: View {
                 verifyActionsSection
                 HStack(alignment: .top, spacing: 16) {
                     usbDrivesPanel
+                    bookInfoPanel
                     usbChecksPanel
                     blockHistoryPanel
                     productionPanel
@@ -495,6 +506,71 @@ struct ContentView: View {
     private var encodingRow: String {
         guard let result = verificationResult, let kbps = result.encodingKbps else { return "-" }
         return result.encodingRateAnomaly ? "\(kbps)kbps \u{26A0}\u{FE0F}" : "\(kbps)kbps"
+    }
+
+    // MARK: Book info (catalog lookup by the verified drive's ISBN)
+
+    /// The catalog row for whatever ISBN verification actually found on
+    /// the drive -- not the ISBN typed into the Create Master side --
+    /// so this reflects what's physically on the stick being checked.
+    private var verifiedBook: BookRow? {
+        guard let isbn = verificationResult?.detectedISBN else { return nil }
+        return BooksCatalog.lookup(isbn: isbn)
+    }
+
+    /// books.csv's Duration column is H:MM (hours:minutes), not the
+    /// MM:SS/HH:MM:SS elapsed-time format DuplicatorLogParser deals
+    /// with -- an audiobook's declared runtime is always well over a
+    /// minute, so treating "01:18" as 1h18m (not 1m18s) is the only
+    /// sane reading.
+    private func parseCatalogDurationSeconds(_ raw: String?) -> Int? {
+        guard let raw, !raw.isEmpty else { return nil }
+        let parts = raw.trimmingCharacters(in: .whitespaces).split(separator: ":").map(String.init)
+        guard parts.count == 2, let hours = Int(parts[0]), let minutes = Int(parts[1]) else { return nil }
+        return hours * 3600 + minutes * 60
+    }
+
+    private func formatDuration(_ seconds: Int?) -> String {
+        guard let seconds else { return "-" }
+        let h = seconds / 3600
+        let m = (seconds % 3600) / 60
+        return h > 0 ? "\(h)h \(m)m" : "\(m)m"
+    }
+
+    private var bookInfoPanel: some View {
+        GroupBox("Book Info") {
+            VStack(alignment: .leading, spacing: 6) {
+                if let book = verifiedBook {
+                    detailRow("Title", book["Title"] ?? "-")
+                    detailRow("Author", book["Author"] ?? "-")
+                    Divider()
+                    detailRow("Catalog Duration", book["Duration"] ?? "-")
+                } else {
+                    Text(verificationResult == nil ? "Check a drive to look up its book." : "No catalog match for detected ISBN.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Divider()
+                detailRow("Tracks Size", verificationResult?.tracksSizeMib.map { "\($0) MiB" } ?? "-")
+                detailRow("Inferred Duration", formatDuration(verificationResult?.expectedDurationSeconds))
+                if let book = verifiedBook, let catalogSeconds = parseCatalogDurationSeconds(book["Duration"]),
+                   let inferredSeconds = verificationResult?.expectedDurationSeconds {
+                    detailRow("Duration Match", durationMatchLabel(catalogSeconds: catalogSeconds, inferredSeconds: inferredSeconds))
+                }
+            }
+            .frame(width: 200, alignment: .leading)
+        }
+    }
+
+    /// Flags a mismatch beyond a small tolerance rather than demanding
+    /// exact equality -- the catalog's duration is a human-entered
+    /// runtime, the inferred one comes from summing real track
+    /// durations, so a few seconds/minutes of rounding drift is
+    /// expected and not itself a sign anything is wrong.
+    private func durationMatchLabel(catalogSeconds: Int, inferredSeconds: Int) -> String {
+        let deltaSeconds = abs(catalogSeconds - inferredSeconds)
+        let toleranceSeconds = max(60, catalogSeconds / 20)
+        return deltaSeconds <= toleranceSeconds ? "Match" : "Mismatch (\u{0394} \(formatDuration(deltaSeconds)))"
     }
 
     private var selectedDrive: USBDriveInfo? {
