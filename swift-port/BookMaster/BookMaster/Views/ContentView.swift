@@ -18,9 +18,20 @@ struct ContentView: View {
     @State private var isVerifying = false
     @State private var productionStats: ProductionStats?
     @State private var blockHistory: DeviceHistory?
-    // Lightweight local instance for now; Phase 14 promotes this to a
-    // shared environment object once block-history lookups need it too.
-    private let productionLog: ProductionLog? = try? ProductionLog()
+    @StateObject private var productionLogStore = ProductionLogStore()
+
+    private var productionLog: ProductionLog? { productionLogStore.log }
+
+    /// Settings.databasePath's containing folder if set (a mounted
+    /// network share, so production history follows one person across
+    /// machines/locations), else the local per-machine default.
+    private func resolvedDatabaseDirectory() -> URL {
+        let trimmed = settingsStore.settings.databasePath.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else {
+            return AppDatabase.defaultPath().deletingLastPathComponent()
+        }
+        return URL(fileURLWithPath: trimmed, isDirectory: true)
+    }
 
     private let availableTests = ["Silence", "Loudness", "Metadata", "Frames", "Speed"]
 
@@ -40,6 +51,15 @@ struct ContentView: View {
             log.append("Config: bit_rate=\(ConfigStore.shared.encoding.bitRate) max_drive_size=\(ConfigStore.shared.maxDriveSize)")
             if selectedDriveID == nil, let first = usbMonitor.drives.first {
                 selectedDriveID = first.id
+            }
+            productionLogStore.open(inDirectory: resolvedDatabaseDirectory())
+        }
+        .onChange(of: settingsStore.settings.databasePath) { _ in
+            productionLogStore.open(inDirectory: resolvedDatabaseDirectory())
+            if let error = productionLogStore.lastError {
+                log.append("Could not open production database at new location: \(error)")
+            } else if let path = productionLogStore.currentPath {
+                log.append("Production database: \(path.path)")
             }
         }
         .onChange(of: settingsStore.settings) { _ in
@@ -608,6 +628,18 @@ struct ContentView: View {
     private var productionPanel: some View {
         GroupBox("Production Log") {
             VStack(alignment: .leading, spacing: 6) {
+                Text("Database Location:").font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    TextField("Network share, or blank for local", text: $settingsStore.settings.databasePath)
+                        .font(.caption2)
+                    Button("Browse\u{2026}") { browseForDatabaseFolder() }
+                }
+                if let error = productionLogStore.lastError {
+                    Text("\u{26A0}\u{FE0F} \(error)").font(.caption2).foregroundStyle(.red)
+                } else if let path = productionLogStore.currentPath {
+                    Text(path.path).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                }
+                Divider()
                 Button("Import Duplicator Log\u{2026}") { importDuplicatorLog() }
                 if let stats = productionStats {
                     detailRow("Total Runs", String(stats.totalDuplicatorRuns))
@@ -620,7 +652,22 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(width: 180, alignment: .leading)
+            .frame(width: 220, alignment: .leading)
+        }
+    }
+
+    private func browseForDatabaseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = "Choose a folder for voxmaster.db (e.g. a mounted network share)."
+        if !settingsStore.settings.databasePath.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: settingsStore.settings.databasePath)
+        }
+        if panel.runModal() == .OK, let url = panel.url {
+            settingsStore.settings.databasePath = url.path
         }
     }
 

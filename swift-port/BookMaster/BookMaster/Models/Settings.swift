@@ -67,6 +67,13 @@ public struct AppSettings: Codable, Equatable {
     /// raw string, not the ImageFormat enum directly, for the same
     /// forward/backward-compatibility reason as maxDriveSizeMB.
     public var imageFormat: String = "superfloppy"
+    /// Folder holding the production database (voxmaster.db). Empty means
+    /// "use the local per-machine default" (AppDatabase.defaultPath()'s
+    /// Application Support folder). Set to a mounted network share's path
+    /// to make production history (writes/duplicator runs/block history)
+    /// follow one person working from multiple machines/locations, rather
+    /// than being siloed per-Mac.
+    public var databasePath: String = ""
 
     enum CodingKeys: String, CodingKey {
         case useWebcam = "use_webcam"
@@ -85,6 +92,7 @@ public struct AppSettings: Codable, Equatable {
         case sku, title, author
         case pastMaster = "past_master"
         case imageFormat = "image_format"
+        case databasePath = "database_path"
     }
 
     public init() {}
@@ -119,5 +127,6 @@ public struct AppSettings: Codable, Equatable {
         author = try c.decodeIfPresent(String.self, forKey: .author) ?? defaults.author
         pastMaster = try c.decodeIfPresent(PastMaster.self, forKey: .pastMaster) ?? defaults.pastMaster
         imageFormat = try c.decodeIfPresent(String.self, forKey: .imageFormat) ?? defaults.imageFormat
+        databasePath = try c.decodeIfPresent(String.self, forKey: .databasePath) ?? defaults.databasePath
     }
 }

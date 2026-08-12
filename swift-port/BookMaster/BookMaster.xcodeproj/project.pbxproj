@@ -16,7 +16,9 @@
 		13E5532C533A3697F65D1234 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2241F49FAD10EA532B517D64 /* Settings.swift */; };
 		1591148ADB9107E0B907665F /* USBMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BC1B5F1452EF892820A7BB8 /* USBMonitor.swift */; };
 		29636ECF31D8E876D6B427AD /* BooksCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAB7948B5D4B05947D3A3B07 /* BooksCatalogTests.swift */; };
+		2CA8F8155CBD06901A1A8E13 /* ProductionLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B985C52675B9886E4AE7C09A /* ProductionLogStore.swift */; };
 		2DAC89108B0D400ED11BA4EA /* RawDirectoryLister.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AD1189181653D375EF8B6EE /* RawDirectoryLister.swift */; };
+		346D0626AF7114A11BFA4CE1 /* ProductionLogStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBBBEE7C448E030CA9754E93 /* ProductionLogStoreTests.swift */; };
 		3AC401A9B9A2000A2A91F36A /* MasterReaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95F091F77CF7A03CBCD4F6AF /* MasterReaderTests.swift */; };
 		3BD3976A281A2E4E2B1AC6F8 /* ImageLayoutInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D84E9E76BB21B897F35428E /* ImageLayoutInspector.swift */; };
 		3F958BD9623DDB742DAB369F /* URL+Canonical.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F8FA7CDFFC480AC2D770D3B /* URL+Canonical.swift */; };
@@ -35,6 +37,7 @@
 		885C6FC80A3ABD644FDCAC98 /* AudioProfilerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 975187FC7CD338D46CFC4FD0 /* AudioProfilerTests.swift */; };
 		8BBE10ADC5A7BB64F2E978AC /* BookMasterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77993DDBC5B4D0E2BBA11AC /* BookMasterApp.swift */; };
 		90F3843EEB8FFBDDEBCC257A /* FFmpegEncoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B18C9268736E05D14BC64F8 /* FFmpegEncoderTests.swift */; };
+		A4562C3233644F4257A5197C /* AppDatabaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08FDAE0C599F261CB2A3A6C2 /* AppDatabaseTests.swift */; };
 		AF719BC5EC8A903FB0C343A9 /* ProductionLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D42E6F20DA4293009AC137E8 /* ProductionLogTests.swift */; };
 		B9F0BAFD03B9E2A5DA754036 /* MBRImageBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A310DE63610EEB8323933F /* MBRImageBuilderTests.swift */; };
 		BAB05E5631C3063122DB2ED8 /* MasterBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F84EC8E959D50BF682616C67 /* MasterBuilder.swift */; };
@@ -78,6 +81,7 @@
 		052A4B92D8368257579C0CD4 /* LogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogStore.swift; sourceTree = "<group>"; };
 		0555437F37A4B6F2AF9E47CC /* books.csv */ = {isa = PBXFileReference; path = books.csv; sourceTree = "<group>"; };
 		0625B02B4BC4B8BC590CA493 /* DuplicatorLogParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicatorLogParserTests.swift; sourceTree = "<group>"; };
+		08FDAE0C599F261CB2A3A6C2 /* AppDatabaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDatabaseTests.swift; sourceTree = "<group>"; };
 		0BC1B5F1452EF892820A7BB8 /* USBMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = USBMonitor.swift; sourceTree = "<group>"; };
 		179802A6F6113FBF97DD79F1 /* RawDeviceWriterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawDeviceWriterTests.swift; sourceTree = "<group>"; };
 		1AFCC49CF0B95CF9A140E052 /* AppDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDatabase.swift; sourceTree = "<group>"; };
@@ -114,6 +118,7 @@
 		A9241D20BFEA5F754FBF3676 /* BitrateFitting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BitrateFitting.swift; sourceTree = "<group>"; };
 		AA5015289B996C6BEDC64DFF /* RawDeviceWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawDeviceWriter.swift; sourceTree = "<group>"; };
 		B8A310DE63610EEB8323933F /* MBRImageBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MBRImageBuilderTests.swift; sourceTree = "<group>"; };
+		B985C52675B9886E4AE7C09A /* ProductionLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionLogStore.swift; sourceTree = "<group>"; };
 		BAB7948B5D4B05947D3A3B07 /* BooksCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BooksCatalogTests.swift; sourceTree = "<group>"; };
 		BE2C3EEA3254805EAB63E9A9 /* Slug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Slug.swift; sourceTree = "<group>"; };
 		BF1DA32446563A084CC06454 /* USBSerialLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = USBSerialLookup.swift; sourceTree = "<group>"; };
@@ -125,6 +130,7 @@
 		D42E6F20DA4293009AC137E8 /* ProductionLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionLogTests.swift; sourceTree = "<group>"; };
 		D59F4B47359321E57167094A /* NaturalSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NaturalSort.swift; sourceTree = "<group>"; };
 		E9E8B5B741411F10AD474CE1 /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
+		EBBBEE7C448E030CA9754E93 /* ProductionLogStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionLogStoreTests.swift; sourceTree = "<group>"; };
 		EBC22281304C21632EF9372F /* ConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStore.swift; sourceTree = "<group>"; };
 		ED3182A0187CB1B22CD99A76 /* USBDriveInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = USBDriveInfo.swift; sourceTree = "<group>"; };
 		F84EC8E959D50BF682616C67 /* MasterBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterBuilder.swift; sourceTree = "<group>"; };
@@ -136,6 +142,7 @@
 			children = (
 				EBC22281304C21632EF9372F /* ConfigStore.swift */,
 				052A4B92D8368257579C0CD4 /* LogStore.swift */,
+				B985C52675B9886E4AE7C09A /* ProductionLogStore.swift */,
 				3560F876359AE9A5828C94C0 /* SettingsStore.swift */,
 			);
 			path = Stores;
@@ -153,6 +160,7 @@
 		4B1B192AD9C148FFFDD86577 /* BookMasterTests */ = {
 			isa = PBXGroup;
 			children = (
+				08FDAE0C599F261CB2A3A6C2 /* AppDatabaseTests.swift */,
 				975187FC7CD338D46CFC4FD0 /* AudioProfilerTests.swift */,
 				25BC7173B44E25CF5071670C /* BitrateFittingTests.swift */,
 				BAB7948B5D4B05947D3A3B07 /* BooksCatalogTests.swift */,
@@ -165,6 +173,7 @@
 				95F091F77CF7A03CBCD4F6AF /* MasterReaderTests.swift */,
 				B8A310DE63610EEB8323933F /* MBRImageBuilderTests.swift */,
 				CB980C4E495321B7DB7D54FC /* PlaceholderTests.swift */,
+				EBBBEE7C448E030CA9754E93 /* ProductionLogStoreTests.swift */,
 				D42E6F20DA4293009AC137E8 /* ProductionLogTests.swift */,
 				179802A6F6113FBF97DD79F1 /* RawDeviceWriterTests.swift */,
 				D22689F2C4CF61E38F2FD0E0 /* USBSerialLookupTests.swift */,
@@ -372,6 +381,7 @@
 				5494326BDEDC8B9E93798053 /* MasterReader.swift in Sources */,
 				D967B0D15D6614B18413C343 /* NaturalSort.swift in Sources */,
 				E44016E16615949553C3FB1B /* ProductionLog.swift in Sources */,
+				2CA8F8155CBD06901A1A8E13 /* ProductionLogStore.swift in Sources */,
 				E1640018640C7D231BA86810 /* RawDeviceWriter.swift in Sources */,
 				2DAC89108B0D400ED11BA4EA /* RawDirectoryLister.swift in Sources */,
 				13E5532C533A3697F65D1234 /* Settings.swift in Sources */,
@@ -389,6 +399,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A4562C3233644F4257A5197C /* AppDatabaseTests.swift in Sources */,
 				885C6FC80A3ABD644FDCAC98 /* AudioProfilerTests.swift in Sources */,
 				CE9D2FC4C985BCD44F1BB882 /* BitrateFittingTests.swift in Sources */,
 				29636ECF31D8E876D6B427AD /* BooksCatalogTests.swift in Sources */,
@@ -401,6 +412,7 @@
 				D4B629C4A545068195D5C107 /* MasterBuilderTests.swift in Sources */,
 				3AC401A9B9A2000A2A91F36A /* MasterReaderTests.swift in Sources */,
 				BEAC654CA3F4753FBAC46945 /* PlaceholderTests.swift in Sources */,
+				346D0626AF7114A11BFA4CE1 /* ProductionLogStoreTests.swift in Sources */,
 				AF719BC5EC8A903FB0C343A9 /* ProductionLogTests.swift in Sources */,
 				60ED62A7A20305FE955A4C1F /* RawDeviceWriterTests.swift in Sources */,
 				E649C9B324752A6F22C1140B /* USBSerialLookupTests.swift in Sources */,

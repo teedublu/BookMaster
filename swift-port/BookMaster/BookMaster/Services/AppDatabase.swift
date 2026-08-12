@@ -60,8 +60,17 @@ public final class AppDatabase {
     public static func defaultPath() -> URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("BookMasterSwift", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("voxmaster.db")
+        return resolvedPath(inDirectory: dir)
+    }
+
+    /// Resolves the database file inside `directory` (a local folder or a
+    /// mounted network share), creating the directory if needed. Used for
+    /// both the local default and a user-configured network location
+    /// (Settings.databasePath) so the same "voxmaster.db" filename and
+    /// directory-creation behavior applies either way.
+    public static func resolvedPath(inDirectory directory: URL) -> URL {
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("voxmaster.db")
     }
 
     public init(path: URL) throws {
@@ -83,7 +92,15 @@ public final class AppDatabase {
     // MARK: - Schema
 
     private func migrate() throws {
-        try execute("PRAGMA journal_mode=WAL;")
+        // NOT WAL: SQLite's own docs call WAL mode unsupported over network
+        // filesystems (SMB/AFP/NFS) -- it relies on shared-memory mapping
+        // of a -shm sidecar file that network protocols don't reliably
+        // provide, risking silent corruption even for a single writer.
+        // This database is meant to live on a mounted network share (see
+        // Settings.databasePath), so the classic rollback journal -- no
+        // shared memory, cleans up its journal file after every
+        // transaction -- is the safe choice here, not just the default.
+        try execute("PRAGMA journal_mode=DELETE;")
         try execute("""
         CREATE TABLE IF NOT EXISTS masters (
           sku TEXT PRIMARY KEY,
