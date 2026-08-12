@@ -34,6 +34,7 @@ targets:
         SWIFT_VERSION: "5.0"
         MACOSX_DEPLOYMENT_TARGET: "13.0"
         ENABLE_HARDENED_RUNTIME: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Deliberately no App Sandbox: the raw device write and
         # DiskArbitration access this app needs are not sandbox-compatible.
 

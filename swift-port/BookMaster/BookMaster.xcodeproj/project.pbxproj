@@ -39,6 +39,7 @@
 		8BBE10ADC5A7BB64F2E978AC /* BookMasterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77993DDBC5B4D0E2BBA11AC /* BookMasterApp.swift */; };
 		90F3843EEB8FFBDDEBCC257A /* FFmpegEncoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B18C9268736E05D14BC64F8 /* FFmpegEncoderTests.swift */; };
 		9BE0358C3D72EBF8D5677672 /* BookCoverLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9798038E0A3DABE985FB582 /* BookCoverLookup.swift */; };
+		9EC830E4BCA48429B907700C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E21335F896B71CEC5A32D765 /* Assets.xcassets */; };
 		A4562C3233644F4257A5197C /* AppDatabaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08FDAE0C599F261CB2A3A6C2 /* AppDatabaseTests.swift */; };
 		AF719BC5EC8A903FB0C343A9 /* ProductionLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D42E6F20DA4293009AC137E8 /* ProductionLogTests.swift */; };
 		B9F0BAFD03B9E2A5DA754036 /* MBRImageBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A310DE63610EEB8323933F /* MBRImageBuilderTests.swift */; };
@@ -134,6 +135,7 @@
 		D2AB8F50D25B4BB91C27715D /* CameraScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraScanner.swift; sourceTree = "<group>"; };
 		D42E6F20DA4293009AC137E8 /* ProductionLogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionLogTests.swift; sourceTree = "<group>"; };
 		D59F4B47359321E57167094A /* NaturalSort.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NaturalSort.swift; sourceTree = "<group>"; };
+		E21335F896B71CEC5A32D765 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E9E8B5B741411F10AD474CE1 /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
 		EBBBEE7C448E030CA9754E93 /* ProductionLogStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionLogStoreTests.swift; sourceTree = "<group>"; };
 		EBC22281304C21632EF9372F /* ConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStore.swift; sourceTree = "<group>"; };
@@ -157,6 +159,7 @@
 		250F487ADCE44D08BB887DD7 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				E21335F896B71CEC5A32D765 /* Assets.xcassets */,
 				0555437F37A4B6F2AF9E47CC /* books.csv */,
 				1CA0858216CAFC29555344B3 /* config.json */,
 			);
@@ -352,6 +355,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9EC830E4BCA48429B907700C /* Assets.xcassets in Resources */,
 				F16A8B552B35CA430B04932F /* books.csv in Resources */,
 				DCE6096B335DA39C4B7E0119 /* config.json in Resources */,
 			);
