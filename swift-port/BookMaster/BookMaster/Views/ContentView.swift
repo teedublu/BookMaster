@@ -18,6 +18,7 @@ struct ContentView: View {
     @State private var isVerifying = false
     @State private var productionStats: ProductionStats?
     @State private var blockHistory: DeviceHistory?
+    @State private var selectedTab: AppTab = .create
     @StateObject private var productionLogStore = ProductionLogStore()
 
     private var productionLog: ProductionLog? { productionLogStore.log }
@@ -37,11 +38,12 @@ struct ContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            TabView {
-                createMasterTab
-                    .tabItem { Label("Create Master", systemImage: "square.and.pencil") }
-                verifyMasterTab
-                    .tabItem { Label("Verify Master", systemImage: "checkmark.shield") }
+            tabBar
+            Group {
+                switch selectedTab {
+                case .create: createMasterTab
+                case .verify: verifyMasterTab
+                }
             }
             logSection
                 .padding([.horizontal, .bottom], 16)
@@ -118,6 +120,63 @@ struct ContentView: View {
     // layout) versus inspecting/verifying a connected drive (right of
     // it). The log stays shared and visible under both tabs since both
     // sides write to it.
+    //
+    // A custom tab bar, not native TabView chrome: macOS's default top
+    // tab strip is a small, low-contrast row of icon+label buttons that
+    // reads as secondary UI. These two tabs ARE the app's primary
+    // navigation, so they get a colored, bordered, pill-style control
+    // instead -- selection is unmistakable at a glance.
+
+    private enum AppTab: String, CaseIterable {
+        case create = "Create Master"
+        case verify = "Verify Master"
+
+        var icon: String {
+            switch self {
+            case .create: return "square.and.pencil"
+            case .verify: return "checkmark.shield"
+            }
+        }
+
+        var tint: Color {
+            switch self {
+            case .create: return .blue
+            case .verify: return .green
+            }
+        }
+    }
+
+    private var tabBar: some View {
+        HStack(spacing: 8) {
+            ForEach(AppTab.allCases, id: \.self) { tab in
+                Button {
+                    selectedTab = tab
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: tab.icon)
+                        Text(tab.rawValue)
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 9)
+                    .frame(maxWidth: .infinity)
+                    .background(selectedTab == tab ? tab.tint.opacity(0.18) : Color.clear)
+                    .foregroundStyle(selectedTab == tab ? tab.tint : .secondary)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(selectedTab == tab ? tab.tint : Color.clear, lineWidth: 1.5)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(6)
+        .background(Color.gray.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .padding([.horizontal, .top], 16)
+        .padding(.bottom, 4)
+    }
 
     private var createMasterTab: some View {
         ScrollView {
@@ -221,37 +280,40 @@ struct ContentView: View {
 
     private var metadataSection: some View {
         GroupBox {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("ISBN:").frame(width: 110, alignment: .trailing)
-                    TextField("", text: $settingsStore.settings.isbn)
-                        .frame(maxWidth: 220)
-                    Toggle("Find input from ISBN", isOn: $settingsStore.settings.findIsbnFolder)
-                    Toggle("Webcam ISBN", isOn: $settingsStore.settings.useWebcam)
-                }
-                HStack {
-                    Text("SKU:").frame(width: 110, alignment: .trailing)
-                    TextField("", text: $settingsStore.settings.sku)
-                        .frame(maxWidth: 220)
-                        .disabled(settingsStore.settings.lookupCsv)
-                    Toggle("CSV lookup", isOn: $settingsStore.settings.lookupCsv)
-                }
-                HStack {
-                    Text("Title:").frame(width: 110, alignment: .trailing)
-                    TextField("", text: $settingsStore.settings.title)
-                        .disabled(settingsStore.settings.lookupCsv)
-                    Button("Batch Create") { log.append("Batch Create (stub — Phase 6/7 wires CSV batch flow)") }
-                }
-                HStack {
-                    Text("Author:").frame(width: 110, alignment: .trailing)
-                    TextField("", text: $settingsStore.settings.author)
-                        .disabled(settingsStore.settings.lookupCsv)
-                }
-                HStack {
-                    Text("File Count:").frame(width: 110, alignment: .trailing)
-                    TextField("", value: $settingsStore.settings.pastMaster.fileCountExpected, format: .number)
-                        .frame(maxWidth: 100)
-                        .disabled(settingsStore.settings.lookupCsv)
+            HStack(alignment: .top, spacing: 12) {
+                BookCoverView(sku: settingsStore.settings.sku.isEmpty ? nil : settingsStore.settings.sku)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("ISBN:").frame(width: 110, alignment: .trailing)
+                        TextField("", text: $settingsStore.settings.isbn)
+                            .frame(maxWidth: 220)
+                        Toggle("Find input from ISBN", isOn: $settingsStore.settings.findIsbnFolder)
+                        Toggle("Webcam ISBN", isOn: $settingsStore.settings.useWebcam)
+                    }
+                    HStack {
+                        Text("SKU:").frame(width: 110, alignment: .trailing)
+                        TextField("", text: $settingsStore.settings.sku)
+                            .frame(maxWidth: 220)
+                            .disabled(settingsStore.settings.lookupCsv)
+                        Toggle("CSV lookup", isOn: $settingsStore.settings.lookupCsv)
+                    }
+                    HStack {
+                        Text("Title:").frame(width: 110, alignment: .trailing)
+                        TextField("", text: $settingsStore.settings.title)
+                            .disabled(settingsStore.settings.lookupCsv)
+                        Button("Batch Create") { log.append("Batch Create (stub — Phase 6/7 wires CSV batch flow)") }
+                    }
+                    HStack {
+                        Text("Author:").frame(width: 110, alignment: .trailing)
+                        TextField("", text: $settingsStore.settings.author)
+                            .disabled(settingsStore.settings.lookupCsv)
+                    }
+                    HStack {
+                        Text("File Count:").frame(width: 110, alignment: .trailing)
+                        TextField("", value: $settingsStore.settings.pastMaster.fileCountExpected, format: .number)
+                            .frame(maxWidth: 100)
+                            .disabled(settingsStore.settings.lookupCsv)
+                    }
                 }
             }
         }
@@ -559,38 +621,78 @@ struct ContentView: View {
 
     private var bookInfoPanel: some View {
         GroupBox("Book Info") {
-            VStack(alignment: .leading, spacing: 6) {
-                if let book = verifiedBook {
-                    detailRow("Title", book["Title"] ?? "-")
-                    detailRow("Author", book["Author"] ?? "-")
-                    Divider()
-                    detailRow("Catalog Duration", book["Duration"] ?? "-")
-                } else {
-                    Text(verificationResult == nil ? "Check a drive to look up its book." : "No catalog match for detected ISBN.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 10) {
+                    BookCoverView(sku: verificationResult?.detectedSKU, width: 56)
+                    VStack(alignment: .leading, spacing: 3) {
+                        if let book = verifiedBook {
+                            Text(book["Title"] ?? "-").font(.caption).bold().lineLimit(2)
+                            Text(book["Author"] ?? "-").font(.caption2).foregroundStyle(.secondary)
+                        } else {
+                            Text(verificationResult == nil ? "Check a drive to look up its book." : "No catalog match for detected ISBN.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 Divider()
                 detailRow("Tracks Size", verificationResult?.tracksSizeMib.map { "\($0) MiB" } ?? "-")
-                detailRow("Inferred Duration", formatDuration(verificationResult?.expectedDurationSeconds))
                 if let book = verifiedBook, let catalogSeconds = parseCatalogDurationSeconds(book["Duration"]),
                    let inferredSeconds = verificationResult?.expectedDurationSeconds {
-                    detailRow("Duration Match", durationMatchLabel(catalogSeconds: catalogSeconds, inferredSeconds: inferredSeconds))
+                    durationComparisonView(catalogSeconds: catalogSeconds, inferredSeconds: inferredSeconds)
+                } else {
+                    detailRow("Inferred Duration", formatDuration(verificationResult?.expectedDurationSeconds))
                 }
             }
-            .frame(width: 200, alignment: .leading)
+            .frame(width: 220, alignment: .leading)
         }
     }
 
-    /// Flags a mismatch beyond a small tolerance rather than demanding
-    /// exact equality -- the catalog's duration is a human-entered
-    /// runtime, the inferred one comes from summing real track
-    /// durations, so a few seconds/minutes of rounding drift is
-    /// expected and not itself a sign anything is wrong.
-    private func durationMatchLabel(catalogSeconds: Int, inferredSeconds: Int) -> String {
+    /// A visual side-by-side comparison rather than a bare match/mismatch
+    /// label -- two proportional bars (catalog vs. inferred, scaled to
+    /// whichever is longer) plus a colored status badge. 2% margin: the
+    /// catalog duration is human-entered and the inferred one comes from
+    /// summing real track durations, so a small amount of rounding drift
+    /// is expected and shouldn't itself read as a problem, but anything
+    /// beyond 2% is flagged red as worth a second look.
+    private func durationComparisonView(catalogSeconds: Int, inferredSeconds: Int) -> some View {
         let deltaSeconds = abs(catalogSeconds - inferredSeconds)
-        let toleranceSeconds = max(60, catalogSeconds / 20)
-        return deltaSeconds <= toleranceSeconds ? "Match" : "Mismatch (\u{0394} \(formatDuration(deltaSeconds)))"
+        let toleranceSeconds = Int((Double(catalogSeconds) * 0.02).rounded())
+        let withinTolerance = deltaSeconds <= toleranceSeconds
+        let maxSeconds = max(catalogSeconds, inferredSeconds, 1)
+        let statusColor: Color = withinTolerance ? .green : .red
+
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text("Duration").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Image(systemName: withinTolerance ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .foregroundStyle(statusColor)
+                Text(withinTolerance ? "Within 2%" : "\u{0394} \(formatDuration(deltaSeconds))")
+                    .font(.caption2).bold()
+                    .foregroundStyle(statusColor)
+            }
+            durationBar(label: "Catalog", seconds: catalogSeconds, maxSeconds: maxSeconds, color: .blue)
+            durationBar(label: "Inferred", seconds: inferredSeconds, maxSeconds: maxSeconds, color: statusColor)
+        }
+    }
+
+    private func durationBar(label: String, seconds: Int, maxSeconds: Int, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(label).font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                Text(formatDuration(seconds)).font(.caption2)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.gray.opacity(0.15))
+                    Capsule().fill(color)
+                        .frame(width: max(4, geo.size.width * CGFloat(seconds) / CGFloat(maxSeconds)))
+                }
+            }
+            .frame(height: 8)
+        }
     }
 
     private var selectedDrive: USBDriveInfo? {
