@@ -19,6 +19,9 @@ struct ContentView: View {
     @State private var productionStats: ProductionStats?
     @State private var blockHistory: DeviceHistory?
     @State private var selectedTab: AppTab = .create
+    @State private var metadataMode: MetadataMode = .single
+    @State private var isBatchRunning = false
+    @State private var batchSummary: (success: Int, failed: Int)?
     @StateObject private var productionLogStore = ProductionLogStore()
 
     private var productionLog: ProductionLog? { productionLogStore.log }
@@ -263,8 +266,8 @@ struct ContentView: View {
                 HStack {
                     Text("Image Format:").frame(width: 110, alignment: .trailing)
                     Picker("", selection: $settingsStore.settings.imageFormat) {
-                        Text("Superfloppy").tag("superfloppy")
                         Text("MBR").tag("mbr")
+                        Text("Superfloppy").tag("superfloppy")
                     }
                     .pickerStyle(.radioGroup)
                     .horizontalRadioGroupLayout()
@@ -276,45 +279,112 @@ struct ContentView: View {
         }
     }
 
-    // MARK: Rows 3-7 — Book metadata
+    // MARK: Rows 3-7 — Book metadata (Single / Batch sub-tabs)
+
+    private enum MetadataMode: String, CaseIterable {
+        case single = "Single"
+        case batch = "Batch"
+    }
+
+    private var metadataModeTabs: some View {
+        HStack(spacing: 6) {
+            ForEach(MetadataMode.allCases, id: \.self) { mode in
+                Button(mode.rawValue) { metadataMode = mode }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: metadataMode == mode ? .bold : .regular))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(metadataMode == mode ? Color.accentColor.opacity(0.15) : Color.clear)
+                    .foregroundStyle(metadataMode == mode ? Color.accentColor : .secondary)
+                    .clipShape(Capsule())
+            }
+        }
+    }
 
     private var metadataSection: some View {
         GroupBox {
-            HStack(alignment: .top, spacing: 12) {
-                BookCoverView(sku: settingsStore.settings.sku.isEmpty ? nil : settingsStore.settings.sku)
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("ISBN:").frame(width: 110, alignment: .trailing)
-                        TextField("", text: $settingsStore.settings.isbn)
-                            .frame(maxWidth: 220)
-                        Toggle("Find input from ISBN", isOn: $settingsStore.settings.findIsbnFolder)
-                        Toggle("Webcam ISBN", isOn: $settingsStore.settings.useWebcam)
-                    }
-                    HStack {
-                        Text("SKU:").frame(width: 110, alignment: .trailing)
-                        TextField("", text: $settingsStore.settings.sku)
-                            .frame(maxWidth: 220)
-                            .disabled(settingsStore.settings.lookupCsv)
-                        Toggle("CSV lookup", isOn: $settingsStore.settings.lookupCsv)
-                    }
-                    HStack {
-                        Text("Title:").frame(width: 110, alignment: .trailing)
-                        TextField("", text: $settingsStore.settings.title)
-                            .disabled(settingsStore.settings.lookupCsv)
-                        Button("Batch Create") { log.append("Batch Create (stub — Phase 6/7 wires CSV batch flow)") }
-                    }
-                    HStack {
-                        Text("Author:").frame(width: 110, alignment: .trailing)
-                        TextField("", text: $settingsStore.settings.author)
-                            .disabled(settingsStore.settings.lookupCsv)
-                    }
-                    HStack {
-                        Text("File Count:").frame(width: 110, alignment: .trailing)
-                        TextField("", value: $settingsStore.settings.pastMaster.fileCountExpected, format: .number)
-                            .frame(maxWidth: 100)
-                            .disabled(settingsStore.settings.lookupCsv)
-                    }
+            VStack(alignment: .leading, spacing: 10) {
+                metadataModeTabs
+                switch metadataMode {
+                case .single: singleMetadataForm
+                case .batch: batchMetadataForm
                 }
+            }
+        }
+    }
+
+    /// Manual entry is the inverse of the existing (functional) lookupCsv
+    /// flag, not the separate `manualData` setting -- that field is
+    /// carried over from Python's DEFAULT_SETTINGS but was never actually
+    /// read anywhere in either app, so wiring the UI to it would just add
+    /// a second dead toggle instead of fixing the framing of the real one.
+    private var manualEntryBinding: Binding<Bool> {
+        Binding(
+            get: { !settingsStore.settings.lookupCsv },
+            set: { settingsStore.settings.lookupCsv = !$0 }
+        )
+    }
+
+    private var singleMetadataForm: some View {
+        HStack(alignment: .top, spacing: 12) {
+            BookCoverView(sku: settingsStore.settings.sku.isEmpty ? nil : settingsStore.settings.sku)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("ISBN:").frame(width: 110, alignment: .trailing)
+                    TextField("", text: $settingsStore.settings.isbn)
+                        .frame(maxWidth: 220)
+                    Toggle("Find input from ISBN", isOn: $settingsStore.settings.findIsbnFolder)
+                    Toggle("Webcam ISBN", isOn: $settingsStore.settings.useWebcam)
+                }
+                HStack {
+                    Text("SKU:").frame(width: 110, alignment: .trailing)
+                    TextField("", text: $settingsStore.settings.sku)
+                        .frame(maxWidth: 220)
+                        .disabled(settingsStore.settings.lookupCsv)
+                    Toggle("Manually enter data", isOn: manualEntryBinding)
+                }
+                HStack {
+                    Text("Title:").frame(width: 110, alignment: .trailing)
+                    TextField("", text: $settingsStore.settings.title)
+                        .disabled(settingsStore.settings.lookupCsv)
+                }
+                HStack {
+                    Text("Author:").frame(width: 110, alignment: .trailing)
+                    TextField("", text: $settingsStore.settings.author)
+                        .disabled(settingsStore.settings.lookupCsv)
+                }
+                HStack {
+                    Text("File Count:").frame(width: 110, alignment: .trailing)
+                    TextField("", value: $settingsStore.settings.pastMaster.fileCountExpected, format: .number)
+                        .frame(maxWidth: 100)
+                        .disabled(settingsStore.settings.lookupCsv)
+                }
+            }
+        }
+    }
+
+    /// Ports main_window.py's load_isbn_csv_and_create_masters(): a
+    /// plain CSV/text list of ISBNs (one per line, or first column of
+    /// each row), each looked up in the book catalog and matched to a
+    /// folder under Input Folder by ISBN (InputFolderResolver), then
+    /// built with the same Options-section settings (skip encoding, max
+    /// drive size, image format) as Single mode. Continues past
+    /// individual failures rather than aborting the whole batch,
+    /// matching the Python version's per-ISBN try/except.
+    private var batchMetadataForm: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Creates a master for every ISBN in a CSV/text file (one per line, or first column). Each one is looked up in the book catalog and matched to a folder under Input Folder above by ISBN.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                Button(isBatchRunning ? "Running\u{2026}" : "Choose ISBN List\u{2026}") { chooseBatchCSVAndRun() }
+                    .disabled(isBatchRunning || isBuilding)
+                if isBatchRunning { ProgressView().controlSize(.small) }
+            }
+            if let batchSummary {
+                detailRow("Created", String(batchSummary.success))
+                detailRow("Failed", String(batchSummary.failed))
             }
         }
     }
@@ -330,7 +400,6 @@ struct ContentView: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(isBuilding)
                 if isBuilding { ProgressView().controlSize(.small) }
-                Toggle("Write image to block", isOn: $settingsStore.settings.writeImageMode)
                 Spacer()
             }
         }
@@ -356,20 +425,26 @@ struct ContentView: View {
 
     private func createMaster() {
         let settings = settingsStore.settings
-        let maxDriveSizeBytes: Int64
-        if let mb = Double(settings.maxDriveSizeMB), mb > 0 {
-            maxDriveSizeBytes = Int64(mb * 1_000_000)
+        let maxDriveSizeBytes = resolvedMaxDriveSizeBytes(settings)
+
+        let inputFolder: URL
+        if settings.findIsbnFolder {
+            guard let found = InputFolderResolver.resolve(basePath: URL(fileURLWithPath: settings.inputFolder), isbn: settings.isbn) else {
+                log.append("Cannot create master: no folder containing ISBN \"\(settings.isbn)\" found under \(settings.inputFolder)")
+                return
+            }
+            inputFolder = found
         } else {
-            maxDriveSizeBytes = Int64(ConfigStore.shared.maxDriveSize)
+            inputFolder = URL(fileURLWithPath: settings.inputFolder)
         }
 
         let inputs = MasterInputs(
             isbn: settings.isbn, sku: settings.sku, title: settings.title, author: settings.author,
-            inputFolder: URL(fileURLWithPath: settings.inputFolder),
+            inputFolder: inputFolder,
             outputFolder: URL(fileURLWithPath: settings.outputFolder),
             skipEncoding: settings.skipEncoding,
             maxDriveSizeBytes: maxDriveSizeBytes,
-            imageFormat: ImageFormat(rawValue: settings.imageFormat) ?? .superfloppy
+            imageFormat: ImageFormat(rawValue: settings.imageFormat) ?? .mbr
         )
 
         let errors = MasterBuilder.validate(inputs: inputs)
@@ -386,13 +461,100 @@ struct ContentView: View {
                     Task { @MainActor in log.append(message) }
                 }
                 log.append("Master created: \(result.imagePath.path) (\(result.fileCount) tracks, bitrate \(result.bitRateUsed)bps)")
-                if settings.writeImageMode {
-                    log.append("\"Write image to block\" is on, but writing to a real device needs a selected drive and is not driven from this button in an unattended way \u{2014} select a drive and confirm manually (Phase 4/9: no privileged write helper yet).")
-                }
             } catch {
                 log.append("Master creation failed: \(error)")
             }
             isBuilding = false
+        }
+    }
+
+    private func resolvedMaxDriveSizeBytes(_ settings: AppSettings) -> Int64 {
+        if let mb = Double(settings.maxDriveSizeMB), mb > 0 {
+            return Int64(mb * 1_000_000)
+        }
+        return Int64(ConfigStore.shared.maxDriveSize)
+    }
+
+    private func chooseBatchCSVAndRun() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.commaSeparatedText, .plainText, .text]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        runBatch(csvURL: url)
+    }
+
+    private func runBatch(csvURL: URL) {
+        guard let text = try? String(contentsOf: csvURL, encoding: .utf8) else {
+            log.append("Failed to open ISBN list: \(csvURL.path)")
+            return
+        }
+        let isbns = CSVParser.parse(text).compactMap { $0.first?.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard !isbns.isEmpty else {
+            log.append("No ISBNs found in \(csvURL.lastPathComponent)")
+            return
+        }
+
+        let settings = settingsStore.settings
+        let maxDriveSizeBytes = resolvedMaxDriveSizeBytes(settings)
+        let imageFormat = ImageFormat(rawValue: settings.imageFormat) ?? .mbr
+        let baseInputFolder = URL(fileURLWithPath: settings.inputFolder)
+        let outputFolder = URL(fileURLWithPath: settings.outputFolder)
+
+        isBatchRunning = true
+        batchSummary = nil
+        log.append("Starting batch: \(isbns.count) ISBN(s) from \(csvURL.lastPathComponent)")
+
+        Task {
+            var successCount = 0
+            var failedCount = 0
+            for isbn in isbns {
+                guard let row = BooksCatalog.lookup(isbn: isbn) else {
+                    log.append("Skipping ISBN \(isbn): not found in catalog")
+                    failedCount += 1
+                    continue
+                }
+                let sku = row["SKU"] ?? ""
+                let title = row["Title"] ?? ""
+                let author = row["Author"] ?? ""
+                guard !sku.isEmpty, !title.isEmpty, !author.isEmpty else {
+                    log.append("Skipping ISBN \(isbn): incomplete catalog data")
+                    failedCount += 1
+                    continue
+                }
+                guard let resolvedFolder = InputFolderResolver.resolve(basePath: baseInputFolder, isbn: isbn) else {
+                    log.append("Skipping ISBN \(isbn): no folder containing this ISBN found under \(baseInputFolder.path)")
+                    failedCount += 1
+                    continue
+                }
+
+                let inputs = MasterInputs(
+                    isbn: isbn, sku: sku, title: title, author: author,
+                    inputFolder: resolvedFolder, outputFolder: outputFolder,
+                    skipEncoding: settings.skipEncoding, maxDriveSizeBytes: maxDriveSizeBytes,
+                    imageFormat: imageFormat
+                )
+                let errors = MasterBuilder.validate(inputs: inputs)
+                guard errors.isEmpty else {
+                    log.append("Skipping ISBN \(isbn): \(errors.joined(separator: "; "))")
+                    failedCount += 1
+                    continue
+                }
+                do {
+                    let result = try await MasterBuilder.build(inputs: inputs) { message in
+                        Task { @MainActor in log.append("[\(isbn)] \(message)") }
+                    }
+                    log.append("Created master for ISBN \(isbn) (\(result.fileCount) tracks)")
+                    successCount += 1
+                } catch {
+                    log.append("Error creating master for ISBN \(isbn): \(error)")
+                    failedCount += 1
+                }
+            }
+            log.append("Batch complete: \(successCount) created, \(failedCount) failed.")
+            batchSummary = (successCount, failedCount)
+            isBatchRunning = false
         }
     }
 

@@ -41,7 +41,7 @@ public struct AppSettings: Codable, Equatable {
     public var outputFolder: String = (NSHomeDirectory() as NSString).appendingPathComponent("Documents/VoxblockMaster/output")
     public var isbn: String = ""
     public var manualData: Bool = false
-    public var lookupCsv: Bool = false
+    public var lookupCsv: Bool = true
     public var findIsbnFolder: Bool = false
     public var skipEncoding: Bool = false
     public var skipImageCreation: Bool = false
@@ -66,7 +66,7 @@ public struct AppSettings: Codable, Equatable {
     /// target hardware that expects a real partition table). Stored as a
     /// raw string, not the ImageFormat enum directly, for the same
     /// forward/backward-compatibility reason as maxDriveSizeMB.
-    public var imageFormat: String = "superfloppy"
+    public var imageFormat: String = "mbr"
     /// Folder holding the production database (voxmaster.db). Empty means
     /// "use the local per-machine default" (AppDatabase.defaultPath()'s
     /// Application Support folder). Set to a mounted network share's path
