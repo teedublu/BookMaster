@@ -188,7 +188,6 @@ struct ContentView: View {
                 optionsSection
                 metadataSection
                 createActionsSection
-                webcamPanel
             }
             .padding(16)
         }
@@ -360,6 +359,8 @@ struct ContentView: View {
                         .disabled(settingsStore.settings.lookupCsv)
                 }
             }
+            Spacer(minLength: 12)
+            webcamPanel
         }
     }
 
