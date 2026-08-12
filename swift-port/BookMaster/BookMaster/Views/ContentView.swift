@@ -22,6 +22,8 @@ struct ContentView: View {
     @State private var metadataMode: MetadataMode = .single
     @State private var isBatchRunning = false
     @State private var batchSummary: (success: Int, failed: Int)?
+    @State private var duplicatorSyncSummary: DuplicatorSyncSummary?
+    @State private var isSyncingDuplicatorLogs = false
     @StateObject private var productionLogStore = ProductionLogStore()
     // Write to Block
     @State private var masterSelectionMode: MasterSelectionMode = .manual
@@ -71,6 +73,7 @@ struct ContentView: View {
                 selectedDriveID = first.id
             }
             productionLogStore.open(inDirectory: resolvedDatabaseDirectory())
+            syncDuplicatorLogs()
         }
         .onChange(of: settingsStore.settings.databasePath) { _ in
             productionLogStore.open(inDirectory: resolvedDatabaseDirectory())
@@ -79,6 +82,9 @@ struct ContentView: View {
             } else if let path = productionLogStore.currentPath {
                 log.append("Production database: \(path.path)")
             }
+        }
+        .onChange(of: settingsStore.settings.duplicatorLogFolder) { _ in
+            syncDuplicatorLogs()
         }
         .onChange(of: settingsStore.settings) { _ in
             settingsStore.save()
@@ -1110,6 +1116,30 @@ struct ContentView: View {
                 }
                 Divider()
                 Button("Import Duplicator Log\u{2026}") { importDuplicatorLog() }
+                Divider()
+                Text("Log Folder (auto-sync):").font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    TextField("NAS/network folder, or blank to disable", text: $settingsStore.settings.duplicatorLogFolder)
+                        .font(.caption2)
+                    Button("Browse\u{2026}") { browseForDuplicatorLogFolder() }
+                }
+                HStack(spacing: 8) {
+                    Button(isSyncingDuplicatorLogs ? "Syncing\u{2026}" : "Sync Now") { syncDuplicatorLogs() }
+                        .disabled(settingsStore.settings.duplicatorLogFolder.isEmpty || isSyncingDuplicatorLogs)
+                    if isSyncingDuplicatorLogs { ProgressView().controlSize(.small) }
+                }
+                if let summary = duplicatorSyncSummary {
+                    if summary.isEmpty {
+                        Text("Up to date (\(summary.skippedAlreadySyncedCount) already synced).")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    } else {
+                        detailRow("Synced", "\(summary.syncedFileNames.count) file(s), \(summary.rowsInserted) row(s)")
+                        if !summary.failures.isEmpty {
+                            detailRow("Failed", String(summary.failures.count))
+                        }
+                    }
+                }
+                Divider()
                 if let stats = productionStats {
                     detailRow("Total Runs", String(stats.totalDuplicatorRuns))
                     detailRow("Unique", String(stats.uniqueMatches))
@@ -1121,7 +1151,7 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(width: 220, alignment: .leading)
+            .frame(width: 240, alignment: .leading)
         }
     }
 
@@ -1159,6 +1189,46 @@ struct ContentView: View {
             productionStats = try productionLog.stats()
         } catch {
             log.append("Failed to ingest duplicator log: \(error)")
+        }
+    }
+
+    private func browseForDuplicatorLogFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = "Choose the folder the duplicator machine's log files land in (e.g. a NAS folder synced from Google Drive)."
+        if !settingsStore.settings.duplicatorLogFolder.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: settingsStore.settings.duplicatorLogFolder)
+        }
+        if panel.runModal() == .OK, let url = panel.url {
+            // Setting this triggers .onChange(of: duplicatorLogFolder),
+            // which runs the sync -- not called explicitly here too, to
+            // avoid two overlapping sync passes racing each other.
+            settingsStore.settings.duplicatorLogFolder = url.path
+        }
+    }
+
+    /// Ingests every duplicator log file in the configured folder not
+    /// already synced (by filename -- see DuplicatorLogSync), the same
+    /// way "Import Duplicator Log..." ingests one file picked by hand.
+    /// Safe to call repeatedly (on launch, on folder change, and via
+    /// "Sync Now"): already-synced files are skipped, not re-ingested.
+    private func syncDuplicatorLogs() {
+        let trimmed = settingsStore.settings.duplicatorLogFolder.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, let productionLog else { return }
+        isSyncingDuplicatorLogs = true
+        let folder = URL(fileURLWithPath: trimmed, isDirectory: true)
+        Task {
+            let summary = await DuplicatorLogSync.sync(folder: folder, productionLog: productionLog) { message in
+                Task { @MainActor in log.append(message) }
+            }
+            duplicatorSyncSummary = summary
+            if !summary.isEmpty {
+                productionStats = try? productionLog.stats()
+            }
+            isSyncingDuplicatorLogs = false
         }
     }
 

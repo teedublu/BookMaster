@@ -164,6 +164,18 @@ public final class ProductionLog {
         return inserted
     }
 
+    /// Filenames (not full paths -- robust against a sync layer like
+    /// Google Drive/NAS relocating files) already ingested via any
+    /// source_file recorded on a duplicator_runs row. Used by
+    /// DuplicatorLogSync to skip files it's already synced rather than
+    /// re-ingesting (and duplicating) every row on every scan --
+    /// insertDuplicatorRuns itself has no uniqueness constraint to fall
+    /// back on.
+    public func syncedDuplicatorLogFileNames() throws -> Set<String> {
+        let rows = try db.query("SELECT DISTINCT source_file FROM duplicator_runs WHERE source_file IS NOT NULL")
+        return Set(rows.compactMap { $0["source_file"]?.stringValue }.map { URL(fileURLWithPath: $0).lastPathComponent })
+    }
+
     public func duplicatorRuns(serial: String) throws -> [DuplicatorRunRecord] {
         try db.query("SELECT * FROM duplicator_runs WHERE serial = ? ORDER BY dt ASC", [.text(serial)])
             .map(DuplicatorRunRecord.init)

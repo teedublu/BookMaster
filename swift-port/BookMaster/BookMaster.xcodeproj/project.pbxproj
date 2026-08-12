@@ -40,6 +40,7 @@
 		8520B774339BF0D48B23C6D5 /* Shell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36D221FF39661572A52A75C0 /* Shell.swift */; };
 		885C6FC80A3ABD644FDCAC98 /* AudioProfilerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 975187FC7CD338D46CFC4FD0 /* AudioProfilerTests.swift */; };
 		8BBE10ADC5A7BB64F2E978AC /* BookMasterApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77993DDBC5B4D0E2BBA11AC /* BookMasterApp.swift */; };
+		8DF49AFCE7EBDBD07BE21A87 /* DuplicatorLogSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA3D47524E5CB779E0D9619B /* DuplicatorLogSyncTests.swift */; };
 		90F3843EEB8FFBDDEBCC257A /* FFmpegEncoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B18C9268736E05D14BC64F8 /* FFmpegEncoderTests.swift */; };
 		9BE0358C3D72EBF8D5677672 /* BookCoverLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9798038E0A3DABE985FB582 /* BookCoverLookup.swift */; };
 		9EC830E4BCA48429B907700C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E21335F896B71CEC5A32D765 /* Assets.xcassets */; };
@@ -54,6 +55,8 @@
 		BEAC654CA3F4753FBAC46945 /* PlaceholderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB980C4E495321B7DB7D54FC /* PlaceholderTests.swift */; };
 		BFE97A39ECF449C96332C593 /* FFmpegEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AE462DBA774B808155C5B76 /* FFmpegEncoder.swift */; };
 		C027EE7C4DF3DFAB33419205 /* DupeRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E441EB789A120FB1ECE7FE /* DupeRow.swift */; };
+		C9480515AC5ECB0803DF7CF2 /* DuplicatorLogSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADDE2B1B3F68FE6EF300DCA /* DuplicatorLogSync.swift */; };
+		CCABA5AC914ACAECC0E77FD2 /* DuplicatorLogParserRealDataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 937EB02445811EF729E4C1B2 /* DuplicatorLogParserRealDataTests.swift */; };
 		CCB8ABC648D6CAD00537B866 /* USBSerialLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF1DA32446563A084CC06454 /* USBSerialLookup.swift */; };
 		CE9D2FC4C985BCD44F1BB882 /* BitrateFittingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25BC7173B44E25CF5071670C /* BitrateFittingTests.swift */; };
 		D4B629C4A545068195D5C107 /* MasterBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04DA644A47CAA4D7E935203E /* MasterBuilderTests.swift */; };
@@ -96,6 +99,7 @@
 		095A4D99884D4804EF8AC037 /* MasterResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterResolverTests.swift; sourceTree = "<group>"; };
 		0BC1B5F1452EF892820A7BB8 /* USBMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = USBMonitor.swift; sourceTree = "<group>"; };
 		179802A6F6113FBF97DD79F1 /* RawDeviceWriterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawDeviceWriterTests.swift; sourceTree = "<group>"; };
+		1ADDE2B1B3F68FE6EF300DCA /* DuplicatorLogSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicatorLogSync.swift; sourceTree = "<group>"; };
 		1AFCC49CF0B95CF9A140E052 /* AppDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDatabase.swift; sourceTree = "<group>"; };
 		1CA0858216CAFC29555344B3 /* config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = config.json; sourceTree = "<group>"; };
 		1F34F65D189C67CA4BCC2043 /* DatabaseRecords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseRecords.swift; sourceTree = "<group>"; };
@@ -119,6 +123,7 @@
 		7BD09222EE032D907CE57BD7 /* DuplicatorLogParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicatorLogParser.swift; sourceTree = "<group>"; };
 		8339A5FF5159A62CC36B4679 /* BookCoverLookupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookCoverLookupTests.swift; sourceTree = "<group>"; };
 		8DEBAB49CA98E9B8E15E9AB7 /* MasterResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterResolver.swift; sourceTree = "<group>"; };
+		937EB02445811EF729E4C1B2 /* DuplicatorLogParserRealDataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicatorLogParserRealDataTests.swift; sourceTree = "<group>"; };
 		95F091F77CF7A03CBCD4F6AF /* MasterReaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterReaderTests.swift; sourceTree = "<group>"; };
 		975187FC7CD338D46CFC4FD0 /* AudioProfilerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioProfilerTests.swift; sourceTree = "<group>"; };
 		99E441EB789A120FB1ECE7FE /* DupeRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DupeRow.swift; sourceTree = "<group>"; };
@@ -150,6 +155,7 @@
 		E055E794E72F09FC77C7D0C0 /* MasterWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterWriter.swift; sourceTree = "<group>"; };
 		E21335F896B71CEC5A32D765 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E9E8B5B741411F10AD474CE1 /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
+		EA3D47524E5CB779E0D9619B /* DuplicatorLogSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicatorLogSyncTests.swift; sourceTree = "<group>"; };
 		EBBBEE7C448E030CA9754E93 /* ProductionLogStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionLogStoreTests.swift; sourceTree = "<group>"; };
 		EBC22281304C21632EF9372F /* ConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStore.swift; sourceTree = "<group>"; };
 		ED3182A0187CB1B22CD99A76 /* USBDriveInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = USBDriveInfo.swift; sourceTree = "<group>"; };
@@ -192,7 +198,9 @@
 				0030998D8C09A9148F9A4D41 /* CameraScannerTests.swift */,
 				3610DD2CAE2FF93FB02F64CA /* DiskImageBuilderTests.swift */,
 				A27C5EE8F654E10BA6AD86CB /* DriveVerifierTests.swift */,
+				937EB02445811EF729E4C1B2 /* DuplicatorLogParserRealDataTests.swift */,
 				0625B02B4BC4B8BC590CA493 /* DuplicatorLogParserTests.swift */,
+				EA3D47524E5CB779E0D9619B /* DuplicatorLogSyncTests.swift */,
 				9B18C9268736E05D14BC64F8 /* FFmpegEncoderTests.swift */,
 				DD60949677FA18E4AA4CDF87 /* InputFolderResolverTests.swift */,
 				04DA644A47CAA4D7E935203E /* MasterBuilderTests.swift */,
@@ -245,6 +253,7 @@
 				635C3BB1B33D6430A061DF18 /* DiskImageBuilder.swift */,
 				C75B95AEDC06BB2C48625C6F /* DriveVerifier.swift */,
 				7BD09222EE032D907CE57BD7 /* DuplicatorLogParser.swift */,
+				1ADDE2B1B3F68FE6EF300DCA /* DuplicatorLogSync.swift */,
 				2AE462DBA774B808155C5B76 /* FFmpegEncoder.swift */,
 				4D84E9E76BB21B897F35428E /* ImageLayoutInspector.swift */,
 				6996630954DE44A833691DE0 /* InputFolderResolver.swift */,
@@ -409,6 +418,7 @@
 				DEFBEA89F54117E285B26C7F /* DriveVerifier.swift in Sources */,
 				C027EE7C4DF3DFAB33419205 /* DupeRow.swift in Sources */,
 				ECEA5A36F4A858F8831E6D19 /* DuplicatorLogParser.swift in Sources */,
+				C9480515AC5ECB0803DF7CF2 /* DuplicatorLogSync.swift in Sources */,
 				BFE97A39ECF449C96332C593 /* FFmpegEncoder.swift in Sources */,
 				3BD3976A281A2E4E2B1AC6F8 /* ImageLayoutInspector.swift in Sources */,
 				79C0B857DD7B83EDEFFF9F8F /* InputFolderResolver.swift in Sources */,
@@ -447,7 +457,9 @@
 				FB1275420A4EEDF974B2944D /* CameraScannerTests.swift in Sources */,
 				630076DB54DADE57663A5D49 /* DiskImageBuilderTests.swift in Sources */,
 				83C4B4A70E8FF998CBBFEBAC /* DriveVerifierTests.swift in Sources */,
+				CCABA5AC914ACAECC0E77FD2 /* DuplicatorLogParserRealDataTests.swift in Sources */,
 				7B09ED3914587208FDFB805F /* DuplicatorLogParserTests.swift in Sources */,
+				8DF49AFCE7EBDBD07BE21A87 /* DuplicatorLogSyncTests.swift in Sources */,
 				90F3843EEB8FFBDDEBCC257A /* FFmpegEncoderTests.swift in Sources */,
 				B4B4DD8874F6915A87BE1760 /* InputFolderResolverTests.swift in Sources */,
 				B9F0BAFD03B9E2A5DA754036 /* MBRImageBuilderTests.swift in Sources */,

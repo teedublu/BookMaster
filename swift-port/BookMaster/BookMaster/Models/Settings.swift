@@ -74,6 +74,12 @@ public struct AppSettings: Codable, Equatable {
     /// follow one person working from multiple machines/locations, rather
     /// than being siloed per-Mac.
     public var databasePath: String = ""
+    /// Folder to watch for duplicator-machine log files (e.g. a NAS
+    /// folder synced from Google Drive) -- scanned on launch and on
+    /// demand for files not yet ingested, rather than requiring a manual
+    /// "Import Duplicator Log..." pick every time. Empty means sync is
+    /// off.
+    public var duplicatorLogFolder: String = ""
 
     enum CodingKeys: String, CodingKey {
         case useWebcam = "use_webcam"
@@ -93,6 +99,7 @@ public struct AppSettings: Codable, Equatable {
         case pastMaster = "past_master"
         case imageFormat = "image_format"
         case databasePath = "database_path"
+        case duplicatorLogFolder = "duplicator_log_folder"
     }
 
     public init() {}
@@ -128,5 +135,6 @@ public struct AppSettings: Codable, Equatable {
         pastMaster = try c.decodeIfPresent(PastMaster.self, forKey: .pastMaster) ?? defaults.pastMaster
         imageFormat = try c.decodeIfPresent(String.self, forKey: .imageFormat) ?? defaults.imageFormat
         databasePath = try c.decodeIfPresent(String.self, forKey: .databasePath) ?? defaults.databasePath
+        duplicatorLogFolder = try c.decodeIfPresent(String.self, forKey: .duplicatorLogFolder) ?? defaults.duplicatorLogFolder
     }
 }
