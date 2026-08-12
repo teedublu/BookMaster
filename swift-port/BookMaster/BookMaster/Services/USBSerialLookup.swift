@@ -11,20 +11,42 @@ import IOKit.usb
 /// This is what makes "see the history of any block added to the dock"
 /// possible: ProductionLog's devices/writes/duplicator_runs tables are
 /// all keyed by this exact serial (matching voxmaster's db.py schema).
+struct USBIdentity: Equatable {
+    let serial: String?
+    let vid: String?
+    let pid: String?
+}
+
 enum USBSerialLookup {
     static func serialNumber(forBSDName bsdName: String) -> String? {
+        identity(forBSDName: bsdName)?.serial
+    }
+
+    /// Same IORegistry walk as `serialNumber`, but also captures
+    /// idVendor/idProduct from the same terminal node -- confirmed via
+    /// `ioreg -p IOUSB -l` that a real USB mass-storage device's
+    /// idVendor/idProduct/"USB Serial Number" all live together on one
+    /// node, so one walk gets all three instead of three separate ones.
+    /// Formatted as 4-digit lowercase hex (e.g. "0781") to match the
+    /// vid/pid string convention ProductionLog's devices table and
+    /// DuplicatorLogParser already use.
+    static func identity(forBSDName bsdName: String) -> USBIdentity? {
         guard let matching = IOBSDNameMatching(kIOMainPortDefault, 0, bsdName) else { return nil }
         var entry = IOServiceGetMatchingService(kIOMainPortDefault, matching)
         guard entry != 0 else { return nil }
 
-        var result: String?
+        var result: USBIdentity?
         // Walk up the IOService plane: a disk's IOMedia entry is nested
         // several levels below the actual IOUSBHostDevice/IOUSBDevice
-        // node that carries the serial number property. 12 is generous
-        // headroom over any real device tree depth seen in practice.
+        // node that carries these properties. 12 is generous headroom
+        // over any real device tree depth seen in practice.
         for _ in 0..<12 {
             if let serial = stringProperty(entry, key: "USB Serial Number"), !serial.isEmpty {
-                result = serial
+                result = USBIdentity(
+                    serial: serial,
+                    vid: hexProperty(entry, key: "idVendor"),
+                    pid: hexProperty(entry, key: "idProduct")
+                )
                 break
             }
             var parent: io_registry_entry_t = 0
@@ -45,5 +67,13 @@ enum USBSerialLookup {
             return nil
         }
         return unmanaged.takeRetainedValue() as? String
+    }
+
+    private static func hexProperty(_ entry: io_registry_entry_t, key: String) -> String? {
+        guard let unmanaged = IORegistryEntryCreateCFProperty(entry, key as CFString, kCFAllocatorDefault, 0) else {
+            return nil
+        }
+        guard let number = unmanaged.takeRetainedValue() as? NSNumber else { return nil }
+        return String(format: "%04x", number.intValue)
     }
 }

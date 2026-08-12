@@ -23,6 +23,19 @@ struct ContentView: View {
     @State private var isBatchRunning = false
     @State private var batchSummary: (success: Int, failed: Int)?
     @StateObject private var productionLogStore = ProductionLogStore()
+    // Write to Block
+    @State private var masterSelectionMode: MasterSelectionMode = .manual
+    @State private var masterSelectionInput = ""
+    @State private var resolvedMaster: ResolvedMaster?
+    @State private var masterResolveError: String?
+    @State private var availableMasters: [MasterRecord] = []
+    @State private var isWriting = false
+    @State private var showWriteConfirmation = false
+    @State private var writeResult: MasterWriteResult?
+    @State private var writeError: String?
+    // Separate from `camera` (Create Master's ISBN-lookup webcam) so the
+    // two scan flows never cross-talk through a shared onChange handler.
+    @StateObject private var writeCamera = CameraScanner()
 
     private var productionLog: ProductionLog? { productionLogStore.log }
 
@@ -114,6 +127,22 @@ struct ContentView: View {
             verificationResult = nil
             blockHistory = lookUpHistory(for: selectedDrive)
         }
+        .onChange(of: writeCamera.lastDetectedISBN) { isbn in
+            guard let isbn else { return }
+            masterSelectionInput = isbn
+            log.append("Scanned ISBN \(isbn)")
+            resolveMasterSelection()
+        }
+        .onChange(of: masterSelectionMode) { mode in
+            if mode == .scan {
+                writeCamera.start()
+            } else {
+                writeCamera.stop()
+            }
+            if mode == .list {
+                refreshAvailableMasters()
+            }
+        }
     }
 
     // MARK: Create Master / Verify Master tabs
@@ -197,6 +226,7 @@ struct ContentView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 verifyActionsSection
+                writeToBlockSection
                 HStack(alignment: .top, spacing: 16) {
                     usbDrivesPanel
                     bookInfoPanel
@@ -422,6 +452,180 @@ struct ContentView: View {
         }
     }
 
+    // MARK: Write to Block (ports voxmaster's writer.py write(), adapted to
+    // native I/O -- see MasterWriter/MasterResolver)
+
+    private enum MasterSelectionMode: String, CaseIterable {
+        case manual = "Enter"
+        case scan = "Scan"
+        case list = "List"
+    }
+
+    private var writeToBlockSection: some View {
+        GroupBox("Write to Block") {
+            VStack(alignment: .leading, spacing: 10) {
+                masterSelectionModeTabs
+                switch masterSelectionMode {
+                case .manual: manualMasterSelection
+                case .scan: scanMasterSelection
+                case .list: listMasterSelection
+                }
+                if let resolvedMaster {
+                    Divider()
+                    detailRow("Selected", resolvedMaster.sku)
+                    detailRow("Image Size", "\(resolvedMaster.imageMib) MiB")
+                }
+                if let masterResolveError {
+                    Text(masterResolveError).font(.caption2).foregroundStyle(.red)
+                }
+                Divider()
+                HStack(spacing: 12) {
+                    Button(isWriting ? "Writing\u{2026}" : "Write to Block") { showWriteConfirmation = true }
+                        .disabled(resolvedMaster == nil || selectedDrive == nil || isWriting)
+                    if isWriting { ProgressView().controlSize(.small) }
+                }
+                if let writeResult {
+                    Divider()
+                    detailRow("Write Speed", "\(writeResult.throughputImageMibS) MiB/s")
+                    detailRow("Elapsed", "\(writeResult.elapsedSeconds)s")
+                    detailRow("Tracks", String(writeResult.trackCount))
+                    detailRow("Expected Duration", formatDuration(writeResult.expectedDurationSeconds))
+                    detailRow("Encoding", writeResult.encodingKbps.map {
+                        writeResult.encodingRateAnomaly ? "\($0)kbps \u{26A0}\u{FE0F}" : "\($0)kbps"
+                    } ?? "-")
+                    detailRow("Artifacts Cleaned", "\(writeResult.removedArtifactCount)/\(writeResult.foundArtifactCount)")
+                    detailRow("Serial", writeResult.serial ?? "-")
+                }
+                if let writeError {
+                    Text(writeError).font(.caption2).foregroundStyle(.red)
+                }
+            }
+        }
+        .confirmationDialog(
+            "Write \(resolvedMaster?.sku ?? "") to \(selectedDrive?.bsdName ?? "this drive")?",
+            isPresented: $showWriteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Write \u{2014} Erases Existing Content", role: .destructive) { performWrite() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This erases all existing content on \(selectedDrive?.volumeName ?? selectedDrive?.bsdName ?? "the selected drive") (\(resolvedMaster?.imageMib ?? 0) MiB image).")
+        }
+    }
+
+    private var masterSelectionModeTabs: some View {
+        HStack(spacing: 6) {
+            ForEach(MasterSelectionMode.allCases, id: \.self) { mode in
+                Button(mode.rawValue) { masterSelectionMode = mode }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: masterSelectionMode == mode ? .bold : .regular))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(masterSelectionMode == mode ? Color.accentColor.opacity(0.15) : Color.clear)
+                    .foregroundStyle(masterSelectionMode == mode ? Color.accentColor : .secondary)
+                    .clipShape(Capsule())
+            }
+        }
+    }
+
+    private var manualMasterSelection: some View {
+        HStack {
+            TextField("ISBN or SKU", text: $masterSelectionInput)
+                .frame(maxWidth: 200)
+                .onSubmit { resolveMasterSelection() }
+            Button("Find") { resolveMasterSelection() }
+                .disabled(masterSelectionInput.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+    }
+
+    /// Reuses the same CameraScanner/Vision pipeline as Create Master's
+    /// webcam ISBN lookup -- currently EAN-13/ISBN-13 only (see
+    /// CameraScanner.isPlausibleISBN13). If a physical master block's
+    /// printed barcode is actually a SKU-format code rather than the
+    /// book's ISBN, this won't detect it yet; that'd need widening
+    /// CameraScanner's symbology list and payload filter, not something
+    /// to assume without knowing what the real labels look like.
+    private var scanMasterSelection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if writeCamera.isRunning {
+                CameraPreviewView(session: writeCamera.session)
+                    .frame(width: 200, height: 140)
+            } else {
+                Rectangle()
+                    .fill(Color.gray.opacity(0.15))
+                    .frame(width: 200, height: 140)
+                    .overlay(Text("Starting camera\u{2026}").font(.caption2).foregroundStyle(.secondary))
+            }
+            if let error = writeCamera.errorMessage {
+                Text(error).font(.caption2).foregroundStyle(.red)
+            }
+        }
+    }
+
+    private var listMasterSelection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if availableMasters.isEmpty {
+                Text("No cataloged masters yet.").font(.caption2).foregroundStyle(.secondary)
+            } else {
+                List(availableMasters, id: \.sku) { record in
+                    Button(record.sku) {
+                        masterSelectionInput = record.sku
+                        resolveMasterSelection()
+                    }
+                    .buttonStyle(.plain)
+                }
+                .frame(height: 100)
+            }
+            Button("Refresh List") { refreshAvailableMasters() }
+        }
+    }
+
+    private func refreshAvailableMasters() {
+        guard let productionLog else { availableMasters = []; return }
+        availableMasters = (try? productionLog.allMasters()) ?? []
+    }
+
+    private func resolveMasterSelection() {
+        let outputFolder = URL(fileURLWithPath: settingsStore.settings.outputFolder)
+        switch MasterResolver.resolve(input: masterSelectionInput, outputFolder: outputFolder, productionLog: productionLog) {
+        case .success(let master):
+            resolvedMaster = master
+            masterResolveError = nil
+            log.append("Selected master \(master.sku) (\(master.imageMib) MiB) at \(master.imagePath.path)")
+        case .failure(let error):
+            resolvedMaster = nil
+            masterResolveError = error.description
+        }
+    }
+
+    private func performWrite() {
+        guard let resolvedMaster, let drive = selectedDrive else { return }
+        isWriting = true
+        writeResult = nil
+        writeError = nil
+        log.append("Writing \(resolvedMaster.sku) to \(drive.bsdName)\u{2026}")
+        Task {
+            do {
+                let result = try await MasterWriter.write(
+                    master: resolvedMaster, drive: drive, currentCandidates: usbMonitor.drives,
+                    productionLog: productionLog
+                ) { message in
+                    Task { @MainActor in log.append(message) }
+                }
+                writeResult = result
+                log.append("Write complete: \(result.trackCount) tracks, \(result.throughputImageMibS) MiB/s, \(result.elapsedSeconds)s")
+                if result.encodingRateAnomaly {
+                    log.append("\u{26A0}\u{FE0F} encoding rate anomaly detected on written content")
+                }
+                blockHistory = lookUpHistory(for: drive)
+            } catch {
+                writeError = "\(error)"
+                log.append("Write failed: \(error)")
+            }
+            isWriting = false
+        }
+    }
+
     // MARK: Create / Check Master
 
     private func createMaster() {
@@ -458,7 +662,7 @@ struct ContentView: View {
         log.append("Creating master for \(settings.sku)\u{2026}")
         Task {
             do {
-                let result = try await MasterBuilder.build(inputs: inputs) { message in
+                let result = try await MasterBuilder.build(inputs: inputs, productionLog: productionLog) { message in
                     Task { @MainActor in log.append(message) }
                 }
                 log.append("Master created: \(result.imagePath.path) (\(result.fileCount) tracks, bitrate \(result.bitRateUsed)bps)")
@@ -543,7 +747,7 @@ struct ContentView: View {
                     continue
                 }
                 do {
-                    let result = try await MasterBuilder.build(inputs: inputs) { message in
+                    let result = try await MasterBuilder.build(inputs: inputs, productionLog: productionLog) { message in
                         Task { @MainActor in log.append("[\(isbn)] \(message)") }
                     }
                     log.append("Created master for ISBN \(isbn) (\(result.fileCount) tracks)")

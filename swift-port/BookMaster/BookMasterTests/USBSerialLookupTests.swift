@@ -25,4 +25,12 @@ final class USBSerialLookupTests: XCTestCase {
         _ = USBSerialLookup.serialNumber(forBSDName: "disk0")
         XCTAssertLessThan(Date().timeIntervalSince(start), 2.0)
     }
+
+    func testIdentityForInternalDiskIsNil() {
+        XCTAssertNil(USBSerialLookup.identity(forBSDName: "disk0"))
+    }
+
+    func testIdentityForNonexistentBSDNameReturnsNilRatherThanCrashing() {
+        XCTAssertNil(USBSerialLookup.identity(forBSDName: "disk9999"))
+    }
 }
