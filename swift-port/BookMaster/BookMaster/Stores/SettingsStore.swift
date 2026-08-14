@@ -33,6 +33,12 @@ public final class SettingsStore: ObservableObject {
             // file the first time there isn't one to read.
             try? persist(AppSettings())
         }
+
+        // Never resume with the webcam "on" -- camera access is only
+        // requested in response to the user toggling Scan barcode, and
+        // there's no startup prompt to grant it, so a persisted "true"
+        // from a prior session must not carry forward silently.
+        self.settings.useWebcam = false
     }
 
     public func save() {

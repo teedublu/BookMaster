@@ -19,12 +19,20 @@ public struct EncodeParameters {
     public let bitRate: Int // bits per second, e.g. 96000
     public let targetLufs: Double
     public let durationSeconds: Double
+    /// When true, the output track carries no metadata at all -- not
+    /// the input file's own tags (ffmpeg copies global metadata from
+    /// input to output by default, absent `-map_metadata -1`) and not
+    /// even ffmpeg's own encoder tag (absent `-id3v2_version 0`, the
+    /// mp3 muxer writes a minimal ID3v2 tag itself). See "Strip Audio
+    /// Tags" in Create Master's Options.
+    public let stripMetadata: Bool
 
-    public init(sampleRate: Int, bitRate: Int, targetLufs: Double, durationSeconds: Double) {
+    public init(sampleRate: Int, bitRate: Int, targetLufs: Double, durationSeconds: Double, stripMetadata: Bool = false) {
         self.sampleRate = sampleRate
         self.bitRate = bitRate
         self.targetLufs = targetLufs
         self.durationSeconds = durationSeconds
+        self.stripMetadata = stripMetadata
     }
 }
 
@@ -82,7 +90,7 @@ public enum FFmpegEncoder {
         try FileManager.default.createDirectory(at: outputPath.deletingLastPathComponent(), withIntermediateDirectories: true)
 
         let filter = filterComplex(targetLufs: parameters.targetLufs, durationSeconds: parameters.durationSeconds)
-        let args = [
+        var args = [
             "-y",
             "-i", inputPath.path,
             "-filter_complex", filter,
@@ -92,8 +100,15 @@ public enum FFmpegEncoder {
             "-ac", "1",
             "-f", "mp3",
             "-acodec", "libmp3lame",
-            outputPath.path,
         ]
+        if parameters.stripMetadata {
+            // -map_metadata -1: don't carry the input file's own tags
+            // through (ffmpeg's default is to copy them).
+            // -id3v2_version 0: don't write an ID3v2 tag at all, so the
+            // mp3 muxer's own minimal tag doesn't sneak back in either.
+            args += ["-map_metadata", "-1", "-id3v2_version", "0"]
+        }
+        args.append(outputPath.path)
 
         do {
             try Shell.run(ffmpeg, args)

@@ -14,8 +14,16 @@ struct ContentView: View {
     @State private var selectedDriveID: String?
     @State private var loggedDriveIDs: Set<String> = []
     @State private var isBuilding = false
+    @State private var isCancellingBuild = false
+    @State private var buildProgress: Double = 0
+    @State private var buildPhaseDescription = ""
+    @State private var buildTask: Task<Void, Never>?
     @State private var verificationResult: VerificationResult?
     @State private var isVerifying = false
+    @State private var fixRemoveArtifacts = true
+    @State private var fixCleanID3Tags = true
+    @State private var isFixing = false
+    @State private var fixResult: MasterFixSummary?
     @State private var productionStats: ProductionStats?
     @State private var blockHistory: DeviceHistory?
     @State private var selectedTab: AppTab = .create
@@ -24,6 +32,11 @@ struct ContentView: View {
     @State private var batchSummary: (success: Int, failed: Int)?
     @State private var duplicatorSyncSummary: DuplicatorSyncSummary?
     @State private var isSyncingDuplicatorLogs = false
+    @State private var isEjecting = false
+    @State private var isLogPanelVisible = true
+    @State private var logPanelWidth: CGFloat = 300
+    @State private var logPanelWidthAtDragStart: CGFloat?
+    private let logPanelWidthRange: ClosedRange<CGFloat> = 220...600
     @StateObject private var productionLogStore = ProductionLogStore()
     // Write to Block
     @State private var masterSelectionMode: MasterSelectionMode = .manual
@@ -55,16 +68,28 @@ struct ContentView: View {
     private let availableTests = ["Silence", "Loudness", "Metadata", "Frames", "Speed"]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            tabBar
-            Group {
-                switch selectedTab {
-                case .create: createMasterTab
-                case .verify: verifyMasterTab
+        HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .center, spacing: 12) {
+                    tabBar
+                    Spacer(minLength: 12)
+                    ejectButton
+                        .padding(.trailing, 8)
+                    logPanelToggleButton
+                        .padding(.trailing, 16)
+                }
+                Group {
+                    switch selectedTab {
+                    case .create: createMasterTab
+                    case .verify: verifyMasterTab
+                    case .dataImport: importTab
+                    }
                 }
             }
-            logSection
-                .padding([.horizontal, .bottom], 16)
+            if isLogPanelVisible {
+                logPanelResizeHandle
+                logSidebar
+            }
         }
         .onAppear {
             log.append("Loaded settings from \(settingsStore.settingsFilePath)")
@@ -112,6 +137,7 @@ struct ContentView: View {
         }
         .onChange(of: settingsStore.settings.useWebcam) { enabled in
             if enabled {
+                settingsStore.settings.lookupCsv = true
                 log.append("Requesting camera access\u{2026}")
                 camera.start()
             } else {
@@ -151,28 +177,32 @@ struct ContentView: View {
         }
     }
 
-    // MARK: Create Master / Verify Master tabs
+    // MARK: Create Master / Verify Master / Import tabs
     //
-    // Splits the single Python window into the two sides the app
-    // actually has: authoring a new master image (left of the old
-    // layout) versus inspecting/verifying a connected drive (right of
-    // it). The log stays shared and visible under both tabs since both
-    // sides write to it.
+    // Splits the single Python window into the sides the app actually
+    // has: authoring a new master image, inspecting/verifying a
+    // connected drive, and the production-log/duplicator-log ingestion
+    // side (its own tab rather than squeezed into Verify Master's panel
+    // row, which was already tight before adding a fifth panel there).
+    // The log lives in a persistent sidebar (see logSidebar) rather than
+    // under any one tab, since all three write to it.
     //
     // A custom tab bar, not native TabView chrome: macOS's default top
     // tab strip is a small, low-contrast row of icon+label buttons that
-    // reads as secondary UI. These two tabs ARE the app's primary
+    // reads as secondary UI. These tabs ARE the app's primary
     // navigation, so they get a colored, bordered, pill-style control
     // instead -- selection is unmistakable at a glance.
 
     private enum AppTab: String, CaseIterable {
         case create = "Create Master"
         case verify = "Verify Master"
+        case dataImport = "Import"
 
         var icon: String {
             switch self {
             case .create: return "square.and.pencil"
             case .verify: return "checkmark.shield"
+            case .dataImport: return "tray.and.arrow.down"
             }
         }
 
@@ -180,6 +210,7 @@ struct ContentView: View {
             switch self {
             case .create: return .blue
             case .verify: return .green
+            case .dataImport: return .orange
             }
         }
     }
@@ -216,15 +247,69 @@ struct ContentView: View {
         .padding(.bottom, 4)
     }
 
+    // MARK: Eject (visible in every tab, not just Verify Master's drive
+    // list -- the point is a one-click "safe to unplug" that works no
+    // matter what the operator was doing when they're ready to pull the
+    // stick, without making them switch tabs first).
+
+    /// Whichever drive the eject button acts on: the one selected in
+    /// Verify Master's list if there is one, else the sole/first
+    /// candidate -- matching selectedDriveID's own autoselect-first-drive
+    /// default, so on the common single-drive-connected case this just
+    /// works without the operator ever having picked anything.
+    private var ejectableDrive: USBDriveInfo? {
+        selectedDrive ?? usbMonitor.drives.first
+    }
+
+    private var ejectButton: some View {
+        Group {
+            if let drive = ejectableDrive {
+                Button {
+                    ejectDrive(drive)
+                } label: {
+                    HStack(spacing: 6) {
+                        if isEjecting {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "eject.fill")
+                        }
+                        Text(isEjecting ? "Ejecting\u{2026}" : "Eject \(drive.volumeName ?? drive.bsdName)")
+                    }
+                    .font(.system(size: 12, weight: .medium))
+                }
+                .disabled(isEjecting)
+                .help("Unmount and eject \(drive.volumeName ?? drive.bsdName) (\(drive.bsdName))")
+            }
+        }
+    }
+
+    private func ejectDrive(_ drive: USBDriveInfo) {
+        isEjecting = true
+        log.append("Ejecting \(drive.volumeName ?? drive.bsdName) (\(drive.bsdName))\u{2026}")
+        Task {
+            do {
+                try await usbMonitor.eject(bsdName: drive.bsdName)
+                log.append("\(drive.bsdName) ejected \u{2014} safe to unplug.")
+            } catch {
+                log.append("Eject failed: \(error.localizedDescription)")
+            }
+            isEjecting = false
+        }
+    }
+
     private var createMasterTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                inputFolderSection
-                optionsSection
-                metadataSection
+                Group {
+                    inputFolderSection
+                    optionsSection
+                    metadataSection
+                }
+                .disabled(isBuilding)
                 createActionsSection
             }
             .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -233,15 +318,35 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 16) {
                 verifyActionsSection
                 writeToBlockSection
-                HStack(alignment: .top, spacing: 16) {
-                    usbDrivesPanel
-                    bookInfoPanel
-                    usbChecksPanel
-                    blockHistoryPanel
-                    productionPanel
+                // A plain (non-scrolling) HStack here would overflow once the
+                // log sidebar eats into the window's width -- SwiftUI's
+                // vertical ScrollView center-clips oversized cross-axis
+                // content rather than left-aligning it, which silently cuts
+                // the leading panel off the left edge instead of the
+                // trailing one off the right. Its own horizontal ScrollView
+                // makes that overflow scroll (leading-anchored) instead.
+                ScrollView(.horizontal, showsIndicators: true) {
+                    HStack(alignment: .top, spacing: 16) {
+                        usbDrivesPanel
+                        bookInfoPanel
+                        usbChecksPanel
+                        masterFixPanel
+                        blockHistoryPanel
+                    }
                 }
             }
             .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var importTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                productionPanel
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -268,14 +373,21 @@ struct ContentView: View {
         log.append("Catalog match for \(isbn): \(row["Title"] ?? "-") by \(row["Author"] ?? "-")")
     }
 
-    // MARK: Row 0 — Input Folder
+    // MARK: Row 0 — Input / Output Folders
 
     private var inputFolderSection: some View {
         GroupBox {
-            HStack {
-                Text("Input Folder:").frame(width: 110, alignment: .trailing)
-                TextField("", text: $settingsStore.settings.inputFolder)
-                Button("Browse") { browseForInputFolder() }
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Input Folder:").frame(width: 110, alignment: .trailing)
+                    TextField("", text: $settingsStore.settings.inputFolder)
+                    Button("Browse") { browseForInputFolder() }
+                }
+                HStack {
+                    Text("Output Folder:").frame(width: 110, alignment: .trailing)
+                    TextField("", text: $settingsStore.settings.outputFolder)
+                    Button("Browse") { browseForOutputFolder() }
+                }
             }
         }
     }
@@ -286,8 +398,14 @@ struct ContentView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 24) {
-                    Toggle("Skip Image Creation", isOn: $settingsStore.settings.skipImageCreation)
-                    Toggle("Skip encoding", isOn: $settingsStore.settings.skipEncoding)
+                    Toggle("Strip Audio Tags", isOn: $settingsStore.settings.stripInputTags)
+                        .help("Encode without carrying over the input file's own metadata or writing any ID3 tag on the output track.")
+                    HStack(spacing: 4) {
+                        Toggle("Cache files", isOn: $settingsStore.settings.cacheFiles)
+                        Image(systemName: "info.circle")
+                            .foregroundStyle(.secondary)
+                            .help("Keeps successfully re-encoded tracks on disk instead of deleting them. If Create Master is cancelled or fails partway through, this partial progress will NOT be removed -- re-running will skip the tracks already done and only encode the ones that didn't finish, so one bad file doesn't cost you the rest of the batch. Leave this off to always start each run from a clean slate.")
+                    }
                 }
                 HStack {
                     Text("Max Drive Size:").frame(width: 110, alignment: .trailing)
@@ -309,6 +427,15 @@ struct ContentView: View {
                     Text("(MBR = partitioned FAT32, for hardware that needs a real partition table)")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text("Sample Rate:").frame(width: 110, alignment: .trailing)
+                    Picker("", selection: $settingsStore.settings.sampleRate) {
+                        Text("44.1 kHz").tag(44100)
+                        Text("48 kHz").tag(48000)
+                    }
+                    .pickerStyle(.radioGroup)
+                    .horizontalRadioGroupLayout()
                 }
             }
         }
@@ -368,8 +495,7 @@ struct ContentView: View {
                     Text("ISBN:").frame(width: 110, alignment: .trailing)
                     TextField("", text: $settingsStore.settings.isbn)
                         .frame(maxWidth: 220)
-                    Toggle("Find input from ISBN", isOn: $settingsStore.settings.findIsbnFolder)
-                    Toggle("Webcam ISBN", isOn: $settingsStore.settings.useWebcam)
+                    Toggle("Find folder containing ISBN", isOn: $settingsStore.settings.findIsbnFolder)
                 }
                 HStack {
                     Text("SKU:").frame(width: 110, alignment: .trailing)
@@ -377,6 +503,7 @@ struct ContentView: View {
                         .frame(maxWidth: 220)
                         .disabled(settingsStore.settings.lookupCsv)
                     Toggle("Manually enter data", isOn: manualEntryBinding)
+                        .disabled(settingsStore.settings.useWebcam)
                 }
                 HStack {
                     Text("Title:").frame(width: 110, alignment: .trailing)
@@ -394,10 +521,35 @@ struct ContentView: View {
                         .frame(maxWidth: 100)
                         .disabled(settingsStore.settings.lookupCsv)
                 }
+                HStack {
+                    Spacer().frame(width: 110)
+                    Button {
+                        fillTestData()
+                    } label: {
+                        Label("Generate Test Data", systemImage: "wand.and.stars")
+                    }
+                    .disabled(settingsStore.settings.useWebcam)
+                    .help("Fills ISBN/SKU/Title/Author/File Count with made-up placeholder values for exercising this form without a real catalog entry.")
+                }
             }
             Spacer(minLength: 12)
             webcamPanel
         }
+    }
+
+    /// Fills the Single metadata form with made-up but plausible values
+    /// (see TestDataGenerator) -- switches to manual entry first so the
+    /// CSV catalog lookup triggered by setting `isbn` doesn't immediately
+    /// overwrite them with "no catalog match" blanks.
+    private func fillTestData() {
+        let data = TestDataGenerator.generate()
+        settingsStore.settings.lookupCsv = false
+        settingsStore.settings.isbn = data.isbn
+        settingsStore.settings.sku = data.sku
+        settingsStore.settings.title = data.title
+        settingsStore.settings.author = data.author
+        settingsStore.settings.pastMaster.fileCountExpected = data.fileCount
+        log.append("Generated test data: \(data.sku) \u{2014} \u{201C}\(data.title)\u{201D} by \(data.author) (ISBN \(data.isbn), \(data.fileCount) files)")
     }
 
     /// Ports main_window.py's load_isbn_csv_and_create_masters(): a
@@ -430,14 +582,30 @@ struct ContentView: View {
 
     private var createActionsSection: some View {
         GroupBox {
-            HStack(spacing: 16) {
-                Button(isBuilding ? "Building\u{2026}" : "Create Master") {
-                    createMaster()
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    Button(isBuilding ? "Building\u{2026}" : "Create Master") {
+                        createMaster()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(isBuilding)
+                    if isBuilding {
+                        Button(isCancellingBuild ? "Cancelling\u{2026}" : "Cancel", role: .destructive) {
+                            cancelMasterCreation()
+                        }
+                        .disabled(isCancellingBuild)
+                    }
+                    Spacer()
                 }
-                .keyboardShortcut(.defaultAction)
-                .disabled(isBuilding)
-                if isBuilding { ProgressView().controlSize(.small) }
-                Spacer()
+                if isBuilding {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ProgressView(value: buildProgress)
+                            .frame(maxWidth: .infinity)
+                        Text(buildPhaseDescription)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
     }
@@ -451,7 +619,8 @@ struct ContentView: View {
                     checkMaster()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(selectedDrive == nil || isVerifying)
+                .disabled(selectedDrive?.mountPath == nil || isVerifying)
+                .help(selectedDrive?.mountPath == nil ? "Selected drive isn't mounted -- mount it first." : "")
                 if isVerifying { ProgressView().controlSize(.small) }
                 Spacer()
             }
@@ -469,41 +638,51 @@ struct ContentView: View {
 
     private var writeToBlockSection: some View {
         GroupBox("Write to Block") {
-            VStack(alignment: .leading, spacing: 10) {
-                masterSelectionModeTabs
+            HStack(alignment: .top, spacing: 16) {
+                // Fixed-width left column regardless of mode, so switching
+                // Enter/Scan/List doesn't reflow the rest of the tab --
+                // only the reserved slot to its right (webcam for Scan,
+                // the cataloged-masters list for List) changes.
+                VStack(alignment: .leading, spacing: 10) {
+                    masterSelectionModeTabs
+                    if masterSelectionMode == .manual {
+                        manualMasterSelection
+                    }
+                    Divider()
+                    detailRow("Selected", resolvedMaster?.sku ?? "-")
+                    detailRow("Image Size", resolvedMaster.map { "\($0.imageMib) MiB" } ?? "-")
+                    if let masterResolveError {
+                        Text(masterResolveError).font(.caption2).foregroundStyle(.red)
+                    }
+                    Divider()
+                    HStack(spacing: 12) {
+                        Button(isWriting ? "Writing\u{2026}" : "Write to Block") { showWriteConfirmation = true }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(resolvedMaster == nil || selectedDrive == nil || isWriting)
+                        if isWriting { ProgressView().controlSize(.small) }
+                    }
+                    if let writeResult {
+                        Divider()
+                        detailRow("Write Speed", "\(writeResult.throughputImageMibS) MiB/s")
+                        detailRow("Elapsed", "\(writeResult.elapsedSeconds)s")
+                        detailRow("Tracks", String(writeResult.trackCount))
+                        detailRow("Expected Duration", formatDuration(writeResult.expectedDurationSeconds))
+                        detailRow("Encoding", writeResult.encodingKbps.map {
+                            writeResult.encodingRateAnomaly ? "\($0)kbps \u{26A0}\u{FE0F}" : "\($0)kbps"
+                        } ?? "-")
+                        detailRow("Artifacts Cleaned", "\(writeResult.removedArtifactCount)/\(writeResult.foundArtifactCount)")
+                        detailRow("Serial", writeResult.serial ?? "-")
+                    }
+                    if let writeError {
+                        Text(writeError).font(.caption2).foregroundStyle(.red)
+                    }
+                }
+                .frame(width: 240, alignment: .leading)
+
                 switch masterSelectionMode {
-                case .manual: manualMasterSelection
+                case .manual: EmptyView()
                 case .scan: scanMasterSelection
                 case .list: listMasterSelection
-                }
-                if let resolvedMaster {
-                    Divider()
-                    detailRow("Selected", resolvedMaster.sku)
-                    detailRow("Image Size", "\(resolvedMaster.imageMib) MiB")
-                }
-                if let masterResolveError {
-                    Text(masterResolveError).font(.caption2).foregroundStyle(.red)
-                }
-                Divider()
-                HStack(spacing: 12) {
-                    Button(isWriting ? "Writing\u{2026}" : "Write to Block") { showWriteConfirmation = true }
-                        .disabled(resolvedMaster == nil || selectedDrive == nil || isWriting)
-                    if isWriting { ProgressView().controlSize(.small) }
-                }
-                if let writeResult {
-                    Divider()
-                    detailRow("Write Speed", "\(writeResult.throughputImageMibS) MiB/s")
-                    detailRow("Elapsed", "\(writeResult.elapsedSeconds)s")
-                    detailRow("Tracks", String(writeResult.trackCount))
-                    detailRow("Expected Duration", formatDuration(writeResult.expectedDurationSeconds))
-                    detailRow("Encoding", writeResult.encodingKbps.map {
-                        writeResult.encodingRateAnomaly ? "\($0)kbps \u{26A0}\u{FE0F}" : "\($0)kbps"
-                    } ?? "-")
-                    detailRow("Artifacts Cleaned", "\(writeResult.removedArtifactCount)/\(writeResult.foundArtifactCount)")
-                    detailRow("Serial", writeResult.serial ?? "-")
-                }
-                if let writeError {
-                    Text(writeError).font(.caption2).foregroundStyle(.red)
                 }
             }
         }
@@ -552,37 +731,41 @@ struct ContentView: View {
     /// CameraScanner's symbology list and payload filter, not something
     /// to assume without knowing what the real labels look like.
     private var scanMasterSelection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if writeCamera.isRunning {
-                CameraPreviewView(session: writeCamera.session)
-                    .frame(width: 200, height: 140)
-            } else {
-                Rectangle()
-                    .fill(Color.gray.opacity(0.15))
-                    .frame(width: 200, height: 140)
-                    .overlay(Text("Starting camera\u{2026}").font(.caption2).foregroundStyle(.secondary))
-            }
-            if let error = writeCamera.errorMessage {
-                Text(error).font(.caption2).foregroundStyle(.red)
+        GroupBox("Webcam") {
+            VStack(alignment: .leading, spacing: 4) {
+                if writeCamera.isRunning {
+                    CameraPreviewView(session: writeCamera.session)
+                        .frame(width: 200, height: 140)
+                } else {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.15))
+                        .frame(width: 200, height: 140)
+                        .overlay(Text("Starting camera\u{2026}").font(.caption2).foregroundStyle(.secondary))
+                }
+                if let error = writeCamera.errorMessage {
+                    Text(error).font(.caption2).foregroundStyle(.red)
+                }
             }
         }
     }
 
     private var listMasterSelection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if availableMasters.isEmpty {
-                Text("No cataloged masters yet.").font(.caption2).foregroundStyle(.secondary)
-            } else {
-                List(availableMasters, id: \.sku) { record in
-                    Button(record.sku) {
-                        masterSelectionInput = record.sku
-                        resolveMasterSelection()
+        GroupBox("Cataloged Masters") {
+            VStack(alignment: .leading, spacing: 4) {
+                if availableMasters.isEmpty {
+                    Text("No cataloged masters yet.").font(.caption2).foregroundStyle(.secondary)
+                } else {
+                    List(availableMasters, id: \.sku) { record in
+                        Button(record.sku) {
+                            masterSelectionInput = record.sku
+                            resolveMasterSelection()
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                    .frame(width: 200, height: 100)
                 }
-                .frame(height: 100)
+                Button("Refresh List") { refreshAvailableMasters() }
             }
-            Button("Refresh List") { refreshAvailableMasters() }
         }
     }
 
@@ -653,9 +836,11 @@ struct ContentView: View {
             isbn: settings.isbn, sku: settings.sku, title: settings.title, author: settings.author,
             inputFolder: inputFolder,
             outputFolder: URL(fileURLWithPath: settings.outputFolder),
-            skipEncoding: settings.skipEncoding,
             maxDriveSizeBytes: maxDriveSizeBytes,
-            imageFormat: ImageFormat(rawValue: settings.imageFormat) ?? .mbr
+            imageFormat: ImageFormat(rawValue: settings.imageFormat) ?? .mbr,
+            stripInputTags: settings.stripInputTags,
+            cacheFiles: settings.cacheFiles,
+            sampleRate: settings.sampleRate
         )
 
         let errors = MasterBuilder.validate(inputs: inputs)
@@ -665,18 +850,47 @@ struct ContentView: View {
         }
 
         isBuilding = true
+        isCancellingBuild = false
+        buildProgress = 0
+        buildPhaseDescription = "Starting\u{2026}"
         log.append("Creating master for \(settings.sku)\u{2026}")
-        Task {
+        buildTask = Task {
             do {
-                let result = try await MasterBuilder.build(inputs: inputs, productionLog: productionLog) { message in
-                    Task { @MainActor in log.append(message) }
-                }
+                let result = try await MasterBuilder.build(
+                    inputs: inputs,
+                    productionLog: productionLog,
+                    progress: { progress in
+                        Task { @MainActor in
+                            buildProgress = progress.fractionComplete
+                            switch progress.phase {
+                            case .encoding(let track, let totalTracks):
+                                buildPhaseDescription = "Encoding track \(track)/\(totalTracks)\u{2026}"
+                            case .buildingImage:
+                                buildPhaseDescription = "Building disk image\u{2026}"
+                            }
+                        }
+                    },
+                    log: { message in
+                        Task { @MainActor in log.append(message) }
+                    }
+                )
                 log.append("Master created: \(result.imagePath.path) (\(result.fileCount) tracks, bitrate \(result.bitRateUsed)bps)")
+            } catch is CancellationError {
+                log.append("Master creation cancelled.")
             } catch {
                 log.append("Master creation failed: \(error)")
             }
             isBuilding = false
+            isCancellingBuild = false
+            buildTask = nil
         }
+    }
+
+    private func cancelMasterCreation() {
+        guard !isCancellingBuild else { return }
+        isCancellingBuild = true
+        log.append("Cancelling master creation\u{2026}")
+        buildTask?.cancel()
     }
 
     private func resolvedMaxDriveSizeBytes(_ settings: AppSettings) -> Int64 {
@@ -743,8 +957,9 @@ struct ContentView: View {
                 let inputs = MasterInputs(
                     isbn: isbn, sku: sku, title: title, author: author,
                     inputFolder: resolvedFolder, outputFolder: outputFolder,
-                    skipEncoding: settings.skipEncoding, maxDriveSizeBytes: maxDriveSizeBytes,
-                    imageFormat: imageFormat
+                    maxDriveSizeBytes: maxDriveSizeBytes,
+                    imageFormat: imageFormat, stripInputTags: settings.stripInputTags,
+                    cacheFiles: settings.cacheFiles, sampleRate: settings.sampleRate
                 )
                 let errors = MasterBuilder.validate(inputs: inputs)
                 guard errors.isEmpty else {
@@ -799,13 +1014,100 @@ struct ContentView: View {
                     + "encoding=\(result.encodingKbps.map { "\($0)kbps" } ?? "-")\(rateNote)"
                 )
                 if result.foundArtifactCount > 0 {
-                    log.append("Removed \(result.removedArtifactCount)/\(result.foundArtifactCount) unexpected artifacts: \(result.removedArtifactSamples.joined(separator: ", "))")
+                    log.append("Found \(result.foundArtifactCount) unexpected artifact(s): \(result.foundArtifactSamples.joined(separator: ", "))")
+                }
+                if result.hasID3TagIssues {
+                    let detail = result.id3TagIssues.map { "\($0.fileName) (\($0.reason))" }.joined(separator: "; ")
+                    log.append("\u{26A0}\u{FE0F} ID3 tag issues found on \(result.id3TagIssues.count) track file(s): \(detail)")
                 }
             } catch {
                 verificationResult = nil
                 log.append("Verification failed: \(error)")
             }
             isVerifying = false
+        }
+    }
+
+    // MARK: Fix Master (MasterFixer -- the explicit, opt-in counterpart
+    // to Check Master's read-only report)
+
+    private struct MasterFixSummary {
+        let artifactsFound: Int
+        let artifactsRemoved: Int
+        let id3FilesFlagged: Int
+        let id3FilesCleaned: Int
+    }
+
+    private var masterFixPanel: some View {
+        GroupBox("Fixes to make...") {
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Remove File Artefacts", isOn: $fixRemoveArtifacts)
+                Toggle("Clean ID3 Tags", isOn: $fixCleanID3Tags)
+                Divider()
+                HStack(spacing: 8) {
+                    Button(isFixing ? "Fixing\u{2026}" : "Fix Master") { fixMaster() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(selectedDrive?.mountPath == nil || isFixing || (!fixRemoveArtifacts && !fixCleanID3Tags))
+                    if isFixing { ProgressView().controlSize(.small) }
+                }
+                if let fixResult {
+                    Divider()
+                    if fixRemoveArtifacts {
+                        detailRow("Artefacts", "\(fixResult.artifactsRemoved)/\(fixResult.artifactsFound)")
+                    }
+                    if fixCleanID3Tags {
+                        detailRow("ID3 Cleaned", "\(fixResult.id3FilesCleaned)/\(fixResult.id3FilesFlagged)")
+                    }
+                }
+            }
+            .frame(width: 160, alignment: .leading)
+        }
+    }
+
+    /// Applies whichever fixes are checked to the selected drive, then
+    /// re-runs Check Master so the panels reflect the now-fixed state
+    /// rather than showing stale pre-fix issue counts.
+    private func fixMaster() {
+        guard let drive = selectedDrive, let mountPath = drive.mountPath else {
+            log.append("No mounted drive selected to fix.")
+            return
+        }
+        isFixing = true
+        fixResult = nil
+        log.append("Fixing \(mountPath)\u{2026}")
+        let isbn = verificationResult?.detectedISBN
+        Task {
+            var artifactsFound = 0
+            var artifactsRemoved = 0
+            var id3Flagged = 0
+            var id3Cleaned = 0
+
+            if fixRemoveArtifacts {
+                let result = MasterFixer.removeArtifacts(at: URL(fileURLWithPath: mountPath))
+                (artifactsFound, artifactsRemoved) = (result.found, result.removed)
+                if result.found > 0 {
+                    log.append("Removed \(result.removed)/\(result.found) unexpected artifact(s): \(result.samples.joined(separator: ", "))")
+                } else {
+                    log.append("No unexpected artifacts found.")
+                }
+            }
+            if fixCleanID3Tags {
+                let tracksPath = URL(fileURLWithPath: mountPath).appendingPathComponent("tracks")
+                let result = MasterFixer.cleanID3Tags(tracksPath: tracksPath, isbn: isbn)
+                (id3Flagged, id3Cleaned) = (result.flagged, result.cleaned)
+                if result.flagged > 0 {
+                    log.append("Cleaned ID3 tags on \(result.cleaned)/\(result.flagged) track file(s): \(result.samples.joined(separator: ", "))")
+                } else {
+                    log.append("No ID3 tag issues found to clean.")
+                }
+            }
+
+            fixResult = MasterFixSummary(
+                artifactsFound: artifactsFound, artifactsRemoved: artifactsRemoved,
+                id3FilesFlagged: id3Flagged, id3FilesCleaned: id3Cleaned
+            )
+            isFixing = false
+            checkMaster()
         }
     }
 
@@ -888,6 +1190,7 @@ struct ContentView: View {
     private var webcamPanel: some View {
         GroupBox("Webcam") {
             VStack(spacing: 4) {
+                Toggle("Scan barcode", isOn: $settingsStore.settings.useWebcam)
                 if camera.isRunning {
                     CameraPreviewView(session: camera.session)
                         .frame(width: 220, height: 160)
@@ -951,7 +1254,8 @@ struct ContentView: View {
                     detailRow("Used", verificationResult?.stickUsedMib.map { "\($0) MiB" } ?? "-")
                     detailRow("Read Speed", verificationResult?.readSpeedMibS.map { "\($0) MiB/s" } ?? "-")
                     detailRow("Encoding", encodingRow)
-                    detailRow("Artifacts Cleaned", verificationResult.map { "\($0.removedArtifactCount)/\($0.foundArtifactCount)" } ?? "-")
+                    detailRow("Artifacts Found", verificationResult.map { String($0.foundArtifactCount) } ?? "-")
+                    id3TagsRow
                 }
             }
             .frame(width: 240, alignment: .leading)
@@ -961,6 +1265,37 @@ struct ContentView: View {
     private var encodingRow: String {
         guard let result = verificationResult, let kbps = result.encodingKbps else { return "-" }
         return result.encodingRateAnomaly ? "\(kbps)kbps \u{26A0}\u{FE0F}" : "\(kbps)kbps"
+    }
+
+    /// Its own row rather than a plain detailRow -- an ID3 tag issue is
+    /// a "you probably want to look at this" problem, not just one more
+    /// data point, so it gets a colored warning icon (the pattern
+    /// durationComparisonView already uses below) rather than the
+    /// silent-until-you-look-closely emoji-in-a-string the encoding
+    /// anomaly row uses. Correctly-tagged tracks (the expected case --
+    /// see DriveVerifier.scanForID3TagIssues) show as "OK", not flagged.
+    private var id3TagsRow: some View {
+        HStack {
+            Text("ID3 Tags:").foregroundStyle(.secondary)
+            Spacer()
+            if let result = verificationResult {
+                if result.hasID3TagIssues {
+                    Label("\(result.id3TagIssues.count) issue(s)", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                } else {
+                    Text("OK")
+                }
+            } else {
+                Text("-")
+            }
+        }
+        .font(.caption)
+        .help(id3TagsHelpText)
+    }
+
+    private var id3TagsHelpText: String {
+        guard let result = verificationResult, result.hasID3TagIssues else { return "" }
+        return result.id3TagIssues.map { "\($0.fileName): \($0.reason)" }.joined(separator: "\n")
     }
 
     // MARK: Book info (catalog lookup by the verified drive's ISBN)
@@ -1016,8 +1351,46 @@ struct ContentView: View {
                 } else {
                     detailRow("Inferred Duration", formatDuration(verificationResult?.expectedDurationSeconds))
                 }
+                Divider()
+                id3TagIssuesSection
             }
             .frame(width: 220, alignment: .leading)
+        }
+    }
+
+    /// The per-file detail behind usbDrivesPanel's compact "ID3 Tags"
+    /// summary row -- that row answers "is there a problem?" at a
+    /// glance, this answers "which file, and what's wrong with it?"
+    /// once there is one. Same list-under-a-divider shape as
+    /// blockHistoryPanel's write/duplicator-run history below.
+    private var id3TagIssuesSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("ID3 Tag Issues").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                if verificationResult?.hasID3TagIssues == true {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                }
+            }
+            if let result = verificationResult {
+                if result.hasID3TagIssues {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 3) {
+                            ForEach(Array(result.id3TagIssues.enumerated()), id: \.offset) { _, issue in
+                                Text("\(issue.fileName): \(issue.reason)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(height: 70)
+                } else {
+                    Text("No ID3 tag issues.").font(.caption2).foregroundStyle(.secondary)
+                }
+            } else {
+                Text("Check a drive to see ID3 tag status.").font(.caption2).foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -1098,7 +1471,7 @@ struct ContentView: View {
         }
     }
 
-    // MARK: Production log / duplicator ingestion (ports voxmaster's ingest-dupe/match-dupe/stats)
+    // MARK: Import tab -- production log / duplicator ingestion (ports voxmaster's ingest-dupe/match-dupe/stats)
 
     private var productionPanel: some View {
         GroupBox("Production Log") {
@@ -1151,7 +1524,7 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(width: 240, alignment: .leading)
+            .frame(minWidth: 280, maxWidth: 480, alignment: .leading)
         }
     }
 
@@ -1248,27 +1621,97 @@ struct ContentView: View {
         )
     }
 
-    // MARK: Row 13 — Log
+    // MARK: Log panel (right-hand sidebar, collapsible)
+    //
+    // Moved out of the per-tab scroll flow and into a persistent sidebar
+    // -- both tabs write to the same log, so it reads better as a
+    // constant strip alongside whichever tab is active than as a
+    // section that scrolls out of view at the bottom of a long form.
+    // Collapsible because during normal operation (once a workflow's
+    // trusted) it's just vertical space the actual controls could use.
 
-    private var logSection: some View {
-        GroupBox("Log") {
+    private var logPanelToggleButton: some View {
+        Button {
+            withAnimation { isLogPanelVisible.toggle() }
+        } label: {
+            Image(systemName: isLogPanelVisible ? "sidebar.trailing" : "sidebar.leading")
+        }
+        .buttonStyle(.plain)
+        .help(isLogPanelVisible ? "Hide log panel" : "Show log panel")
+    }
+
+    /// A wider invisible hit-area around a hairline Divider -- a bare
+    /// Divider is 1pt, far too thin to reliably grab with a mouse -- that
+    /// drags `logPanelWidth` and swaps in a resize cursor on hover, the
+    /// same feel as NSSplitView's divider.
+    private var logPanelResizeHandle: some View {
+        ZStack {
+            Color.clear
+            Divider()
+        }
+        .frame(width: 7)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            if hovering {
+                NSCursor.resizeLeftRight.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    if logPanelWidthAtDragStart == nil {
+                        logPanelWidthAtDragStart = logPanelWidth
+                    }
+                    let base = logPanelWidthAtDragStart ?? logPanelWidth
+                    let proposed = base - value.translation.width
+                    logPanelWidth = min(max(proposed, logPanelWidthRange.lowerBound), logPanelWidthRange.upperBound)
+                }
+                .onEnded { _ in
+                    logPanelWidthAtDragStart = nil
+                }
+        )
+    }
+
+    private var logSidebar: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Log").font(.headline)
+                Spacer()
+                Button {
+                    withAnimation { isLogPanelVisible = false }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Hide log panel")
+            }
+            .padding(12)
+            Divider()
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(Array(log.lines.enumerated()), id: \.offset) { index, line in
                             Text(line)
-                                .font(.system(.caption, design: .monospaced))
+                                .font(.system(.caption2, design: .monospaced))
+                                .textSelection(.enabled)
                                 .id(index)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
                 }
-                .frame(height: 160)
                 .onChange(of: log.lines.count) { newCount in
                     withAnimation { proxy.scrollTo(newCount - 1, anchor: .bottom) }
                 }
             }
         }
+        .frame(width: logPanelWidth)
+        .frame(maxHeight: .infinity)
+        .background(Color.gray.opacity(0.05))
+        .transition(.move(edge: .trailing))
     }
 
     // MARK: Actions
@@ -1284,6 +1727,20 @@ struct ContentView: View {
         if panel.runModal() == .OK, let url = panel.url {
             settingsStore.settings.inputFolder = url.path
             log.append("Input folder set to \(url.path)")
+        }
+    }
+
+    private func browseForOutputFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        if !settingsStore.settings.outputFolder.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: settingsStore.settings.outputFolder)
+        }
+        if panel.runModal() == .OK, let url = panel.url {
+            settingsStore.settings.outputFolder = url.path
+            log.append("Output folder set to \(url.path)")
         }
     }
 }

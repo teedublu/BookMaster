@@ -30,7 +30,7 @@ final class MasterBuilderTests: XCTestCase {
 
         let inputs = MasterInputs(
             isbn: "9781234567897", sku: "BK-67897-TEST", title: "Test Book", author: "Test Author",
-            inputFolder: inputFolder, outputFolder: outputFolder, skipEncoding: false,
+            inputFolder: inputFolder, outputFolder: outputFolder,
             maxDriveSizeBytes: 980_000_000
         )
 
@@ -59,11 +59,61 @@ final class MasterBuilderTests: XCTestCase {
         XCTAssertTrue(trackFiles[2].hasPrefix("003_"))
     }
 
+    /// Regression test for a real production bug: a 40-track book came
+    /// out with 50 tracks in the master because a stale file from an
+    /// earlier attempt against a differently-sized input folder was still
+    /// sitting in the SKU's processed-tracks folder, and the old
+    /// contentsOfDirectory(processedPath) listing swept it up along with
+    /// this run's real output. cacheFiles is what makes that folder
+    /// persist across runs, so it's also where the stale file has to be
+    /// pruned/ignored.
+    func testStaleCachedFileFromLargerPriorRunIsNotIncluded() async throws {
+        guard ffmpegAvailable else { throw XCTSkip("ffmpeg not installed on this machine") }
+
+        let fm = FileManager.default
+        let inputFolder = fm.temporaryDirectory.appendingPathComponent("mb-stale-input-\(UUID().uuidString)")
+        let outputFolder = fm.temporaryDirectory.appendingPathComponent("mb-stale-output-\(UUID().uuidString)")
+        try fm.createDirectory(at: inputFolder, withIntermediateDirectories: true)
+        defer {
+            try? fm.removeItem(at: inputFolder)
+            try? fm.removeItem(at: outputFolder)
+        }
+
+        let ffmpeg = FFmpegEncoder.locateFFmpeg()!
+        for name in ["Chapter 1.wav", "Chapter 2.wav"] {
+            try Shell.run(ffmpeg, ["-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", inputFolder.appendingPathComponent(name).path])
+        }
+
+        let isbn = "9781234567897"
+        let sku = "BK-67897-TEST"
+
+        // Simulate leftovers from an earlier, larger attempt against this
+        // same SKU: a track 3 that this (2-track) run has no business
+        // producing.
+        let processedPath = outputFolder.appendingPathComponent(sku).appendingPathComponent("processed")
+        try fm.createDirectory(at: processedPath, withIntermediateDirectories: true)
+        let staleName = MasterBuilder.outputFilename(index: 3, isbn: isbn, sku: sku)
+        try Data("stale".utf8).write(to: processedPath.appendingPathComponent(staleName))
+
+        let inputs = MasterInputs(
+            isbn: isbn, sku: sku, title: "Test Book", author: "Test Author",
+            inputFolder: inputFolder, outputFolder: outputFolder,
+            maxDriveSizeBytes: 980_000_000, cacheFiles: true
+        )
+
+        let result = try await MasterBuilder.build(inputs: inputs)
+
+        XCTAssertEqual(result.fileCount, 2)
+        let trackFiles = try fm.contentsOfDirectory(at: result.masterPath.appendingPathComponent("tracks"), includingPropertiesForKeys: nil)
+        XCTAssertEqual(trackFiles.count, 2)
+        XCTAssertFalse(fm.fileExists(atPath: processedPath.appendingPathComponent(staleName).path))
+    }
+
     func testValidateCatchesMissingFields() {
         let inputs = MasterInputs(
             isbn: "", sku: "", title: "", author: "",
             inputFolder: URL(fileURLWithPath: "/nonexistent"), outputFolder: URL(fileURLWithPath: "/tmp"),
-            skipEncoding: false, maxDriveSizeBytes: 980_000_000
+            maxDriveSizeBytes: 980_000_000
         )
         let errors = MasterBuilder.validate(inputs: inputs)
         XCTAssertTrue(errors.contains { $0.contains("ISBN") })

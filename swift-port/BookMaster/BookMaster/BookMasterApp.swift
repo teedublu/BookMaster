@@ -10,7 +10,7 @@ struct BookMasterApp: App {
             ContentView()
                 .environmentObject(settingsStore)
                 .environmentObject(usbMonitor)
-                .frame(minWidth: 760, minHeight: 720)
+                .frame(minWidth: 1100, minHeight: 720)
         }
         .windowResizability(.contentSize)
     }

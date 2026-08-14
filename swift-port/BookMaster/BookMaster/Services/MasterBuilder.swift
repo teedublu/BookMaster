@@ -16,21 +16,49 @@ public struct MasterInputs {
     public let author: String
     public let inputFolder: URL
     public let outputFolder: URL
-    public let skipEncoding: Bool
     public let maxDriveSizeBytes: Int64
     public let imageFormat: ImageFormat
+    public let stripInputTags: Bool
+    /// When true, a previously-encoded track is left in place and skipped
+    /// on the next run instead of being re-encoded, and nothing is
+    /// deleted if the build is cancelled or fails partway through -- so a
+    /// bad track elsewhere in the batch doesn't cost you the tracks that
+    /// already encoded fine. When false (the default), every run starts
+    /// from a clean slate: existing processed tracks are wiped up front,
+    /// and anything this run created is removed again if it doesn't
+    /// finish successfully.
+    public let cacheFiles: Bool
+    public let sampleRate: Int
 
-    public init(isbn: String, sku: String, title: String, author: String, inputFolder: URL, outputFolder: URL, skipEncoding: Bool, maxDriveSizeBytes: Int64, imageFormat: ImageFormat = .superfloppy) {
+    public init(isbn: String, sku: String, title: String, author: String, inputFolder: URL, outputFolder: URL, maxDriveSizeBytes: Int64, imageFormat: ImageFormat = .superfloppy, stripInputTags: Bool = false, cacheFiles: Bool = false, sampleRate: Int = 44100) {
         self.isbn = isbn
         self.sku = sku
         self.title = title
         self.author = author
         self.inputFolder = inputFolder
         self.outputFolder = outputFolder
-        self.skipEncoding = skipEncoding
         self.maxDriveSizeBytes = maxDriveSizeBytes
         self.imageFormat = imageFormat
+        self.stripInputTags = stripInputTags
+        self.cacheFiles = cacheFiles
+        self.sampleRate = sampleRate
     }
+}
+
+/// Reported periodically during MasterBuilder.build() so the UI can
+/// drive a determinate progress bar. `fractionComplete` weights each
+/// track by its audio duration (a proxy for its encode time) rather than
+/// by plain file count, so a handful of long chapters don't make the bar
+/// crawl through most of its range on the first file; the image-assembly
+/// phase is given a fixed share of the remaining work since there's no
+/// per-byte progress signal available from the disk-image builders.
+public struct MasterBuildProgress: Equatable {
+    public enum Phase: Equatable {
+        case encoding(track: Int, totalTracks: Int)
+        case buildingImage
+    }
+    public let phase: Phase
+    public let fractionComplete: Double
 }
 
 public struct MasterBuildResult {
@@ -44,11 +72,14 @@ public struct MasterBuildResult {
 public enum MasterBuildError: Error, CustomStringConvertible {
     case validationFailed([String])
     case noAudioFilesFound(String)
+    case trackCountMismatch(expected: Int, found: Int)
 
     public var description: String {
         switch self {
         case .validationFailed(let errors): return errors.joined(separator: "; ")
         case .noAudioFilesFound(let path): return "no valid audio files found in \(path)"
+        case .trackCountMismatch(let expected, let found):
+            return "encoded \(found) track(s) but expected \(expected) -- refusing to assemble a master with a mismatched track count (likely stale files left behind by a previous attempt)"
         }
     }
 }
@@ -88,6 +119,7 @@ public enum MasterBuilder {
         inputs: MasterInputs,
         config: AppConfig = ConfigStore.shared,
         productionLog: ProductionLog? = nil,
+        progress: @escaping (MasterBuildProgress) -> Void = { _ in },
         log: @escaping (String) -> Void = { _ in }
     ) async throws -> MasterBuildResult {
         let validationErrors = validate(inputs: inputs, validFormats: config.validFormats)
@@ -107,20 +139,9 @@ public enum MasterBuilder {
         }
         log("Found \(inputFiles.count) input track(s)")
 
-        // Reuse already-processed tracks if skipEncoding was requested and
-        // the count still matches, mirroring Master.process_tracks()'s
-        // reuse check -- otherwise wipe and re-encode.
-        var reused = false
-        if inputs.skipEncoding, fm.fileExists(atPath: processedPath.path) {
-            let existing = (try? fm.contentsOfDirectory(at: processedPath, includingPropertiesForKeys: nil)) ?? []
-            if existing.count == inputFiles.count {
-                reused = true
-                log("skip_encoding requested and \(existing.count) processed files already present -- reusing.")
-            }
-        }
-
-        // Duration + bitrate-fit pass (needed even when reusing, to know
-        // what bitrate was targeted).
+        // Duration + bitrate-fit pass -- also doubles as the per-track
+        // weighting for the progress callback below, since encode time
+        // roughly tracks source duration.
         var durations: [Double] = []
         for file in inputFiles {
             durations.append(try await AudioDuration.seconds(ofFileAt: file))
@@ -135,87 +156,156 @@ public enum MasterBuilder {
         )
         log("Target bitrate: \(bitRate)bps (estimated \(estimatedTotalBytes) bytes for \(inputs.maxDriveSizeBytes)-byte drive)")
 
-        if !reused {
-            try? fm.removeItem(at: processedPath)
-            try fm.createDirectory(at: processedPath, withIntermediateDirectories: true)
+        // Image assembly has no per-byte progress signal, so it's given a
+        // fixed slice (15%) of the total duration-weighted work instead of
+        // being tracked step by step.
+        let totalDurationWeight = durations.reduce(0, +)
+        let imageBuildWeight = max(totalDurationWeight * 0.15, 0.001)
+        let totalWork = totalDurationWeight + imageBuildWeight
+        var cumulativeWork: Double = 0
 
+        do {
+            if inputs.cacheFiles {
+                try fm.createDirectory(at: processedPath, withIntermediateDirectories: true)
+                // Prune anything left over from a previous attempt that
+                // doesn't correspond to one of *this* run's tracks -- e.g.
+                // a straggler from a run against a larger input folder --
+                // before deciding what to reuse. Left in place, a stale
+                // file would silently ride along into the finished master
+                // alongside this run's tracks (see trackCountMismatch below).
+                let expectedNames = Set((1...inputFiles.count).map {
+                    Self.outputFilename(index: $0, isbn: inputs.isbn, sku: inputs.sku)
+                })
+                let existingEntries = (try? fm.contentsOfDirectory(at: processedPath, includingPropertiesForKeys: nil)) ?? []
+                for entry in existingEntries where !expectedNames.contains(entry.lastPathComponent) {
+                    log("Removing stale cached file not part of this run: \(entry.lastPathComponent)")
+                    try? fm.removeItem(at: entry)
+                }
+            } else {
+                try? fm.removeItem(at: processedPath)
+                try fm.createDirectory(at: processedPath, withIntermediateDirectories: true)
+            }
+
+            // Built up explicitly (one entry per input track) rather than
+            // read back via contentsOfDirectory(processedPath) -- reading
+            // the directory back would pick up any stray file that
+            // happens to be sitting there, which is exactly how a prior
+            // interrupted/differently-sized attempt's leftovers ended up
+            // duplicated into a finished master.
+            var processedFiles: [URL] = []
             for (index, file) in inputFiles.enumerated() {
+                try Task.checkCancellation()
                 let trackNumber = index + 1
                 let outputName = Self.outputFilename(index: trackNumber, isbn: inputs.isbn, sku: inputs.sku)
                 let outputPath = processedPath.appendingPathComponent(outputName)
-                log("Encoding track \(trackNumber)/\(inputFiles.count): \(file.lastPathComponent)")
-                let params = EncodeParameters(
-                    sampleRate: config.encoding.sampleRate,
-                    bitRate: bitRate,
-                    targetLufs: config.encoding.targetLufs,
-                    durationSeconds: durations[index]
-                )
-                _ = try FFmpegEncoder.encode(inputPath: file, outputPath: outputPath, parameters: params)
+                if inputs.cacheFiles, fm.fileExists(atPath: outputPath.path) {
+                    log("Track \(trackNumber)/\(inputFiles.count) already cached, skipping: \(outputName)")
+                } else {
+                    log("Encoding track \(trackNumber)/\(inputFiles.count): \(file.lastPathComponent)")
+                    let params = EncodeParameters(
+                        sampleRate: inputs.sampleRate,
+                        bitRate: bitRate,
+                        targetLufs: config.encoding.targetLufs,
+                        durationSeconds: durations[index],
+                        stripMetadata: inputs.stripInputTags
+                    )
+                    _ = try FFmpegEncoder.encode(inputPath: file, outputPath: outputPath, parameters: params)
+                }
+                processedFiles.append(outputPath)
+                cumulativeWork += durations[index]
+                progress(MasterBuildProgress(
+                    phase: .encoding(track: trackNumber, totalTracks: inputFiles.count),
+                    fractionComplete: min(cumulativeWork / totalWork, 1.0)
+                ))
             }
-        }
 
-        let processedFiles = (try? fm.contentsOfDirectory(at: processedPath, includingPropertiesForKeys: nil).naturalSorted()) ?? []
+            try Task.checkCancellation()
+            progress(MasterBuildProgress(phase: .buildingImage, fractionComplete: min(cumulativeWork / totalWork, 1.0)))
 
-        // Assemble the master structure, matching output_structure exactly.
-        try? fm.removeItem(at: masterPath)
-        try fm.createDirectory(at: masterPath, withIntermediateDirectories: true)
-        let tracksDir = masterPath.appendingPathComponent(config.outputStructure.tracksPath)
-        try fm.createDirectory(at: tracksDir, withIntermediateDirectories: true)
-        try fm.createDirectory(at: masterPath.appendingPathComponent(config.outputStructure.infoPath), withIntermediateDirectories: true)
+            // Belt-and-braces: every path in processedFiles was either just
+            // encoded or confirmed to exist before being reused, so this
+            // should always hold -- but a finished master silently
+            // containing the wrong number of tracks is bad enough to
+            // guard against explicitly rather than trust that invariant.
+            let onDiskCount = processedFiles.filter { fm.fileExists(atPath: $0.path) }.count
+            guard onDiskCount == inputFiles.count else {
+                throw MasterBuildError.trackCountMismatch(expected: inputFiles.count, found: onDiskCount)
+            }
 
-        try Data(inputs.isbn.utf8).write(to: masterPath.appendingPathComponent(config.outputStructure.idFile))
-        try Data(String(processedFiles.count).utf8).write(to: masterPath.appendingPathComponent(config.outputStructure.countFile))
-        try Data(String(VERSION).utf8).write(to: masterPath.appendingPathComponent(config.outputStructure.versionFile))
-        fm.createFile(atPath: masterPath.appendingPathComponent(config.outputStructure.metadataFile).path, contents: nil)
+            // Assemble the master structure, matching output_structure exactly.
+            try? fm.removeItem(at: masterPath)
+            try fm.createDirectory(at: masterPath, withIntermediateDirectories: true)
+            let tracksDir = masterPath.appendingPathComponent(config.outputStructure.tracksPath)
+            try fm.createDirectory(at: tracksDir, withIntermediateDirectories: true)
+            try fm.createDirectory(at: masterPath.appendingPathComponent(config.outputStructure.infoPath), withIntermediateDirectories: true)
 
-        for file in processedFiles {
-            try fm.copyItem(at: file, to: tracksDir.appendingPathComponent(file.lastPathComponent))
-        }
+            try Data(inputs.isbn.utf8).write(to: masterPath.appendingPathComponent(config.outputStructure.idFile))
+            try Data(String(processedFiles.count).utf8).write(to: masterPath.appendingPathComponent(config.outputStructure.countFile))
+            try Data(String(VERSION).utf8).write(to: masterPath.appendingPathComponent(config.outputStructure.versionFile))
+            fm.createFile(atPath: masterPath.appendingPathComponent(config.outputStructure.metadataFile).path, contents: nil)
 
-        // Checksum after tracks are in place, before checksum.txt is
-        // written (writing it first would make the file hash itself).
-        let checksum = try Checksum.compute(rootDirectory: masterPath)
-        if let checksum {
-            try Data(checksum.utf8).write(to: masterPath.appendingPathComponent(config.outputStructure.checksumFile))
-        }
-        log("Master structure assembled at \(masterPath.path), checksum=\(checksum ?? "nil")")
+            for file in processedFiles {
+                try fm.copyItem(at: file, to: tracksDir.appendingPathComponent(file.lastPathComponent))
+            }
 
-        let imageResult: DiskImageResult
-        switch inputs.imageFormat {
-        case .superfloppy:
-            imageResult = try DiskImageBuilder.buildImage(
-                fromSourceFolder: masterPath,
-                volumeLabel: inputs.sku,
-                outputPath: imageOutputPath,
-                patternsToExclude: config.patternsToRemove,
-                log: log
+            // Checksum after tracks are in place, before checksum.txt is
+            // written (writing it first would make the file hash itself).
+            let checksum = try Checksum.compute(rootDirectory: masterPath)
+            if let checksum {
+                try Data(checksum.utf8).write(to: masterPath.appendingPathComponent(config.outputStructure.checksumFile))
+            }
+            log("Master structure assembled at \(masterPath.path), checksum=\(checksum ?? "nil")")
+
+            let imageResult: DiskImageResult
+            switch inputs.imageFormat {
+            case .superfloppy:
+                imageResult = try DiskImageBuilder.buildImage(
+                    fromSourceFolder: masterPath,
+                    volumeLabel: inputs.sku,
+                    outputPath: imageOutputPath,
+                    patternsToExclude: config.patternsToRemove,
+                    log: log
+                )
+            case .mbr:
+                imageResult = try MBRImageBuilder.buildImage(
+                    fromSourceFolder: masterPath,
+                    volumeLabel: inputs.sku,
+                    outputPath: imageOutputPath,
+                    patternsToExclude: config.patternsToRemove,
+                    log: log
+                )
+            }
+
+            if let productionLog {
+                try? productionLog.upsertMasterCatalog(
+                    sku: inputs.sku, imgPath: imageResult.imagePath.path, imageBytes: imageResult.sizeBytes,
+                    imageMib1dp: Self.mib1dp(imageResult.sizeBytes),
+                    usedMib1dp: Self.mib1dp(estimatedTotalBytes), imageFileCount: processedFiles.count,
+                    imageTrackCount: processedFiles.count, imageIsbn: inputs.isbn
+                )
+            }
+
+            progress(MasterBuildProgress(phase: .buildingImage, fractionComplete: 1.0))
+
+            return MasterBuildResult(
+                masterPath: masterPath,
+                imagePath: imageResult.imagePath,
+                checksum: checksum,
+                fileCount: processedFiles.count,
+                bitRateUsed: bitRate
             )
-        case .mbr:
-            imageResult = try MBRImageBuilder.buildImage(
-                fromSourceFolder: masterPath,
-                volumeLabel: inputs.sku,
-                outputPath: imageOutputPath,
-                patternsToExclude: config.patternsToRemove,
-                log: log
-            )
+        } catch {
+            // Cancelled or failed partway through: without cacheFiles, leave
+            // nothing behind so the next attempt starts clean. With
+            // cacheFiles, whatever tracks made it to disk stay put so a
+            // re-run can pick up where this one left off.
+            if !inputs.cacheFiles {
+                try? fm.removeItem(at: processedPath)
+                try? fm.removeItem(at: masterPath)
+                try? fm.removeItem(at: imageOutputPath)
+            }
+            throw error
         }
-
-        if let productionLog {
-            try? productionLog.upsertMasterCatalog(
-                sku: inputs.sku, imgPath: imageResult.imagePath.path, imageBytes: imageResult.sizeBytes,
-                imageMib1dp: Self.mib1dp(imageResult.sizeBytes),
-                usedMib1dp: Self.mib1dp(estimatedTotalBytes), imageFileCount: processedFiles.count,
-                imageTrackCount: processedFiles.count, imageIsbn: inputs.isbn
-            )
-        }
-
-        return MasterBuildResult(
-            masterPath: masterPath,
-            imagePath: imageResult.imagePath,
-            checksum: checksum,
-            fileCount: processedFiles.count,
-            bitRateUsed: bitRate
-        )
     }
 
     // MARK: - Helpers

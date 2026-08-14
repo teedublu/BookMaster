@@ -22,9 +22,10 @@ public enum MasterWriter {
     /// Ports voxmaster's writer.py `write()`: unmount, raw-write, remount
     /// and inspect what actually landed (artifact cleanup + duration/rate
     /// estimate, reusing DriveVerifier's exact logic), record the write,
-    /// eject. Kept as native I/O throughout (RawDeviceWriter, no `sudo
-    /// dd`/`pv`) matching this port's established no-privilege-escalation
-    /// pattern, not a literal translation of voxmaster's subprocess calls.
+    /// eject. The write step itself (RawDeviceWriter) tries native
+    /// unprivileged I/O first and only escalates -- via macOS's own
+    /// admin-authentication dialog, not a stored credential -- if that's
+    /// denied; see RawDeviceWriter's doc comment for why that's common.
     public static func write(
         master: ResolvedMaster,
         drive: USBDriveInfo,
@@ -44,7 +45,7 @@ public enum MasterWriter {
 
         log("Writing \(master.imagePath.lastPathComponent) to \(authorization.rawDevicePath)\u{2026}")
         let start = Date()
-        let bytesWritten = try RawDeviceWriter.write(imageAt: master.imagePath, authorization: authorization, progress: progress)
+        let bytesWritten = try RawDeviceWriter.write(imageAt: master.imagePath, authorization: authorization, progress: progress, log: log)
         let elapsed = max(1, Int(Date().timeIntervalSince(start).rounded()))
 
         let throughputImage = throughputMibS(mib: master.imageMib, elapsedSeconds: elapsed)

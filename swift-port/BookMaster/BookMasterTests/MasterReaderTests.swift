@@ -18,7 +18,7 @@ final class MasterReaderTests: XCTestCase {
 
         let inputs = MasterInputs(
             isbn: "9781111111111", sku: "BK-11111-TEST", title: "T", author: "A",
-            inputFolder: inputFolder, outputFolder: outputFolder, skipEncoding: false,
+            inputFolder: inputFolder, outputFolder: outputFolder,
             maxDriveSizeBytes: 980_000_000
         )
         let result = try await MasterBuilder.build(inputs: inputs)
@@ -56,7 +56,7 @@ final class MasterReaderTests: XCTestCase {
 
         let inputs = MasterInputs(
             isbn: "9782222222222", sku: "BK-22222-TEST", title: "T", author: "A",
-            inputFolder: inputFolder, outputFolder: outputFolder, skipEncoding: false,
+            inputFolder: inputFolder, outputFolder: outputFolder,
             maxDriveSizeBytes: 980_000_000
         )
         let result = try await MasterBuilder.build(inputs: inputs)

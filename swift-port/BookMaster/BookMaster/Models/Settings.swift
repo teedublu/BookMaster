@@ -43,8 +43,19 @@ public struct AppSettings: Codable, Equatable {
     public var manualData: Bool = false
     public var lookupCsv: Bool = true
     public var findIsbnFolder: Bool = false
-    public var skipEncoding: Bool = false
-    public var skipImageCreation: Bool = false
+    /// When true, a track that already made it to the processed-tracks
+    /// folder is left alone on the next Create Master run instead of
+    /// being re-encoded, and nothing is deleted if the run is cancelled
+    /// or fails partway through -- see MasterInputs.cacheFiles.
+    public var cacheFiles: Bool = false
+    /// Output sample rate in Hz -- 44100 or 48000, picked from the
+    /// Sample Rate radio group in Create Master's Options.
+    public var sampleRate: Int = 44100
+    /// When true, encoding strips all metadata from the input file
+    /// rather than letting ffmpeg carry it through to the output track
+    /// (its default behavior) -- see FFmpegEncoder.encode's
+    /// stripMetadata param and MasterBuilder's use of it.
+    public var stripInputTags: Bool = false
     /// Radio-button value: "480", "980", or "" (unset -> falls back to config.max_drive_size).
     /// Kept as a String, matching the Python UI's tk.StringVar, rather than
     /// an enum, so a value written by an older/newer build doesn't fail to
@@ -89,8 +100,9 @@ public struct AppSettings: Codable, Equatable {
         case manualData = "manual_data"
         case lookupCsv = "lookup_csv"
         case findIsbnFolder = "find_isbn_folder"
-        case skipEncoding = "skip_encoding"
-        case skipImageCreation = "skip_image_creation"
+        case cacheFiles = "cache_files"
+        case sampleRate = "sample_rate"
+        case stripInputTags = "strip_input_tags"
         case maxDriveSizeMB = "max_drive_size_mb"
         case writeImageMode = "write_image_mode"
         case usbDriveCheckOnMount = "usb_drive_check_on_mount"
@@ -114,8 +126,9 @@ public struct AppSettings: Codable, Equatable {
         manualData = try c.decodeIfPresent(Bool.self, forKey: .manualData) ?? defaults.manualData
         lookupCsv = try c.decodeIfPresent(Bool.self, forKey: .lookupCsv) ?? defaults.lookupCsv
         findIsbnFolder = try c.decodeIfPresent(Bool.self, forKey: .findIsbnFolder) ?? defaults.findIsbnFolder
-        skipEncoding = try c.decodeIfPresent(Bool.self, forKey: .skipEncoding) ?? defaults.skipEncoding
-        skipImageCreation = try c.decodeIfPresent(Bool.self, forKey: .skipImageCreation) ?? defaults.skipImageCreation
+        cacheFiles = try c.decodeIfPresent(Bool.self, forKey: .cacheFiles) ?? defaults.cacheFiles
+        sampleRate = try c.decodeIfPresent(Int.self, forKey: .sampleRate) ?? defaults.sampleRate
+        stripInputTags = try c.decodeIfPresent(Bool.self, forKey: .stripInputTags) ?? defaults.stripInputTags
         // max_drive_size_mb has been written as either a string ("480") or
         // a bare number (480) depending on caller — tolerate both, mirroring
         // the Python side's str(...) coercion in main_window.py.

@@ -42,6 +42,48 @@ final class FFmpegEncoderTests: XCTestCase {
         XCTAssertEqual(tracks.count, 1, "expected exactly one mono audio track")
     }
 
+    func testEncodeWithoutStripMetadataLeavesFFmpegsDefaultTag() async throws {
+        guard let ffmpeg = FFmpegEncoder.locateFFmpeg() else {
+            throw XCTSkip("ffmpeg not installed on this machine")
+        }
+        let fm = FileManager.default
+        let workDir = fm.temporaryDirectory.appendingPathComponent("ffmpeg-tag-\(UUID().uuidString)")
+        try fm.createDirectory(at: workDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: workDir) }
+
+        let inputPath = workDir.appendingPathComponent("tone.wav")
+        let outputPath = workDir.appendingPathComponent("encoded.mp3")
+        try Shell.run(ffmpeg, ["-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", inputPath.path])
+
+        let duration = try await AudioDuration.seconds(ofFileAt: inputPath)
+        let params = EncodeParameters(sampleRate: 44100, bitRate: 96000, targetLufs: -19, durationSeconds: duration)
+        _ = try FFmpegEncoder.encode(inputPath: inputPath, outputPath: outputPath, parameters: params)
+
+        XCTAssertTrue(ID3Tag.hasID3v2Header(at: outputPath), "ffmpeg's mp3 muxer writes its own ID3v2 tag unless -id3v2_version 0 is passed")
+    }
+
+    func testEncodeWithStripMetadataProducesUntaggedOutput() async throws {
+        guard let ffmpeg = FFmpegEncoder.locateFFmpeg() else {
+            throw XCTSkip("ffmpeg not installed on this machine")
+        }
+        let fm = FileManager.default
+        let workDir = fm.temporaryDirectory.appendingPathComponent("ffmpeg-strip-\(UUID().uuidString)")
+        try fm.createDirectory(at: workDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: workDir) }
+
+        let inputPath = workDir.appendingPathComponent("tone.wav")
+        let outputPath = workDir.appendingPathComponent("encoded.mp3")
+        try Shell.run(ffmpeg, ["-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", inputPath.path])
+
+        let duration = try await AudioDuration.seconds(ofFileAt: inputPath)
+        let params = EncodeParameters(sampleRate: 44100, bitRate: 96000, targetLufs: -19, durationSeconds: duration, stripMetadata: true)
+        _ = try FFmpegEncoder.encode(inputPath: inputPath, outputPath: outputPath, parameters: params)
+
+        XCTAssertFalse(ID3Tag.hasID3v2Header(at: outputPath))
+        XCTAssertFalse(ID3Tag.hasID3v1Trailer(at: outputPath))
+        XCTAssertEqual(ID3Tag.readID3v2Frames(at: outputPath), [])
+    }
+
     func testEncodeThrowsWithInvalidFFmpegPath() async throws {
         let params = EncodeParameters(sampleRate: 44100, bitRate: 96000, targetLufs: -19, durationSeconds: 1)
         let missing = FileManager.default.temporaryDirectory.appendingPathComponent("nope-\(UUID().uuidString).wav")

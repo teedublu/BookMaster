@@ -44,6 +44,23 @@ final class RawDeviceWriterTests: XCTestCase {
         XCTAssertThrowsError(try RawDeviceWriter.write(imageAt: missing, authorization: auth))
     }
 
+    // MARK: - dd status=progress line parsing (real captured output from
+    // `dd if=/dev/zero of=... bs=4k count=800000 status=progress` on this
+    // machine's /bin/dd, both the periodic \r-separated updates and the
+    // final \n-terminated summary lines that must NOT be misparsed as a
+    // byte count)
+
+    func testParseDDProgressBytesReadsLeadingByteCount() {
+        XCTAssertEqual(RawDeviceWriter.parseDDProgressBytes("759418880 bytes (759 MB, 724 MiB) transferred 1.004s, 756 MB/s"), 759418880)
+        XCTAssertEqual(RawDeviceWriter.parseDDProgressBytes("  2042646528 bytes (2043 MB, 1948 MiB) transferred 2.001s, 1021 MB/s  "), 2042646528)
+    }
+
+    func testParseDDProgressBytesIgnoresFinalSummaryLines() {
+        XCTAssertNil(RawDeviceWriter.parseDDProgressBytes("800000+0 records in"))
+        XCTAssertNil(RawDeviceWriter.parseDDProgressBytes("800000+0 records out"))
+        XCTAssertNil(RawDeviceWriter.parseDDProgressBytes(""))
+    }
+
     // MARK: - Double safety gate
 
     private func makeDrive(bsdName: String, removable: Bool, whole: Bool, proto: String) -> USBDriveInfo {

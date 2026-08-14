@@ -6,6 +6,6 @@ import XCTest
 /// rather than in one big batch at the end.
 final class PlaceholderTests: XCTestCase {
     func testTestTargetIsWired() {
-        XCTAssertEqual(AppSettings().skipEncoding, false)
+        XCTAssertEqual(AppSettings().cacheFiles, false)
     }
 }

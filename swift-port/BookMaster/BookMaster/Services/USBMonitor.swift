@@ -93,6 +93,80 @@ public final class USBMonitor: ObservableObject {
         drives.removeAll { $0.bsdName == bsdName }
     }
 
+    // MARK: - Eject
+    //
+    // Unmount-then-eject, the same sequence Finder's eject button drives --
+    // DADiskEject on a still-mounted whole disk fails with kDAReturnBusy,
+    // so the volumes have to come down first. DiskArbitration's callbacks
+    // are @convention(c) and can't capture the continuation directly; it's
+    // boxed and threaded through via the context pointer instead, same
+    // pattern as the appeared/disappeared trampolines above.
+
+    public enum EjectError: LocalizedError {
+        case sessionUnavailable
+        case diskNotFound(String)
+        case unmountFailed(String)
+        case ejectFailed(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case .sessionUnavailable: return "USB monitoring session unavailable."
+            case .diskNotFound(let bsdName): return "Could not find disk \(bsdName)."
+            case .unmountFailed(let reason): return "Unmount failed: \(reason)"
+            case .ejectFailed(let reason): return "Eject failed: \(reason)"
+            }
+        }
+    }
+
+    private final class EjectContext {
+        let disk: DADisk
+        let continuation: CheckedContinuation<Void, Error>
+        init(disk: DADisk, continuation: CheckedContinuation<Void, Error>) {
+            self.disk = disk
+            self.continuation = continuation
+        }
+    }
+
+    /// Unmounts every volume on the whole disk identified by `bsdName`,
+    /// then ejects it. Safe to call for any BSD name currently in
+    /// `drives` -- the disappeared callback removes it from that list
+    /// once macOS confirms the eject, so no manual state update is
+    /// needed here on success.
+    public func eject(bsdName: String) async throws {
+        guard let session else { throw EjectError.sessionUnavailable }
+        guard let disk = DADiskCreateFromBSDName(kCFAllocatorDefault, session, bsdName) else {
+            throw EjectError.diskNotFound(bsdName)
+        }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let ejectContext = EjectContext(disk: disk, continuation: continuation)
+            let context = Unmanaged.passRetained(ejectContext).toOpaque()
+            DADiskUnmount(disk, DADiskUnmountOptions(kDADiskUnmountOptionWhole), USBMonitor.unmountCallback, context)
+        }
+    }
+
+    private static let unmountCallback: DADiskUnmountCallback = { disk, dissenter, context in
+        guard let context else { return }
+        let ejectContext = Unmanaged<EjectContext>.fromOpaque(context).takeUnretainedValue()
+        if let dissenter {
+            let reason = DADissenterGetStatusString(dissenter) as String? ?? "unknown error"
+            Unmanaged<EjectContext>.fromOpaque(context).release()
+            ejectContext.continuation.resume(throwing: EjectError.unmountFailed(reason))
+            return
+        }
+        DADiskEject(disk, DADiskEjectOptions(kDADiskEjectOptionDefault), USBMonitor.ejectCallback, context)
+    }
+
+    private static let ejectCallback: DADiskEjectCallback = { _, dissenter, context in
+        guard let context else { return }
+        let ejectContext = Unmanaged<EjectContext>.fromOpaque(context).takeRetainedValue()
+        if let dissenter {
+            let reason = DADissenterGetStatusString(dissenter) as String? ?? "unknown error"
+            ejectContext.continuation.resume(throwing: EjectError.ejectFailed(reason))
+        } else {
+            ejectContext.continuation.resume(returning: ())
+        }
+    }
+
     // MARK: - Description decoding
 
     private static func describe(disk: DADisk) -> USBDriveInfo? {

@@ -15,6 +15,7 @@
 		0DDE55DB47952D607C5FB04A /* DiskImageBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 635C3BB1B33D6430A061DF18 /* DiskImageBuilder.swift */; };
 		13E5532C533A3697F65D1234 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2241F49FAD10EA532B517D64 /* Settings.swift */; };
 		1591148ADB9107E0B907665F /* USBMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BC1B5F1452EF892820A7BB8 /* USBMonitor.swift */; };
+		0F712D4CDDC548D7B6B61855 /* TestDataGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08F23ED7909B4A31ABBBA9F3 /* TestDataGenerator.swift */; };
 		29636ECF31D8E876D6B427AD /* BooksCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAB7948B5D4B05947D3A3B07 /* BooksCatalogTests.swift */; };
 		2CA8F8155CBD06901A1A8E13 /* ProductionLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B985C52675B9886E4AE7C09A /* ProductionLogStore.swift */; };
 		2DAC89108B0D400ED11BA4EA /* RawDirectoryLister.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AD1189181653D375EF8B6EE /* RawDirectoryLister.swift */; };
@@ -51,15 +52,18 @@
 		B4B4DD8874F6915A87BE1760 /* InputFolderResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD60949677FA18E4AA4CDF87 /* InputFolderResolverTests.swift */; };
 		B9F0BAFD03B9E2A5DA754036 /* MBRImageBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A310DE63610EEB8323933F /* MBRImageBuilderTests.swift */; };
 		BAB05E5631C3063122DB2ED8 /* MasterBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F84EC8E959D50BF682616C67 /* MasterBuilder.swift */; };
+		8A939D709C614EDF8036EFD8 /* MasterFixer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12697419FEE84ECDA774D3ED /* MasterFixer.swift */; };
 		BC0DAEAAA71B18AA5E012670 /* AudioProfiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 701529DA6FF20A5736EB6E75 /* AudioProfiler.swift */; };
 		BEAC654CA3F4753FBAC46945 /* PlaceholderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB980C4E495321B7DB7D54FC /* PlaceholderTests.swift */; };
 		BFE97A39ECF449C96332C593 /* FFmpegEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AE462DBA774B808155C5B76 /* FFmpegEncoder.swift */; };
+		5B049107DECC495CAFDD5C0C /* ID3Tag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 378B047813984C5EB6AB12C2 /* ID3Tag.swift */; };
 		C027EE7C4DF3DFAB33419205 /* DupeRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99E441EB789A120FB1ECE7FE /* DupeRow.swift */; };
 		C9480515AC5ECB0803DF7CF2 /* DuplicatorLogSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ADDE2B1B3F68FE6EF300DCA /* DuplicatorLogSync.swift */; };
 		CCABA5AC914ACAECC0E77FD2 /* DuplicatorLogParserRealDataTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 937EB02445811EF729E4C1B2 /* DuplicatorLogParserRealDataTests.swift */; };
 		CCB8ABC648D6CAD00537B866 /* USBSerialLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF1DA32446563A084CC06454 /* USBSerialLookup.swift */; };
 		CE9D2FC4C985BCD44F1BB882 /* BitrateFittingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25BC7173B44E25CF5071670C /* BitrateFittingTests.swift */; };
 		D4B629C4A545068195D5C107 /* MasterBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04DA644A47CAA4D7E935203E /* MasterBuilderTests.swift */; };
+		5C49124475CC45B1B56AE6DC /* MasterFixerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76A096A649124D9683DCFF33 /* MasterFixerTests.swift */; };
 		D967B0D15D6614B18413C343 /* NaturalSort.swift in Sources */ = {isa = PBXBuildFile; fileRef = D59F4B47359321E57167094A /* NaturalSort.swift */; };
 		DA09C85748E8165AE0EB0FB6 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 786412822CF06260E571ECA3 /* Constants.swift */; };
 		DCE6096B335DA39C4B7E0119 /* config.json in Resources */ = {isa = PBXBuildFile; fileRef = 1CA0858216CAFC29555344B3 /* config.json */; };
@@ -92,6 +96,7 @@
 /* Begin PBXFileReference section */
 		0030998D8C09A9148F9A4D41 /* CameraScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraScannerTests.swift; sourceTree = "<group>"; };
 		04DA644A47CAA4D7E935203E /* MasterBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterBuilderTests.swift; sourceTree = "<group>"; };
+		76A096A649124D9683DCFF33 /* MasterFixerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterFixerTests.swift; sourceTree = "<group>"; };
 		052A4B92D8368257579C0CD4 /* LogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogStore.swift; sourceTree = "<group>"; };
 		0555437F37A4B6F2AF9E47CC /* books.csv */ = {isa = PBXFileReference; path = books.csv; sourceTree = "<group>"; };
 		0625B02B4BC4B8BC590CA493 /* DuplicatorLogParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicatorLogParserTests.swift; sourceTree = "<group>"; };
@@ -106,6 +111,7 @@
 		2241F49FAD10EA532B517D64 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
 		25BC7173B44E25CF5071670C /* BitrateFittingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BitrateFittingTests.swift; sourceTree = "<group>"; };
 		2AE462DBA774B808155C5B76 /* FFmpegEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FFmpegEncoder.swift; sourceTree = "<group>"; };
+		378B047813984C5EB6AB12C2 /* ID3Tag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ID3Tag.swift; sourceTree = "<group>"; };
 		3560F876359AE9A5828C94C0 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
 		3610DD2CAE2FF93FB02F64CA /* DiskImageBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskImageBuilderTests.swift; sourceTree = "<group>"; };
 		36D221FF39661572A52A75C0 /* Shell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shell.swift; sourceTree = "<group>"; };
@@ -118,6 +124,7 @@
 		635C3BB1B33D6430A061DF18 /* DiskImageBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskImageBuilder.swift; sourceTree = "<group>"; };
 		6996630954DE44A833691DE0 /* InputFolderResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputFolderResolver.swift; sourceTree = "<group>"; };
 		6E33B9F2D3F9F34BBA91D61E /* BooksCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BooksCatalog.swift; sourceTree = "<group>"; };
+		08F23ED7909B4A31ABBBA9F3 /* TestDataGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestDataGenerator.swift; sourceTree = "<group>"; };
 		701529DA6FF20A5736EB6E75 /* AudioProfiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioProfiler.swift; sourceTree = "<group>"; };
 		786412822CF06260E571ECA3 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
 		7BD09222EE032D907CE57BD7 /* DuplicatorLogParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicatorLogParser.swift; sourceTree = "<group>"; };
@@ -161,6 +168,7 @@
 		ED3182A0187CB1B22CD99A76 /* USBDriveInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = USBDriveInfo.swift; sourceTree = "<group>"; };
 		EFCEDCF605ACC6397E9F2B0C /* AudioDurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDurationTests.swift; sourceTree = "<group>"; };
 		F84EC8E959D50BF682616C67 /* MasterBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterBuilder.swift; sourceTree = "<group>"; };
+		12697419FEE84ECDA774D3ED /* MasterFixer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterFixer.swift; sourceTree = "<group>"; };
 		F9798038E0A3DABE985FB582 /* BookCoverLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookCoverLookup.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -204,6 +212,7 @@
 				9B18C9268736E05D14BC64F8 /* FFmpegEncoderTests.swift */,
 				DD60949677FA18E4AA4CDF87 /* InputFolderResolverTests.swift */,
 				04DA644A47CAA4D7E935203E /* MasterBuilderTests.swift */,
+				76A096A649124D9683DCFF33 /* MasterFixerTests.swift */,
 				95F091F77CF7A03CBCD4F6AF /* MasterReaderTests.swift */,
 				095A4D99884D4804EF8AC037 /* MasterResolverTests.swift */,
 				C517B7C18FAE95A5F05C8B73 /* MasterWriterTests.swift */,
@@ -255,9 +264,11 @@
 				7BD09222EE032D907CE57BD7 /* DuplicatorLogParser.swift */,
 				1ADDE2B1B3F68FE6EF300DCA /* DuplicatorLogSync.swift */,
 				2AE462DBA774B808155C5B76 /* FFmpegEncoder.swift */,
+				378B047813984C5EB6AB12C2 /* ID3Tag.swift */,
 				4D84E9E76BB21B897F35428E /* ImageLayoutInspector.swift */,
 				6996630954DE44A833691DE0 /* InputFolderResolver.swift */,
 				F84EC8E959D50BF682616C67 /* MasterBuilder.swift */,
+				12697419FEE84ECDA774D3ED /* MasterFixer.swift */,
 				62317B067E905A79B4500F37 /* MasterReader.swift */,
 				8DEBAB49CA98E9B8E15E9AB7 /* MasterResolver.swift */,
 				E055E794E72F09FC77C7D0C0 /* MasterWriter.swift */,
@@ -268,6 +279,7 @@
 				4AD1189181653D375EF8B6EE /* RawDirectoryLister.swift */,
 				36D221FF39661572A52A75C0 /* Shell.swift */,
 				BE2C3EEA3254805EAB63E9A9 /* Slug.swift */,
+				08F23ED7909B4A31ABBBA9F3 /* TestDataGenerator.swift */,
 				9F8FA7CDFFC480AC2D770D3B /* URL+Canonical.swift */,
 				0BC1B5F1452EF892820A7BB8 /* USBMonitor.swift */,
 				BF1DA32446563A084CC06454 /* USBSerialLookup.swift */,
@@ -420,11 +432,13 @@
 				ECEA5A36F4A858F8831E6D19 /* DuplicatorLogParser.swift in Sources */,
 				C9480515AC5ECB0803DF7CF2 /* DuplicatorLogSync.swift in Sources */,
 				BFE97A39ECF449C96332C593 /* FFmpegEncoder.swift in Sources */,
+				5B049107DECC495CAFDD5C0C /* ID3Tag.swift in Sources */,
 				3BD3976A281A2E4E2B1AC6F8 /* ImageLayoutInspector.swift in Sources */,
 				79C0B857DD7B83EDEFFF9F8F /* InputFolderResolver.swift in Sources */,
 				0D038F62D1FA42FB9038FA86 /* LogStore.swift in Sources */,
 				DF2D9D9346B9FE42DFD86B6A /* MBRImageBuilder.swift in Sources */,
 				BAB05E5631C3063122DB2ED8 /* MasterBuilder.swift in Sources */,
+				8A939D709C614EDF8036EFD8 /* MasterFixer.swift in Sources */,
 				5494326BDEDC8B9E93798053 /* MasterReader.swift in Sources */,
 				A641DE2C6A3BA7FE1AF5165A /* MasterResolver.swift in Sources */,
 				3446DF9488C554712EB2F38B /* MasterWriter.swift in Sources */,
@@ -437,6 +451,7 @@
 				06DD6E8EB8D16F3B9AA4435C /* SettingsStore.swift in Sources */,
 				8520B774339BF0D48B23C6D5 /* Shell.swift in Sources */,
 				E952EE538991D29F7FC56049 /* Slug.swift in Sources */,
+				0F712D4CDDC548D7B6B61855 /* TestDataGenerator.swift in Sources */,
 				3F958BD9623DDB742DAB369F /* URL+Canonical.swift in Sources */,
 				DD4D8BFF07C7240270DE2E54 /* USBDriveInfo.swift in Sources */,
 				1591148ADB9107E0B907665F /* USBMonitor.swift in Sources */,
@@ -464,6 +479,7 @@
 				B4B4DD8874F6915A87BE1760 /* InputFolderResolverTests.swift in Sources */,
 				B9F0BAFD03B9E2A5DA754036 /* MBRImageBuilderTests.swift in Sources */,
 				D4B629C4A545068195D5C107 /* MasterBuilderTests.swift in Sources */,
+				5C49124475CC45B1B56AE6DC /* MasterFixerTests.swift in Sources */,
 				3AC401A9B9A2000A2A91F36A /* MasterReaderTests.swift in Sources */,
 				F016A9D681F889BCFC02B0A5 /* MasterResolverTests.swift in Sources */,
 				82DC1E71DEC5E542D61BE118 /* MasterWriterTests.swift in Sources */,
