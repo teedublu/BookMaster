@@ -52,7 +52,15 @@ public enum MasterWriter {
         let throughputUsed = throughputMibS(mib: master.usedMib, elapsedSeconds: elapsed)
 
         log("Remounting to inspect written content\u{2026}")
-        let mountPoint = try? await remountAndLocateVolume(bsdName: authorization.bsdName, expectedVolumeLabel: master.sku)
+        // The FAT volume label actually written to the image is a
+        // sanitized form of the SKU (dashes stripped, uppercased, capped
+        // at 11 chars -- see DiskImageBuilder/MBRImageBuilder's
+        // sanitizedLabel/safeLabel), not the SKU itself, so polling for
+        // "/Volumes/<sku>" verbatim never finds it and this step always
+        // silently no-ops. Read the label actually embedded in the image
+        // file instead of re-deriving the sanitization rule here.
+        let expectedVolumeLabel = (try? ImageLayoutInspector.inspect(master.imagePath))?.volumeLabel ?? master.sku
+        let mountPoint = try? await remountAndLocateVolume(bsdName: authorization.bsdName, expectedVolumeLabel: expectedVolumeLabel)
 
         var trackCount = 0
         var foundArtifacts = 0
