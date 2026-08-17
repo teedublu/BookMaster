@@ -283,6 +283,16 @@ public enum MasterBuilder {
                     usedMib1dp: Self.mib1dp(estimatedTotalBytes), imageFileCount: processedFiles.count,
                     imageTrackCount: processedFiles.count, imageIsbn: inputs.isbn
                 )
+                // Append-only build history alongside the upsert-in-place
+                // catalog row above -- see master_builds in AppDatabase for
+                // why: an in-place upsert can't show a regression between
+                // this build and the last one.
+                try? productionLog.insertMasterBuild(
+                    sku: inputs.sku, isbn: inputs.isbn, imgPath: imageResult.imagePath.path,
+                    imageBytes: imageResult.sizeBytes, imageMib1dp: Self.mib1dp(imageResult.sizeBytes),
+                    usedMib1dp: Self.mib1dp(estimatedTotalBytes), fileCount: processedFiles.count,
+                    trackCount: processedFiles.count, checksum: checksum, status: "success"
+                )
             }
 
             progress(MasterBuildProgress(phase: .buildingImage, fractionComplete: 1.0))

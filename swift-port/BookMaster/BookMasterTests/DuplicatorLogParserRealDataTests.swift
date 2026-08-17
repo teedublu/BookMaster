@@ -58,4 +58,51 @@ final class DuplicatorLogParserRealDataTests: XCTestCase {
         XCTAssertEqual(row.result, "User Abort")
         XCTAssertEqual(row.readSpeedMibS, 0.00)
     }
+
+    // MARK: - Full-file real exports (jan-sep16.txt / example-logs.txt,
+    // dropped at the repo root as reference material -- not bundled).
+    // Running the parser against ~19k lines of real output (not just
+    // hand-picked single lines) is what caught the CRLF bug below.
+
+    /// The real machine's export is CRLF-terminated almost throughout
+    /// (confirmed against jan-sep16.txt: 12985/12989 newlines are
+    /// "\r\n"). Swift's Character is a grapheme cluster, and "\r\n"
+    /// composes into a single one that matches neither the bare "\r"
+    /// nor "\n" cases a naive `split(separator: "\n")` would look for --
+    /// every prior test here embeds a single line with no line-ending
+    /// character at all, so none of them could have caught a whole real
+    /// export collapsing into one unparseable blob instead of one row
+    /// per line.
+    func testParsesMultipleCRLFTerminatedLinesNotJustOneGiantBlob() {
+        let text = "0000472 2025-04-07 20:40:18  0006  PASS            COPY+COMPARE(DATA,3331.8MB)            08:08          29.2GB(61440000)    1F75h 0918h [98633223]\r\n"
+            + "0000473 2025-04-07 20:40:18  0011  PASS            COPY+COMPARE(DATA,3331.8MB)            07:50          14.8GB(31129600)    1F75h 0917h [236933577249741]\r\n"
+        let rows = DuplicatorLogParser.parse(text)
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows[0].runIndex, 472)
+        XCTAssertEqual(rows[1].runIndex, 473)
+        XCTAssertEqual(rows[1].serial, "236933577249741")
+    }
+
+    /// jan-sep16.txt's capacities run from ~960MB sticks up to 29.2GB
+    /// ones -- confirms the "GB" branch (not just "MB") of the capacity
+    /// regex, converted via sectors (the source of truth) rather than
+    /// the device's own decimal-MB/GB label.
+    func testRealLineWithGigabyteCapacityParsesSectorsCorrectly() {
+        let line = "0000472 2025-04-07 20:40:18  0006  PASS            COPY+COMPARE(DATA,3331.8MB)            08:08          29.2GB(61440000)    1F75h 0918h [98633223]"
+        let row = DuplicatorLogParser.parse(line)[0]
+        XCTAssertEqual(row.sectors, 61440000)
+        XCTAssertEqual(row.capacityMib, 30000.0)
+    }
+
+    /// The same real export also has plenty of lowercased "Copy"/
+    /// "Copy+Compare" alongside the more common all-caps "COPY" --
+    /// isCopyCompareFunction/isCopyOnlyFunction lowercase before
+    /// comparing, so this should classify identically either way.
+    func testRealLineWithLowercaseFunctionNameStillClassifiesAsCopyCompare() {
+        let line = "0000555 2025-04-23 21:42:45  0016  PASS            Copy+Compare(DATA,152.5MB)             00:27          980.0MB(2007040)    ABCDh 1234h [20230718]"
+        let row = DuplicatorLogParser.parse(line)[0]
+        XCTAssertEqual(row.functionName, "Copy+Compare")
+        XCTAssertTrue(DuplicatorLogParser.isCopyCompareFunction(row.functionName))
+        XCTAssertFalse(DuplicatorLogParser.isCopyOnlyFunction(row.functionName))
+    }
 }

@@ -26,6 +26,14 @@ public enum DuplicatorLogParser {
     }
 
     public static func parse(_ text: String) -> [DupeRow] {
+        // Swift's Character is a grapheme cluster, and "\r\n" composes
+        // into a single one -- splitting on a bare "\n" Character never
+        // matches it, so a CRLF-terminated file (what these
+        // machine-generated logs actually export, near-universally)
+        // would collapse into a handful of giant multi-line blobs with
+        // zero recognizable data lines instead of one row per line. See
+        // the identical fix in BooksCatalog.swift's CSVParser.
+        let text = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         var rows: [DupeRow] = []
         for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
             guard lineStartsWithSevenDigits(line) else { continue }

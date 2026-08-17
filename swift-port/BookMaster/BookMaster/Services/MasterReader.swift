@@ -18,13 +18,24 @@ public enum MasterReader {
         let countText = (try? String(contentsOf: mountPath.appendingPathComponent(config.outputStructure.countFile), encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let count = countText.flatMap { Int($0) }
-        let storedChecksum = (try? String(contentsOf: mountPath.appendingPathComponent(config.outputStructure.checksumFile), encoding: .utf8))?
+
+        // v2 masters (built by the old Python tool) never had a correct
+        // checksum.txt to begin with -- see MasterContentAuditor.audit
+        // for why -- so only re-verify for v3+.
+        let builtVersion = (try? String(contentsOf: mountPath.appendingPathComponent(config.outputStructure.versionFile), encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let actualChecksum = try? Checksum.compute(rootDirectory: mountPath)
+        let isV3OrLater = builtVersion.flatMap { Double($0) }.map { $0 >= 3.0 } ?? false
 
         let checksumMatches: Bool?
-        if let storedChecksum, let actualChecksum {
-            checksumMatches = storedChecksum == actualChecksum
+        if isV3OrLater {
+            let storedChecksum = (try? String(contentsOf: mountPath.appendingPathComponent(config.outputStructure.checksumFile), encoding: .utf8))?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let actualChecksum = try? Checksum.compute(rootDirectory: mountPath)
+            if let storedChecksum, let actualChecksum {
+                checksumMatches = storedChecksum == actualChecksum
+            } else {
+                checksumMatches = nil
+            }
         } else {
             checksumMatches = nil
         }

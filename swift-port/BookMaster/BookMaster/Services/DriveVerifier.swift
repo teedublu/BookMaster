@@ -23,7 +23,16 @@ public struct VerificationResult: Equatable {
     public let encodingRateAnomaly: Bool
     public let foundArtifactCount: Int
     public let foundArtifactSamples: [String]
-    public let id3TagIssues: [ID3TagIssue]
+    /// nil when the Metadata check wasn't part of this run -- see
+    /// silenceIssues below. Distinct from an empty array, which means
+    /// it ran and found no ID3 issues.
+    public let id3TagIssues: [ID3TagIssue]?
+    /// nil when the Silence check wasn't part of this run (unchecked in
+    /// the Checks panel, or a "check on mount" fast-only pass) --
+    /// distinct from an empty array, which means it ran and found none.
+    public let silenceIssues: [TrackAudioIssue]?
+    public let loudnessIssues: [TrackAudioIssue]?
+    public let frameErrorIssues: [TrackAudioIssue]?
     public let validationErrors: [String]
 
     public var isValid: Bool { validationErrors.isEmpty }
@@ -33,16 +42,118 @@ public struct VerificationResult: Equatable {
     /// a human's attention (stale metadata from a re-encode, or a track
     /// that slipped in from a different book). Surfaced, not
     /// auto-stripped the way stray macOS artifacts are.
-    public var hasID3TagIssues: Bool { !id3TagIssues.isEmpty }
+    public var hasID3TagIssues: Bool { !(id3TagIssues ?? []).isEmpty }
+    public var hasSilenceIssues: Bool { !(silenceIssues ?? []).isEmpty }
+    public var hasLoudnessIssues: Bool { !(loudnessIssues ?? []).isEmpty }
+    public var hasFrameErrorIssues: Bool { !(frameErrorIssues ?? []).isEmpty }
+
+    /// Folds a fresh run into whatever's already known, so running one
+    /// check at a time (or "check on mount"'s fast-only passes) builds
+    /// up a fuller picture instead of each run blanking out results
+    /// from checks it didn't itself include. Per-check fields (id3/
+    /// silence/loudness/frameErrors) keep the previous value when the
+    /// new run left them nil; every field backed by a check that always
+    /// runs regardless of `checks` (identity, artifacts, audio profile,
+    /// which is why they're non-optional here) always takes the new
+    /// run's value, since that's genuinely fresher.
+    public static func merged(previous: VerificationResult?, new: VerificationResult) -> VerificationResult {
+        guard let previous else { return new }
+        return VerificationResult(
+            detectedSKU: new.detectedSKU, detectedISBN: new.detectedISBN, trackCount: new.trackCount,
+            stickUsedMib: new.stickUsedMib, tracksSizeMib: new.tracksSizeMib,
+            readSpeedMibS: new.readSpeedMibS ?? previous.readSpeedMibS,
+            expectedDurationSeconds: new.expectedDurationSeconds, encodingKbps: new.encodingKbps,
+            encodingRateAnomaly: new.encodingRateAnomaly, foundArtifactCount: new.foundArtifactCount,
+            foundArtifactSamples: new.foundArtifactSamples,
+            id3TagIssues: new.id3TagIssues ?? previous.id3TagIssues,
+            silenceIssues: new.silenceIssues ?? previous.silenceIssues,
+            loudnessIssues: new.loudnessIssues ?? previous.loudnessIssues,
+            frameErrorIssues: new.frameErrorIssues ?? previous.frameErrorIssues,
+            validationErrors: new.validationErrors
+        )
+    }
+}
+
+/// Live status of one named check within a verify() run -- drives the
+/// Checks panel's per-test indicator (idle outline -> solid running ->
+/// solid pass/fail). `issueCount` is 0 for a check like Speed that
+/// doesn't itemize per-file issues, so `.failed` there just means the
+/// probe itself didn't return a value.
+public enum CheckRunStatus: Equatable {
+    case running
+    case passed
+    case failed(issueCount: Int)
+}
+
+/// Which of the Verify tab's named checks to run -- mirrors the
+/// Python UI's "Silence"/"Loudness"/"Metadata"/"Frames"/"Speed"
+/// checkboxes (main_window.py's available_tests) one-to-one, so
+/// Settings.usbDriveTests (a comma string of those same names) maps
+/// straight onto this OptionSet.
+///
+/// .fast vs .slow reflects actual cost, not the Python grouping (there
+/// wasn't one): metadata is a cheap ID3-header read and speed is a
+/// fixed ~256 MiB raw-device read, both roughly constant time
+/// regardless of track count. Silence/loudness/frames each fully
+/// decode every track via ffmpeg, so they scale with total audio
+/// duration -- minutes, not seconds, for a full audiobook.
+public struct DriveCheckOptions: OptionSet {
+    public let rawValue: Int
+    public init(rawValue: Int) { self.rawValue = rawValue }
+
+    public static let metadata = DriveCheckOptions(rawValue: 1 << 0)
+    public static let speed = DriveCheckOptions(rawValue: 1 << 1)
+    public static let silence = DriveCheckOptions(rawValue: 1 << 2)
+    public static let loudness = DriveCheckOptions(rawValue: 1 << 3)
+    public static let frames = DriveCheckOptions(rawValue: 1 << 4)
+
+    public static let fast: DriveCheckOptions = [.metadata, .speed]
+    public static let slow: DriveCheckOptions = [.silence, .loudness, .frames]
+    public static let all: DriveCheckOptions = [.metadata, .speed, .silence, .loudness, .frames]
+
+    /// Every check as its own single-flag value, paired with the exact
+    /// name used in Settings.usbDriveTests and shown in the Checks
+    /// panel -- the one place that spells these names, so the panel's
+    /// per-check status indicators can key off `displayName` instead of
+    /// a second hand-maintained switch.
+    public static let allSingle: [DriveCheckOptions] = [.metadata, .speed, .silence, .loudness, .frames]
+
+    public var displayName: String? {
+        switch self {
+        case .metadata: return "Metadata"
+        case .speed: return "Speed"
+        case .silence: return "Silence"
+        case .loudness: return "Loudness"
+        case .frames: return "Frames"
+        default: return nil
+        }
+    }
+
+    /// Round-trips Settings.usbDriveTests's comma-separated string
+    /// ("Silence,Loudness,...") into the equivalent option set.
+    public init(commaSeparatedNames: String) {
+        let names = Set(commaSeparatedNames.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() })
+        var options: DriveCheckOptions = []
+        for option in DriveCheckOptions.allSingle where names.contains(option.displayName?.lowercased() ?? "") {
+            options.insert(option)
+        }
+        self = options
+    }
 }
 
 public enum DriveVerifierError: Error, CustomStringConvertible {
-    case verificationFailed([String])
+    /// Carries the fully-computed VerificationResult alongside the
+    /// identity errors -- every other check (artifacts, track count,
+    /// audio profile, ID3 tags, read speed) already ran and completed
+    /// before identity was found to be missing/invalid, so a caller
+    /// that only reads `errors` and discards the result would be
+    /// throwing away everything else this run found.
+    case verificationFailed([String], VerificationResult)
     case readProbeFailed(String)
 
     public var description: String {
         switch self {
-        case .verificationFailed(let errors): return errors.joined(separator: "; ")
+        case .verificationFailed(let errors, _): return errors.joined(separator: "; ")
         case .readProbeFailed(let detail): return "read-speed probe failed: \(detail)"
         }
     }
@@ -233,6 +344,82 @@ public enum DriveVerifier {
         return issues
     }
 
+    // MARK: - Silence / Loudness / Frame-error verification (ports
+    // track.py's Track.status: analyze_track's per-file ffmpeg checks,
+    // gated by DriveCheckOptions rather than always running.)
+
+    /// `log` fires once per file, before that file's ffmpeg pass starts
+    /// -- each of these decodes the whole track, so without a
+    /// per-file heartbeat a multi-track scan goes silent for however
+    /// long the full book takes to decode, which reads as "stuck" (see
+    /// the Checks panel's "Slow" grouping).
+    ///
+    /// `progress` fires after each file completes with (doneCount,
+    /// totalCount), so a caller can render a fraction rather than a
+    /// single running/done flip -- without it, the panel's status dot
+    /// has no way to know a 1-of-12 pass looks any different from an
+    /// 11-of-12 one and visually "completes" the moment the first file
+    /// finishes.
+    ///
+    /// Checks `Task.isCancelled` once per file and stops early
+    /// (returning whatever was found so far) rather than mid-decode --
+    /// cancelling can't interrupt an in-flight ffmpeg subprocess, only
+    /// stop the *next* one from starting. `verify()` still throws
+    /// CancellationError right after this returns, so a cancelled run
+    /// never reports a false pass/fail for a check it didn't finish.
+    static func scanForSilence(
+        files: [URL], ffmpegPath: String, log: (String) -> Void = { _ in }, progress: (Int, Int) -> Void = { _, _ in }
+    ) -> [TrackAudioIssue] {
+        var issues: [TrackAudioIssue] = []
+        for (index, file) in files.enumerated() {
+            guard !Task.isCancelled else { break }
+            log("Silence: track \(index + 1)/\(files.count) (\(file.lastPathComponent))\u{2026}")
+            let silences = AudioAnalysis.detectSilence(file: file, ffmpegPath: ffmpegPath)
+            if !silences.isEmpty {
+                issues.append(TrackAudioIssue(fileName: file.lastPathComponent, reason: "\(silences.count) silence period(s) detected"))
+            }
+            progress(index + 1, files.count)
+        }
+        return issues
+    }
+
+    static func scanForLoudness(
+        files: [URL], targetLufs: Double, tolerancePercent: Double = 5.0, ffmpegPath: String,
+        log: (String) -> Void = { _ in }, progress: (Int, Int) -> Void = { _, _ in }
+    ) -> [TrackAudioIssue] {
+        var issues: [TrackAudioIssue] = []
+        for (index, file) in files.enumerated() {
+            guard !Task.isCancelled else { break }
+            log("Loudness: track \(index + 1)/\(files.count) (\(file.lastPathComponent))\u{2026}")
+            let measurement = AudioAnalysis.analyzeLoudness(file: file, targetLufs: targetLufs, ffmpegPath: ffmpegPath)
+            if !AudioAnalysis.loudnessIsCloseToTarget(measurement, targetLufs: targetLufs, tolerancePercent: tolerancePercent) {
+                let measured = measurement?.inputIntegrated.map { "\($0)" } ?? "unmeasured"
+                issues.append(TrackAudioIssue(
+                    fileName: file.lastPathComponent,
+                    reason: "loudness \(measured) LUFS vs target \(targetLufs) LUFS (\u{00B1}\(tolerancePercent.formatted())% tolerance)"
+                ))
+            }
+            progress(index + 1, files.count)
+        }
+        return issues
+    }
+
+    static func scanForFrameErrors(
+        files: [URL], ffmpegPath: String, log: (String) -> Void = { _ in }, progress: (Int, Int) -> Void = { _, _ in }
+    ) -> [TrackAudioIssue] {
+        var issues: [TrackAudioIssue] = []
+        for (index, file) in files.enumerated() {
+            guard !Task.isCancelled else { break }
+            log("Frames: track \(index + 1)/\(files.count) (\(file.lastPathComponent))\u{2026}")
+            let count = AudioAnalysis.countFrameErrors(file: file, ffmpegPath: ffmpegPath)
+            if count > 0 {
+                issues.append(TrackAudioIssue(fileName: file.lastPathComponent, reason: "\(count) frame error(s)"))
+            }
+            progress(index + 1, files.count)
+        }
+        return issues
+    }
+
     private static func normalizedForComparison(_ text: String?) -> String? {
         guard let text else { return nil }
         let trimmed = text.trimmingCharacters(in: .whitespaces).lowercased()
@@ -264,12 +451,20 @@ public enum DriveVerifier {
         mountPoint: URL,
         rawDevicePath: String?,
         readMib: Int = 256,
-        skipSpeedTest: Bool = false,
+        checks: DriveCheckOptions = .all,
         deepAudioInspect: Bool = true,
+        loudnessTolerancePercent: Double = 5.0,
+        config: AppConfig = ConfigStore.shared,
         productionLog: ProductionLog? = nil,
         serial: String? = nil,
-        log: @escaping (String) -> Void = { _ in }
+        vid: String? = nil,
+        pid: String? = nil,
+        log: @escaping (String) -> Void = { _ in },
+        checkStatus: @escaping (DriveCheckOptions, CheckRunStatus) -> Void = { _, _ in },
+        checkProgress: @escaping (DriveCheckOptions, Int, Int) -> Void = { _, _, _ in }
     ) async throws -> VerificationResult {
+        try Task.checkCancellation()
+
         // Scan-only (dryRun: true) -- verify()/"Check Master" reports what
         // it finds and never mutates the drive it's checking. Actually
         // removing anything is the explicit, opt-in "Fix Master" action
@@ -299,15 +494,21 @@ public enum DriveVerifier {
         if isbn == nil { validationErrors.append("ISBN missing in id.txt") }
 
         var readSpeed: Double?
-        if !skipSpeedTest, let rawDevicePath {
+        if checks.contains(.speed), let rawDevicePath {
+            checkStatus(.speed, .running)
             log("Running read-speed probe (\(readMib) MiB)...")
             readSpeed = try? probeReadSpeed(rawDevicePath: rawDevicePath, readMib: readMib)
+            checkStatus(.speed, readSpeed != nil ? .passed : .failed(issueCount: 0))
+            try Task.checkCancellation()
         }
 
         var expectedSeconds: Int?
         var encodingKbps: Double?
         var tracksSizeMib: Double?
-        var id3Issues: [ID3TagIssue] = []
+        var id3Issues: [ID3TagIssue]?
+        var silenceIssues: [TrackAudioIssue]?
+        var loudnessIssues: [TrackAudioIssue]?
+        var frameErrorIssues: [TrackAudioIssue]?
         if hasTracksDir {
             log("Inspecting audio content (\(deepAudioInspect ? "full scan" : "quick estimate"))...")
             let profile = await AudioProfiler.inspectTracksAudioProfile(tracksPath: tracksPath, fullScan: deepAudioInspect)
@@ -316,13 +517,59 @@ public enum DriveVerifier {
             let (totalBytes, _) = AudioProfiler.measureTrackAudioBytes(tracksPath: tracksPath)
             tracksSizeMib = (Double(totalBytes) / 1024.0 / 1024.0 * 10).rounded() / 10
 
-            log("Checking ID3 tags against expected title/author/ISBN...")
-            id3Issues = scanForID3TagIssues(tracksPath: tracksPath, isbn: isbn)
-            if !id3Issues.isEmpty {
-                let detail = id3Issues.map { "\($0.fileName) (\($0.reason))" }.joined(separator: "; ")
-                log("\u{26A0}\u{FE0F} ID3 tag issues found on \(id3Issues.count) track file(s): \(detail)")
-            } else {
-                log("No unexpected ID3 tag content found.")
+            if checks.contains(.metadata) {
+                checkStatus(.metadata, .running)
+                log("Checking ID3 tags against expected title/author/ISBN...")
+                let found = scanForID3TagIssues(tracksPath: tracksPath, isbn: isbn)
+                id3Issues = found
+                if !found.isEmpty {
+                    let detail = found.map { "\($0.fileName) (\($0.reason))" }.joined(separator: "; ")
+                    log("\u{26A0}\u{FE0F} ID3 tag issues found on \(found.count) track file(s): \(detail)")
+                } else {
+                    log("No unexpected ID3 tag content found.")
+                }
+                checkStatus(.metadata, found.isEmpty ? .passed : .failed(issueCount: found.count))
+                try Task.checkCancellation()
+            }
+
+            if !checks.isDisjoint(with: [.silence, .loudness, .frames]), let ffmpegPath = FFmpegEncoder.locateFFmpeg() {
+                let files = AudioProfiler.candidateFiles(in: tracksPath)
+                if checks.contains(.silence) {
+                    checkStatus(.silence, .running)
+                    log("Checking \(files.count) track(s) for silence...")
+                    let found = scanForSilence(files: files, ffmpegPath: ffmpegPath, log: log) { done, total in
+                        checkProgress(.silence, done, total)
+                    }
+                    silenceIssues = found
+                    log(found.isEmpty ? "No silence found." : "\u{26A0}\u{FE0F} Silence found on \(found.count) track file(s).")
+                    checkStatus(.silence, found.isEmpty ? .passed : .failed(issueCount: found.count))
+                    try Task.checkCancellation()
+                }
+                if checks.contains(.loudness) {
+                    checkStatus(.loudness, .running)
+                    log("Checking \(files.count) track(s) for loudness (target \(config.encoding.targetLufs) LUFS \u{00B1}\(loudnessTolerancePercent.formatted())%)...")
+                    let found = scanForLoudness(
+                        files: files, targetLufs: config.encoding.targetLufs, tolerancePercent: loudnessTolerancePercent,
+                        ffmpegPath: ffmpegPath, log: log
+                    ) { done, total in
+                        checkProgress(.loudness, done, total)
+                    }
+                    loudnessIssues = found
+                    log(found.isEmpty ? "Loudness within target on all tracks." : "\u{26A0}\u{FE0F} Loudness issues on \(found.count) track file(s).")
+                    checkStatus(.loudness, found.isEmpty ? .passed : .failed(issueCount: found.count))
+                    try Task.checkCancellation()
+                }
+                if checks.contains(.frames) {
+                    checkStatus(.frames, .running)
+                    log("Checking \(files.count) track(s) for frame errors...")
+                    let found = scanForFrameErrors(files: files, ffmpegPath: ffmpegPath, log: log) { done, total in
+                        checkProgress(.frames, done, total)
+                    }
+                    frameErrorIssues = found
+                    log(found.isEmpty ? "No frame errors found." : "\u{26A0}\u{FE0F} Frame errors on \(found.count) track file(s).")
+                    checkStatus(.frames, found.isEmpty ? .passed : .failed(issueCount: found.count))
+                    try Task.checkCancellation()
+                }
             }
         }
         let rateAnomaly = encodingKbps.map { abs($0 - expectedBitRateBPS / 1000.0) > 0.5 } ?? false
@@ -334,16 +581,32 @@ public enum DriveVerifier {
             )
         }
 
+        // Unlike recordVerification above, this always inserts -- a
+        // failed verification (bad SKU/ISBN, missing content) is exactly
+        // what "is this master block accurate" needs to capture, not
+        // just successes.
+        if let productionLog {
+            let deviceId = try? productionLog.upsertDevice(vid: vid ?? "", pid: pid ?? "", serial: serial ?? "UNKNOWN")
+            try? productionLog.insertMasterVerification(
+                deviceId: deviceId, masterWriteId: nil, sku: sku, detectedSku: sku, detectedIsbn: isbn,
+                trackCount: trackCount, stickUsedMib: stickUsedMib, tracksSizeMib: tracksSizeMib,
+                readSpeedMibS: readSpeed, expectedDurationS: expectedSeconds, encodingKbps: encodingKbps,
+                encodingRateAnomaly: rateAnomaly, foundArtifactCount: found, id3IssueCount: (id3Issues ?? []).count,
+                validationErrors: validationErrors, passed: validationErrors.isEmpty
+            )
+        }
+
         let result = VerificationResult(
             detectedSKU: sku, detectedISBN: isbn, trackCount: trackCount, stickUsedMib: stickUsedMib,
             tracksSizeMib: tracksSizeMib, readSpeedMibS: readSpeed, expectedDurationSeconds: expectedSeconds,
             encodingKbps: encodingKbps, encodingRateAnomaly: rateAnomaly,
             foundArtifactCount: found, foundArtifactSamples: samples, id3TagIssues: id3Issues,
+            silenceIssues: silenceIssues, loudnessIssues: loudnessIssues, frameErrorIssues: frameErrorIssues,
             validationErrors: validationErrors
         )
 
         guard validationErrors.isEmpty else {
-            throw DriveVerifierError.verificationFailed(validationErrors)
+            throw DriveVerifierError.verificationFailed(validationErrors, result)
         }
         return result
     }

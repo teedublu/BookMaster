@@ -67,7 +67,20 @@ public struct AppSettings: Codable, Equatable {
     /// (e.g. "Silence,Loudness,Metadata"). Kept as a raw string rather than
     /// [String] to stay byte-compatible with settings.json files written
     /// by the Python app.
-    public var usbDriveTests: String = ""
+    ///
+    /// Defaults to every check on, not "" -- an empty string is honored
+    /// literally as "nothing checked" (see ContentView.enabledDriveChecks),
+    /// so it has to actually mean that, not "unconfigured." Defaulting it
+    /// to "" made the Checks panel lie: every box rendered unchecked while
+    /// Check Master silently ran the full deep scan anyway.
+    public var usbDriveTests: String = "Metadata,Speed,Silence,Loudness,Frames"
+    /// Allowed +/- deviation from config.json's target_lufs, as a
+    /// percentage, before the Loudness check flags a track -- see
+    /// AudioAnalysis.loudnessIsCloseToTarget. Exposed here rather than
+    /// left as Track.py's hardcoded 5% so it's adjustable from the
+    /// Verify tab (a target-format change, encoder revision, etc. can
+    /// legitimately shift what "close enough" means).
+    public var loudnessTolerancePercent: Double = 5.0
     public var sku: String = ""
     public var title: String = ""
     public var author: String = ""
@@ -91,6 +104,14 @@ public struct AppSettings: Codable, Equatable {
     /// "Import Duplicator Log..." pick every time. Empty means sync is
     /// off.
     public var duplicatorLogFolder: String = ""
+    /// Root folder to recursively scan for built masters (<sku>/master,
+    /// <sku>/image/<sku>.img) when auditing content across the whole
+    /// library rather than one master at a time -- independent of
+    /// outputFolder since the audit is often run against an archive/NAS
+    /// copy of everything ever built, not just this machine's current
+    /// output location. Empty means unset; defaults to outputFolder in
+    /// the UI until the user points it elsewhere.
+    public var mastersLibraryPath: String = ""
 
     enum CodingKeys: String, CodingKey {
         case useWebcam = "use_webcam"
@@ -107,11 +128,13 @@ public struct AppSettings: Codable, Equatable {
         case writeImageMode = "write_image_mode"
         case usbDriveCheckOnMount = "usb_drive_check_on_mount"
         case usbDriveTests = "usb_drive_tests"
+        case loudnessTolerancePercent = "loudness_tolerance_percent"
         case sku, title, author
         case pastMaster = "past_master"
         case imageFormat = "image_format"
         case databasePath = "database_path"
         case duplicatorLogFolder = "duplicator_log_folder"
+        case mastersLibraryPath = "masters_library_path"
     }
 
     public init() {}
@@ -142,6 +165,7 @@ public struct AppSettings: Codable, Equatable {
         writeImageMode = try c.decodeIfPresent(Bool.self, forKey: .writeImageMode) ?? defaults.writeImageMode
         usbDriveCheckOnMount = try c.decodeIfPresent(Bool.self, forKey: .usbDriveCheckOnMount) ?? defaults.usbDriveCheckOnMount
         usbDriveTests = try c.decodeIfPresent(String.self, forKey: .usbDriveTests) ?? defaults.usbDriveTests
+        loudnessTolerancePercent = try c.decodeIfPresent(Double.self, forKey: .loudnessTolerancePercent) ?? defaults.loudnessTolerancePercent
         sku = try c.decodeIfPresent(String.self, forKey: .sku) ?? defaults.sku
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? defaults.title
         author = try c.decodeIfPresent(String.self, forKey: .author) ?? defaults.author
@@ -149,5 +173,6 @@ public struct AppSettings: Codable, Equatable {
         imageFormat = try c.decodeIfPresent(String.self, forKey: .imageFormat) ?? defaults.imageFormat
         databasePath = try c.decodeIfPresent(String.self, forKey: .databasePath) ?? defaults.databasePath
         duplicatorLogFolder = try c.decodeIfPresent(String.self, forKey: .duplicatorLogFolder) ?? defaults.duplicatorLogFolder
+        mastersLibraryPath = try c.decodeIfPresent(String.self, forKey: .mastersLibraryPath) ?? defaults.mastersLibraryPath
     }
 }

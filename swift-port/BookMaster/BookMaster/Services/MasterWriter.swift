@@ -91,6 +91,16 @@ public enum MasterWriter {
                     trackCount: trackCount, tracksPath: mountPoint?.appendingPathComponent("tracks").path,
                     imgPath: master.imagePath.path
                 )
+                // Best-effort link to the exact build that was written --
+                // the most recent successful master_builds row for this
+                // SKU, since ResolvedMaster doesn't carry a build id.
+                let masterBuildId = (try? productionLog.latestMasterBuild(sku: master.sku))?.buildId
+                try? productionLog.insertMasterWrite(
+                    deviceId: deviceId, masterBuildId: masterBuildId, sku: master.sku, elapsedS: elapsed,
+                    throughputImageMibS: throughputImage, throughputUsedMibS: throughputUsed,
+                    trackCountWritten: trackCount, foundArtifactCount: foundArtifacts,
+                    removedArtifactCount: removedArtifacts, diskId: "/dev/\(authorization.bsdName)"
+                )
             }
         }
 

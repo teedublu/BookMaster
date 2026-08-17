@@ -257,6 +257,133 @@ public final class ProductionLog {
         )
     }
 
+    // MARK: - Master builds (file side: what a build produced)
+
+    @discardableResult
+    public func insertMasterBuild(
+        sku: String, isbn: String?, imgPath: String, imageBytes: Int64?, imageMib1dp: Double?,
+        usedMib1dp: Double?, fileCount: Int?, trackCount: Int?, checksum: String?, status: String = "success"
+    ) throws -> Int {
+        try db.execute(
+            """
+            INSERT INTO master_builds(sku,isbn,built_at,img_path,image_bytes,image_mib_1dp,used_mib_1dp,file_count,track_count,checksum,status)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            [.text(sku), isbn.map(DBValue.text) ?? .null, .text(Self.isoNow()), .text(imgPath),
+             imageBytes.map(DBValue.int) ?? .null, imageMib1dp.map(DBValue.real) ?? .null,
+             usedMib1dp.map(DBValue.real) ?? .null, fileCount.map { .int(Int64($0)) } ?? .null,
+             trackCount.map { .int(Int64($0)) } ?? .null, checksum.map(DBValue.text) ?? .null, .text(status)]
+        )
+        return Int(db.lastInsertRowID)
+    }
+
+    public func latestMasterBuild(sku: String) throws -> MasterBuildRecord? {
+        try db.query("SELECT * FROM master_builds WHERE sku = ? ORDER BY built_at DESC, id DESC LIMIT 1", [.text(sku)])
+            .first.map(MasterBuildRecord.init)
+    }
+
+    public func masterBuilds(sku: String) throws -> [MasterBuildRecord] {
+        try db.query("SELECT * FROM master_builds WHERE sku = ? ORDER BY built_at DESC, id DESC", [.text(sku)])
+            .map(MasterBuildRecord.init)
+    }
+
+    // MARK: - Master checks (content-completeness QA against a build)
+
+    @discardableResult
+    public func insertMasterCheck(
+        buildId: Int, checkType: String, expectedValue: String?, actualValue: String?, passed: Bool, message: String?
+    ) throws -> Int {
+        try db.execute(
+            """
+            INSERT INTO master_checks(build_id,check_type,expected_value,actual_value,passed,message,checked_at)
+            VALUES(?,?,?,?,?,?,?)
+            """,
+            [.int(Int64(buildId)), .text(checkType), expectedValue.map(DBValue.text) ?? .null,
+             actualValue.map(DBValue.text) ?? .null, .int(passed ? 1 : 0), message.map(DBValue.text) ?? .null,
+             .text(Self.isoNow())]
+        )
+        return Int(db.lastInsertRowID)
+    }
+
+    public func masterChecks(buildId: Int) throws -> [MasterCheckRecord] {
+        try db.query("SELECT * FROM master_checks WHERE build_id = ? ORDER BY checked_at ASC", [.int(Int64(buildId))])
+            .map(MasterCheckRecord.init)
+    }
+
+    // MARK: - Master writes (block side: writing a build onto a physical block)
+
+    @discardableResult
+    public func insertMasterWrite(
+        deviceId: Int, masterBuildId: Int?, sku: String, elapsedS: Int,
+        throughputImageMibS: Double, throughputUsedMibS: Double, trackCountWritten: Int,
+        foundArtifactCount: Int, removedArtifactCount: Int, diskId: String?
+    ) throws -> Int {
+        try db.execute(
+            """
+            INSERT INTO master_writes(device_id,master_build_id,sku,written_at,elapsed_s,throughput_image_mib_s,throughput_used_mib_s,track_count_written,found_artifact_count,removed_artifact_count,disk_id)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            [.int(Int64(deviceId)), masterBuildId.map { .int(Int64($0)) } ?? .null, .text(sku), .text(Self.isoNow()),
+             .int(Int64(elapsedS)), .real(throughputImageMibS), .real(throughputUsedMibS),
+             .int(Int64(trackCountWritten)), .int(Int64(foundArtifactCount)), .int(Int64(removedArtifactCount)),
+             diskId.map(DBValue.text) ?? .null]
+        )
+        return Int(db.lastInsertRowID)
+    }
+
+    public func masterWrites(deviceId: Int) throws -> [MasterWriteRecord] {
+        try db.query("SELECT * FROM master_writes WHERE device_id = ? ORDER BY written_at ASC", [.int(Int64(deviceId))])
+            .map(MasterWriteRecord.init)
+    }
+
+    // MARK: - Master verifications (block side: is this block accurate)
+
+    @discardableResult
+    public func insertMasterVerification(
+        deviceId: Int?, masterWriteId: Int?, sku: String?, detectedSku: String?, detectedIsbn: String?,
+        trackCount: Int, stickUsedMib: Double?, tracksSizeMib: Double?, readSpeedMibS: Double?,
+        expectedDurationS: Int?, encodingKbps: Double?, encodingRateAnomaly: Bool,
+        foundArtifactCount: Int, id3IssueCount: Int, validationErrors: [String], passed: Bool
+    ) throws -> Int {
+        try db.execute(
+            """
+            INSERT INTO master_verifications(
+              device_id, master_write_id, sku, detected_sku, detected_isbn, track_count, stick_used_mib, tracks_size_mib,
+              read_speed_mib_s, expected_duration_s, encoding_kbps, encoding_rate_anomaly, found_artifact_count,
+              id3_issue_count, validation_errors, passed, verified_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            [
+                deviceId.map { .int(Int64($0)) } ?? .null, masterWriteId.map { .int(Int64($0)) } ?? .null,
+                sku.map(DBValue.text) ?? .null, detectedSku.map(DBValue.text) ?? .null, detectedIsbn.map(DBValue.text) ?? .null,
+                .int(Int64(trackCount)), stickUsedMib.map(DBValue.real) ?? .null, tracksSizeMib.map(DBValue.real) ?? .null,
+                readSpeedMibS.map(DBValue.real) ?? .null, expectedDurationS.map { .int(Int64($0)) } ?? .null,
+                encodingKbps.map(DBValue.real) ?? .null, .int(encodingRateAnomaly ? 1 : 0), .int(Int64(foundArtifactCount)),
+                .int(Int64(id3IssueCount)), validationErrors.isEmpty ? .null : .text(validationErrors.joined(separator: "; ")),
+                .int(passed ? 1 : 0), .text(Self.isoNow()),
+            ]
+        )
+        return Int(db.lastInsertRowID)
+    }
+
+    public func masterVerifications(deviceId: Int) throws -> [MasterVerificationRecord] {
+        try db.query("SELECT * FROM master_verifications WHERE device_id = ? ORDER BY verified_at ASC", [.int(Int64(deviceId))])
+            .map(MasterVerificationRecord.init)
+    }
+
+    /// "Is this master block accurate": every write and every
+    /// verification this exact physical block has received.
+    public func masterBlockHistory(serial: String) throws -> MasterBlockHistory {
+        guard let dev = try device(serial: serial) else {
+            return MasterBlockHistory(device: nil, writes: [], verifications: [])
+        }
+        return MasterBlockHistory(
+            device: dev,
+            writes: try masterWrites(deviceId: dev.deviceId),
+            verifications: try masterVerifications(deviceId: dev.deviceId)
+        )
+    }
+
     // MARK: -
 
     private static func isoNow() -> String {

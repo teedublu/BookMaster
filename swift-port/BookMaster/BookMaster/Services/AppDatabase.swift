@@ -178,6 +178,101 @@ public final class AppDatabase {
         try execute("CREATE INDEX IF NOT EXISTS idx_dupe_dt ON duplicator_runs(dt);")
         try execute("CREATE INDEX IF NOT EXISTS idx_dupe_serial ON duplicator_runs(serial);")
         try execute("CREATE INDEX IF NOT EXISTS idx_dupe_data_mib ON duplicator_runs(data_mib_1dp);")
+
+        // Master-block lineage: unlike `masters` (one row per SKU,
+        // overwritten on every build/verify), these are append-only event
+        // logs. `master_builds` keeps every build attempt instead of just
+        // the latest, so a regression between build N-1 and N is visible.
+        // `master_checks` is row-per-check rather than fixed columns so a
+        // new QA check (see MasterContentAuditor) is an insert, not a
+        // migration. `master_writes`/`master_verifications` separate
+        // "wrote a master image onto this physical block" from "confirmed
+        // this block's content is accurate" -- a block can be verified
+        // again later without a new write, e.g. before it's handed to the
+        // duplicator machine or the factory. Deliberately scoped to the
+        // master block only, not the sellable units later cloned from it
+        // by the USB duplicator machine -- that's a different physical
+        // write with different failure modes and isn't tracked here yet.
+        try execute("""
+        CREATE TABLE IF NOT EXISTS master_builds (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          sku TEXT NOT NULL,
+          isbn TEXT,
+          built_at TEXT NOT NULL,
+          img_path TEXT NOT NULL,
+          image_bytes INTEGER,
+          image_mib_1dp REAL,
+          used_mib_1dp REAL,
+          file_count INTEGER,
+          track_count INTEGER,
+          checksum TEXT,
+          status TEXT NOT NULL
+        );
+        """)
+        try execute("CREATE INDEX IF NOT EXISTS idx_master_builds_sku ON master_builds(sku);")
+
+        try execute("""
+        CREATE TABLE IF NOT EXISTS master_checks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          build_id INTEGER NOT NULL,
+          check_type TEXT NOT NULL,
+          expected_value TEXT,
+          actual_value TEXT,
+          passed INTEGER NOT NULL,
+          message TEXT,
+          checked_at TEXT NOT NULL,
+          FOREIGN KEY(build_id) REFERENCES master_builds(id)
+        );
+        """)
+        try execute("CREATE INDEX IF NOT EXISTS idx_master_checks_build ON master_checks(build_id);")
+
+        try execute("""
+        CREATE TABLE IF NOT EXISTS master_writes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          device_id INTEGER NOT NULL,
+          master_build_id INTEGER,
+          sku TEXT NOT NULL,
+          written_at TEXT NOT NULL,
+          elapsed_s INTEGER NOT NULL,
+          throughput_image_mib_s REAL NOT NULL,
+          throughput_used_mib_s REAL NOT NULL,
+          track_count_written INTEGER NOT NULL,
+          found_artifact_count INTEGER NOT NULL,
+          removed_artifact_count INTEGER NOT NULL,
+          disk_id TEXT,
+          FOREIGN KEY(device_id) REFERENCES devices(device_id),
+          FOREIGN KEY(master_build_id) REFERENCES master_builds(id)
+        );
+        """)
+        try execute("CREATE INDEX IF NOT EXISTS idx_master_writes_device ON master_writes(device_id);")
+        try execute("CREATE INDEX IF NOT EXISTS idx_master_writes_sku ON master_writes(sku);")
+
+        try execute("""
+        CREATE TABLE IF NOT EXISTS master_verifications (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          device_id INTEGER,
+          master_write_id INTEGER,
+          sku TEXT,
+          detected_sku TEXT,
+          detected_isbn TEXT,
+          track_count INTEGER NOT NULL,
+          stick_used_mib REAL,
+          tracks_size_mib REAL,
+          read_speed_mib_s REAL,
+          expected_duration_s INTEGER,
+          encoding_kbps REAL,
+          encoding_rate_anomaly INTEGER NOT NULL,
+          found_artifact_count INTEGER NOT NULL,
+          id3_issue_count INTEGER NOT NULL,
+          validation_errors TEXT,
+          passed INTEGER NOT NULL,
+          verified_at TEXT NOT NULL,
+          FOREIGN KEY(device_id) REFERENCES devices(device_id),
+          FOREIGN KEY(master_write_id) REFERENCES master_writes(id)
+        );
+        """)
+        try execute("CREATE INDEX IF NOT EXISTS idx_master_verifications_device ON master_verifications(device_id);")
+        try execute("CREATE INDEX IF NOT EXISTS idx_master_verifications_sku ON master_verifications(sku);")
     }
 
     // MARK: - Low-level execute / query

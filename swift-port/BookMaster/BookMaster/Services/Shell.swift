@@ -17,6 +17,14 @@ enum ShellError: Error, CustomStringConvertible {
 enum Shell {
     @discardableResult
     static func run(_ tool: String, _ args: [String]) throws -> String {
+        try runCapturingStderr(tool, args).stdout
+    }
+
+    /// Same as `run`, but also returns stderr on success -- needed for
+    /// tools like ffmpeg's silencedetect/loudnorm filters, which report
+    /// their actual analysis on stderr even on a clean (status 0) run.
+    @discardableResult
+    static func runCapturingStderr(_ tool: String, _ args: [String]) throws -> (stdout: String, stderr: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
         process.arguments = args
@@ -37,7 +45,7 @@ enum Shell {
         guard process.terminationStatus == 0 else {
             throw ShellError.failed(command: "\(tool) \(args.joined(separator: " "))", status: process.terminationStatus, stderr: err)
         }
-        return out
+        return (out, err)
     }
 
     /// Parses `/dev/diskN` from the first line of `hdiutil attach` output.

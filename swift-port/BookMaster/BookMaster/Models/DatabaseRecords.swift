@@ -175,3 +175,163 @@ public struct DeviceHistory: Equatable {
 
     public var isEmpty: Bool { writes.isEmpty && duplicatorRuns.isEmpty }
 }
+
+// MARK: - Master-block lineage (file side: what a build produced; block
+// side: was a specific physical master block written accurately)
+
+/// One row per build attempt of a SKU's master image -- append-only,
+/// unlike the flat `masters` table's upsert-in-place, so a regression
+/// between builds is visible instead of silently overwritten.
+public struct MasterBuildRecord: Equatable, Identifiable {
+    public var id: Int { buildId }
+    public let buildId: Int
+    public let sku: String
+    public let isbn: String?
+    public let builtAt: String
+    public let imgPath: String
+    public let imageBytes: Int64?
+    public let imageMib1dp: Double?
+    public let usedMib1dp: Double?
+    public let fileCount: Int?
+    public let trackCount: Int?
+    public let checksum: String?
+    public let status: String
+
+    init(row: DBRow) {
+        buildId = row["id"]?.intValue ?? 0
+        sku = row["sku"]?.stringValue ?? ""
+        isbn = row["isbn"]?.stringValue
+        builtAt = row["built_at"]?.stringValue ?? ""
+        imgPath = row["img_path"]?.stringValue ?? ""
+        imageBytes = row["image_bytes"]?.int64Value
+        imageMib1dp = row["image_mib_1dp"]?.doubleValue
+        usedMib1dp = row["used_mib_1dp"]?.doubleValue
+        fileCount = row["file_count"]?.intValue
+        trackCount = row["track_count"]?.intValue
+        checksum = row["checksum"]?.stringValue
+        status = row["status"]?.stringValue ?? ""
+    }
+}
+
+/// One row per content-completeness check run against a build (see
+/// MasterContentAuditor) -- row-per-check rather than fixed columns, so a
+/// new check type is an insert, not a schema migration.
+public struct MasterCheckRecord: Equatable, Identifiable {
+    public var id: Int { checkId }
+    public let checkId: Int
+    public let buildId: Int
+    public let checkType: String
+    public let expectedValue: String?
+    public let actualValue: String?
+    public let passed: Bool
+    public let message: String?
+    public let checkedAt: String
+
+    init(row: DBRow) {
+        checkId = row["id"]?.intValue ?? 0
+        buildId = row["build_id"]?.intValue ?? 0
+        checkType = row["check_type"]?.stringValue ?? ""
+        expectedValue = row["expected_value"]?.stringValue
+        actualValue = row["actual_value"]?.stringValue
+        passed = (row["passed"]?.intValue ?? 0) != 0
+        message = row["message"]?.stringValue
+        checkedAt = row["checked_at"]?.stringValue ?? ""
+    }
+}
+
+/// One row per event of writing a master build onto a specific physical
+/// block (MasterWriter). Distinct from `writes` -- this links to the
+/// exact `master_builds` row that went onto the block, not just a SKU.
+public struct MasterWriteRecord: Equatable, Identifiable {
+    public var id: Int { writeId }
+    public let writeId: Int
+    public let deviceId: Int
+    public let masterBuildId: Int?
+    public let sku: String
+    public let writtenAt: String
+    public let elapsedS: Int
+    public let throughputImageMibS: Double
+    public let throughputUsedMibS: Double
+    public let trackCountWritten: Int
+    public let foundArtifactCount: Int
+    public let removedArtifactCount: Int
+    public let diskId: String?
+
+    init(row: DBRow) {
+        writeId = row["id"]?.intValue ?? 0
+        deviceId = row["device_id"]?.intValue ?? 0
+        masterBuildId = row["master_build_id"]?.intValue
+        sku = row["sku"]?.stringValue ?? ""
+        writtenAt = row["written_at"]?.stringValue ?? ""
+        elapsedS = row["elapsed_s"]?.intValue ?? 0
+        throughputImageMibS = row["throughput_image_mib_s"]?.doubleValue ?? 0
+        throughputUsedMibS = row["throughput_used_mib_s"]?.doubleValue ?? 0
+        trackCountWritten = row["track_count_written"]?.intValue ?? 0
+        foundArtifactCount = row["found_artifact_count"]?.intValue ?? 0
+        removedArtifactCount = row["removed_artifact_count"]?.intValue ?? 0
+        diskId = row["disk_id"]?.stringValue
+    }
+}
+
+/// One row per verification pass (DriveVerifier.verify) against a
+/// physical master block's current content -- independent of a write, so
+/// a block can be re-checked later without a fresh write. `passed`
+/// mirrors VerificationResult.isValid; unlike the flat `masters` table's
+/// recordVerification (which only fires on success), this is inserted
+/// unconditionally so failed verifications -- the actually-interesting
+/// case for "is this master block accurate" -- aren't lost.
+public struct MasterVerificationRecord: Equatable, Identifiable {
+    public var id: Int { verificationId }
+    public let verificationId: Int
+    public let deviceId: Int?
+    public let masterWriteId: Int?
+    public let sku: String?
+    public let detectedSku: String?
+    public let detectedIsbn: String?
+    public let trackCount: Int
+    public let stickUsedMib: Double?
+    public let tracksSizeMib: Double?
+    public let readSpeedMibS: Double?
+    public let expectedDurationS: Int?
+    public let encodingKbps: Double?
+    public let encodingRateAnomaly: Bool
+    public let foundArtifactCount: Int
+    public let id3IssueCount: Int
+    public let validationErrors: String?
+    public let passed: Bool
+    public let verifiedAt: String
+
+    init(row: DBRow) {
+        verificationId = row["id"]?.intValue ?? 0
+        deviceId = row["device_id"]?.intValue
+        masterWriteId = row["master_write_id"]?.intValue
+        sku = row["sku"]?.stringValue
+        detectedSku = row["detected_sku"]?.stringValue
+        detectedIsbn = row["detected_isbn"]?.stringValue
+        trackCount = row["track_count"]?.intValue ?? 0
+        stickUsedMib = row["stick_used_mib"]?.doubleValue
+        tracksSizeMib = row["tracks_size_mib"]?.doubleValue
+        readSpeedMibS = row["read_speed_mib_s"]?.doubleValue
+        expectedDurationS = row["expected_duration_s"]?.intValue
+        encodingKbps = row["encoding_kbps"]?.doubleValue
+        encodingRateAnomaly = (row["encoding_rate_anomaly"]?.intValue ?? 0) != 0
+        foundArtifactCount = row["found_artifact_count"]?.intValue ?? 0
+        id3IssueCount = row["id3_issue_count"]?.intValue ?? 0
+        validationErrors = row["validation_errors"]?.stringValue
+        passed = (row["passed"]?.intValue ?? 0) != 0
+        verifiedAt = row["verified_at"]?.stringValue ?? ""
+    }
+}
+
+/// A specific physical master block's write/verify history -- "is this
+/// block an accurate copy of the master." `isAccurate` reads the most
+/// recent verification only: an old pass doesn't vouch for content
+/// that's since been rewritten or degraded.
+public struct MasterBlockHistory: Equatable {
+    public let device: DeviceRecord?
+    public let writes: [MasterWriteRecord]
+    public let verifications: [MasterVerificationRecord]
+
+    public var isEmpty: Bool { writes.isEmpty && verifications.isEmpty }
+    public var isAccurate: Bool? { verifications.last?.passed }
+}

@@ -79,7 +79,32 @@ public final class USBMonitor: ObservableObject {
     // MARK: - State updates
 
     private func handle(disk: DADisk) {
-        guard let info = Self.describe(disk: disk), info.isCandidate else { return }
+        guard let info = Self.describe(disk: disk) else { return }
+        guard info.isCandidate else {
+            // Not the whole disk itself -- almost always its partition
+            // slice (isWhole false). For an MBR-partitioned master, the
+            // partition is where mounting actually happens, so THIS is
+            // the event that fires (appeared, the first time it's seen
+            // mounted, or description-changed on an already-known one)
+            // once the volume is ready -- not anything on the whole
+            // disk's own description. Without re-resolving the parent
+            // here, a drive whose whole-disk "appeared" callback fired
+            // before its partition finished mounting (a real race on
+            // hot-insert -- see partitionVolumeInfo's fallback in
+            // describe()) gets stuck in `drives` with mountPath nil
+            // forever: its entry never gets touched again because every
+            // subsequent signal targets the partition's DADisk, which
+            // isCandidate always rejects.
+            guard let wholeDisk = DADiskCopyWholeDisk(disk), let wholeInfo = Self.describe(disk: wholeDisk), wholeInfo.isCandidate else {
+                return
+            }
+            upsert(wholeInfo)
+            return
+        }
+        upsert(info)
+    }
+
+    private func upsert(_ info: USBDriveInfo) {
         if let idx = drives.firstIndex(where: { $0.bsdName == info.bsdName }) {
             drives[idx] = info
         } else {
@@ -179,9 +204,23 @@ public final class USBMonitor: ObservableObject {
         let protocolName = desc[kDADiskDescriptionDeviceProtocolKey as String] as? String ?? ""
         let sizeBytes = (desc[kDADiskDescriptionMediaSizeKey as String] as? NSNumber)?.int64Value ?? 0
         let mediaName = desc[kDADiskDescriptionMediaNameKey as String] as? String
-        let volumeName = desc[kDADiskDescriptionVolumeNameKey as String] as? String
-        let volumeKind = desc[kDADiskDescriptionVolumeKindKey as String] as? String
-        let volumeURL = desc[kDADiskDescriptionVolumePathKey as String] as? URL
+        var volumeName = desc[kDADiskDescriptionVolumeNameKey as String] as? String
+        var volumeKind = desc[kDADiskDescriptionVolumeKindKey as String] as? String
+        var volumeURL = desc[kDADiskDescriptionVolumePathKey as String] as? URL
+
+        // MBR-partitioned masters (this app's default imageFormat) put
+        // their FAT32 filesystem on the first partition slice, not on
+        // the whole disk -- DiskArbitration's volume-level keys above
+        // only ever populate on the partition's own DADisk object,
+        // which isCandidate's isWhole requirement filters out of this
+        // list entirely. Without this fallback, an MBR drive looks
+        // permanently unmounted here (no capacity/volume/mount info,
+        // Check Master disabled) even once it's actually mounted.
+        if volumeURL == nil, let partition = partitionVolumeInfo(forWholeDiskBSDName: bsdName) {
+            volumeName = partition.volumeName ?? volumeName
+            volumeKind = partition.volumeKind ?? volumeKind
+            volumeURL = partition.mountPath.map { URL(fileURLWithPath: $0) }
+        }
 
         var total: Int64?
         var available: Int64?
@@ -206,6 +245,38 @@ public final class USBMonitor: ObservableObject {
             totalCapacityBytes: total,
             availableCapacityBytes: available,
             serialNumber: USBSerialLookup.serialNumber(forBSDName: bsdName)
+        )
+    }
+
+    private struct PartitionVolumeInfo {
+        let mountPath: String?
+        let volumeName: String?
+        let volumeKind: String?
+    }
+
+    /// `diskutil info <bsdName>s1` -- only ever tries "s1" since this
+    /// app never creates more than one partition (see MBRImageBuilder).
+    /// Fails harmlessly (nil) for a bare-FAT superfloppy disk, which has
+    /// no "s1" slice to query -- that layout's volume info already
+    /// comes through directly on the whole disk's own DiskArbitration
+    /// description, so this fallback is simply never needed there.
+    private static func partitionVolumeInfo(forWholeDiskBSDName bsdName: String) -> PartitionVolumeInfo? {
+        guard let output = try? Shell.run("/usr/sbin/diskutil", ["info", "\(bsdName)s1"]) else { return nil }
+
+        func field(_ label: String) -> String? {
+            for line in output.split(separator: "\n") where line.contains(label) {
+                let value = line.split(separator: ":", maxSplits: 1).last?.trimmingCharacters(in: .whitespaces)
+                return (value?.isEmpty == false) ? value : nil
+            }
+            return nil
+        }
+
+        let mountPath = field("Mount Point:")
+        guard mountPath != nil, mountPath != "Not applicable (no file system)" else { return nil }
+        return PartitionVolumeInfo(
+            mountPath: mountPath,
+            volumeName: field("Volume Name:"),
+            volumeKind: field("File System Personality:")
         )
     }
 }

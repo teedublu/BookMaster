@@ -6,6 +6,15 @@ import Foundation
 /// in a dependency for something this contained.
 enum CSVParser {
     static func parse(_ text: String) -> [[String]] {
+        // Swift's Character is a grapheme cluster, and "\r\n" composes
+        // into a single one -- it matches neither the "\r" nor the "\n"
+        // case below, so an unnormalized CRLF file (e.g. exported from
+        // Google Sheets/Excel) would fall through to the default case
+        // and never break a line at all, silently collapsing the whole
+        // file into one row. Normalizing every line-ending style to a
+        // bare "\n" up front keeps the per-character switch below
+        // correct regardless of where the file came from.
+        let text = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
         var rows: [[String]] = []
         var currentRow: [String] = []
         var field = ""
@@ -79,6 +88,18 @@ public enum BooksCatalog {
 
     public static func lookup(isbn: String) -> BookRow? {
         shared[isbn]
+    }
+
+    /// books.csv's Duration column is H:MM (hours:minutes), not the
+    /// MM:SS/HH:MM:SS elapsed-time format DuplicatorLogParser deals
+    /// with -- an audiobook's declared runtime is always well over a
+    /// minute, so treating "01:18" as 1h18m (not 1m18s) is the only
+    /// sane reading.
+    public static func parseDurationSeconds(_ raw: String?) -> Int? {
+        guard let raw, !raw.isEmpty else { return nil }
+        let parts = raw.trimmingCharacters(in: .whitespaces).split(separator: ":").map(String.init)
+        guard parts.count == 2, let hours = Int(parts[0]), let minutes = Int(parts[1]) else { return nil }
+        return hours * 3600 + minutes * 60
     }
 
     private static func load() -> [String: BookRow] {

@@ -13,13 +13,29 @@ struct ContentView: View {
     @StateObject private var camera = CameraScanner()
     @State private var selectedDriveID: String?
     @State private var loggedDriveIDs: Set<String> = []
+    /// Last-known mountPath per drive id, purely to detect the nil ->
+    /// non-nil transition ("check on mount" should fire once per mount,
+    /// not on every unrelated drives-array change).
+    @State private var driveMountPaths: [String: String] = [:]
     @State private var isBuilding = false
     @State private var isCancellingBuild = false
     @State private var buildProgress: Double = 0
     @State private var buildPhaseDescription = ""
     @State private var buildTask: Task<Void, Never>?
     @State private var verificationResult: VerificationResult?
+    /// Live per-check status for the Checks panel's status dots, keyed
+    /// by DriveCheckOptions.displayName ("Metadata", "Speed", ...).
+    /// Missing key == idle/never run. Cleared whenever the selected
+    /// drive changes, same as verificationResult -- these dots describe
+    /// whichever drive is on screen.
+    @State private var checkStatuses: [String: CheckRunStatus] = [:]
+    /// Per-file progress for whichever of Silence/Loudness/Frames is
+    /// currently running, keyed the same way as checkStatuses -- lets
+    /// the status dot fill in gradually across all tracks instead of
+    /// jumping straight from running to done after the first one.
+    @State private var checkProgress: [String: (current: Int, total: Int)] = [:]
     @State private var isVerifying = false
+    @State private var verifyTask: Task<Void, Never>?
     @State private var fixRemoveArtifacts = true
     @State private var fixCleanID3Tags = true
     @State private var isFixing = false
@@ -27,6 +43,7 @@ struct ContentView: View {
     @State private var productionStats: ProductionStats?
     @State private var blockHistory: DeviceHistory?
     @State private var selectedTab: AppTab = .create
+    @State private var verifySubTab: VerifySubTab = .blocks
     @State private var metadataMode: MetadataMode = .single
     @State private var isBatchRunning = false
     @State private var batchSummary: (success: Int, failed: Int)?
@@ -51,6 +68,20 @@ struct ContentView: View {
     // Separate from `camera` (Create Master's ISBN-lookup webcam) so the
     // two scan flows never cross-talk through a shared onChange handler.
     @StateObject private var writeCamera = CameraScanner()
+    // Master Content Check (single master)
+    @State private var masterAuditInput = ""
+    @State private var masterAuditCheckImage = false
+    @State private var isMasterAuditRunning = false
+    @State private var masterAuditResult: MasterContentAuditResult?
+    @State private var masterAuditError: String?
+    // Master Content Check (whole library)
+    @State private var libraryAuditCheckImage = false
+    @State private var isLibraryAuditRunning = false
+    @State private var libraryAuditTask: Task<Void, Never>?
+    @State private var libraryAuditResults: [MasterContentAuditResult] = []
+    @State private var libraryAuditProgress: (done: Int, total: Int)?
+    @State private var libraryAuditCurrentName: String?
+    @State private var libraryAuditError: String?
 
     private var productionLog: ProductionLog? { productionLogStore.log }
 
@@ -65,7 +96,26 @@ struct ContentView: View {
         return URL(fileURLWithPath: trimmed, isDirectory: true)
     }
 
-    private let availableTests = ["Silence", "Loudness", "Metadata", "Frames", "Speed"]
+    // Grouped by actual cost, not the Python UI's flat list: Metadata
+    // (ID3 header read) and Speed (fixed-size raw read) are roughly
+    // constant-time; Silence/Loudness/Frames each decode every track's
+    // full audio via ffmpeg, so they scale with total book duration.
+    // "Check on mount" only ever auto-runs the fast group -- see
+    // DriveCheckOptions.fast/.slow in DriveVerifier.swift.
+    private let fastTests = ["Metadata", "Speed"]
+    private let slowTests = ["Silence", "Loudness", "Frames"]
+    private var availableTests: [String] { fastTests + slowTests }
+
+    /// Settings.usbDriveTests as a DriveCheckOptions set -- honored
+    /// literally, including empty (nothing checked means run nothing,
+    /// matching what the Checks panel visibly shows). The "give
+    /// everyone a useful default" job belongs to usbDriveTests's own
+    /// default value, not this getter -- resolving "" to .all here
+    /// silently overrode an explicit all-unchecked state with a full
+    /// deep scan while every box still rendered empty.
+    private var enabledDriveChecks: DriveCheckOptions {
+        DriveCheckOptions(commaSeparatedNames: settingsStore.settings.usbDriveTests)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -81,6 +131,7 @@ struct ContentView: View {
                 Group {
                     switch selectedTab {
                     case .create: createMasterTab
+                    case .writeMaster: writeMasterTab
                     case .verify: verifyMasterTab
                     case .dataImport: importTab
                     }
@@ -134,6 +185,17 @@ struct ContentView: View {
             if selectedDriveID == nil, let first = newDrives.first {
                 selectedDriveID = first.id
             }
+            for drive in newDrives {
+                let wasMounted = driveMountPaths[drive.id] != nil
+                if let mountPath = drive.mountPath {
+                    driveMountPaths[drive.id] = mountPath
+                    if !wasMounted, settingsStore.settings.usbDriveCheckOnMount {
+                        autoCheckOnMount(drive: drive)
+                    }
+                } else {
+                    driveMountPaths.removeValue(forKey: drive.id)
+                }
+            }
         }
         .onChange(of: settingsStore.settings.useWebcam) { enabled in
             if enabled {
@@ -157,6 +219,8 @@ struct ContentView: View {
         }
         .onChange(of: selectedDriveID) { _ in
             verificationResult = nil
+            checkStatuses = [:]
+            checkProgress = [:]
             blockHistory = lookUpHistory(for: selectedDrive)
         }
         .onChange(of: writeCamera.lastDetectedISBN) { isbn in
@@ -195,12 +259,14 @@ struct ContentView: View {
 
     private enum AppTab: String, CaseIterable {
         case create = "Create Master"
+        case writeMaster = "Write Master"
         case verify = "Verify Master"
         case dataImport = "Import"
 
         var icon: String {
             switch self {
             case .create: return "square.and.pencil"
+            case .writeMaster: return "externaldrive.fill.badge.plus"
             case .verify: return "checkmark.shield"
             case .dataImport: return "tray.and.arrow.down"
             }
@@ -209,6 +275,7 @@ struct ContentView: View {
         var tint: Color {
             switch self {
             case .create: return .blue
+            case .writeMaster: return .purple
             case .verify: return .green
             case .dataImport: return .orange
             }
@@ -313,30 +380,75 @@ struct ContentView: View {
         }
     }
 
-    private var verifyMasterTab: some View {
+    private var writeMasterTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                verifyActionsSection
-                writeToBlockSection
-                // A plain (non-scrolling) HStack here would overflow once the
-                // log sidebar eats into the window's width -- SwiftUI's
-                // vertical ScrollView center-clips oversized cross-axis
-                // content rather than left-aligning it, which silently cuts
-                // the leading panel off the left edge instead of the
-                // trailing one off the right. Its own horizontal ScrollView
-                // makes that overflow scroll (leading-anchored) instead.
-                ScrollView(.horizontal, showsIndicators: true) {
-                    HStack(alignment: .top, spacing: 16) {
-                        usbDrivesPanel
-                        bookInfoPanel
-                        usbChecksPanel
-                        masterFixPanel
-                        blockHistoryPanel
-                    }
+                HStack(alignment: .top, spacing: 16) {
+                    writeToBlockSection
+                    usbDrivesPanel(title: "Write to...")
                 }
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Blocks (a live connected drive -- DriveVerifier's mounted-USB
+    /// checks) and Files (build-output masters on disk -- Master
+    /// Content Check) are different enough concerns, with entirely
+    /// different data sources, that folding them into one scrolling
+    /// column was getting crowded -- split the same way Write Master's
+    /// Enter/Scan/List picker already splits by input mode.
+    private enum VerifySubTab: String, CaseIterable {
+        case blocks = "Blocks"
+        case files = "Files"
+    }
+
+    private var verifySubTabBar: some View {
+        HStack(spacing: 6) {
+            ForEach(VerifySubTab.allCases, id: \.self) { tab in
+                Button(tab.rawValue) { verifySubTab = tab }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: verifySubTab == tab ? .bold : .regular))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(verifySubTab == tab ? Color.accentColor.opacity(0.15) : Color.clear)
+                    .foregroundStyle(verifySubTab == tab ? Color.accentColor : .secondary)
+                    .clipShape(Capsule())
+            }
+        }
+    }
+
+    private var verifyMasterTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                verifySubTabBar
+                switch verifySubTab {
+                case .blocks: blocksCheckSection
+                case .files: masterContentAuditSection
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var blocksCheckSection: some View {
+        // A plain (non-scrolling) HStack here would overflow once the
+        // log sidebar eats into the window's width -- SwiftUI's
+        // vertical ScrollView center-clips oversized cross-axis
+        // content rather than left-aligning it, which silently cuts
+        // the leading panel off the left edge instead of the
+        // trailing one off the right. Its own horizontal ScrollView
+        // makes that overflow scroll (leading-anchored) instead.
+        ScrollView(.horizontal, showsIndicators: true) {
+            HStack(alignment: .top, spacing: 16) {
+                usbDrivesPanel(title: "Select Drive", showCheckMasterButton: true)
+                bookInfoPanel
+                usbChecksPanel
+                masterFixPanel
+                blockHistoryPanel
+            }
         }
     }
 
@@ -610,20 +722,279 @@ struct ContentView: View {
         }
     }
 
-    // MARK: Verify Master actions
+    // MARK: Master Content Check (build-output completeness audit --
+    // distinct from Check Master above, which inspects a live mounted
+    // drive. This inspects <outputFolder>/<sku>/{master,image} on disk,
+    // catching a master that's silently missing content before it's
+    // ever written to a block.)
 
-    private var verifyActionsSection: some View {
-        GroupBox {
-            HStack(spacing: 16) {
-                Button(isVerifying ? "Verifying\u{2026}" : "Check Master") {
-                    checkMaster()
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(selectedDrive?.mountPath == nil || isVerifying)
-                .help(selectedDrive?.mountPath == nil ? "Selected drive isn't mounted -- mount it first." : "")
-                if isVerifying { ProgressView().controlSize(.small) }
-                Spacer()
+    private var masterContentAuditSection: some View {
+        GroupBox("Master Content Check") {
+            VStack(alignment: .leading, spacing: 12) {
+                singleMasterAuditRow
+                Divider()
+                libraryAuditRow
             }
+        }
+    }
+
+    private var singleMasterAuditRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                TextField("ISBN or SKU", text: $masterAuditInput)
+                    .frame(maxWidth: 200)
+                    .onSubmit { runSingleMasterAudit() }
+                Button(isMasterAuditRunning ? "Checking\u{2026}" : "Check Master") { runSingleMasterAudit() }
+                    .disabled(masterAuditInput.trimmingCharacters(in: .whitespaces).isEmpty || isMasterAuditRunning)
+                Toggle("Check inside .IMG", isOn: $masterAuditCheckImage)
+                    .help("Mounts the built .img read-only to also count/size tracks inside it. Slower (one hdiutil attach/detach per check).")
+                if isMasterAuditRunning { ProgressView().controlSize(.small) }
+            }
+            if let masterAuditError {
+                Text(masterAuditError).font(.caption2).foregroundStyle(.red)
+            }
+            if let masterAuditResult {
+                masterAuditResultView(masterAuditResult)
+            }
+        }
+    }
+
+    private var libraryAuditRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Text("Masters Library:").frame(width: 110, alignment: .trailing)
+                TextField("", text: $settingsStore.settings.mastersLibraryPath)
+                Button("Browse") { browseForMastersLibraryFolder() }
+            }
+            HStack(spacing: 12) {
+                Button(isLibraryAuditRunning ? "Scanning\u{2026}" : "Scan All Masters") { runLibraryAudit() }
+                    .disabled(effectiveMastersLibraryPath.isEmpty || isLibraryAuditRunning)
+                if isLibraryAuditRunning {
+                    Button("Cancel") { cancelLibraryAudit() }
+                }
+                Toggle("Check inside .IMG", isOn: $libraryAuditCheckImage)
+                    .help("Mounts every found .img read-only -- with a large library this means hundreds of sequential hdiutil attach/detach cycles, so it's off by default.")
+            }
+            if isLibraryAuditRunning || libraryAuditProgress != nil {
+                libraryAuditProgressView
+            }
+            if let libraryAuditError {
+                Text(libraryAuditError).font(.caption2).foregroundStyle(.red)
+            }
+            if !libraryAuditResults.isEmpty {
+                libraryAuditResultsView
+            }
+        }
+    }
+
+    /// mastersLibraryPath defaults to outputFolder until the user points
+    /// it elsewhere -- outputFolder is already where every master this
+    /// machine builds lands, so it's the obviously-correct starting
+    /// point rather than an empty field the operator has to fill in
+    /// before this section does anything.
+    private var effectiveMastersLibraryPath: String {
+        let explicit = settingsStore.settings.mastersLibraryPath.trimmingCharacters(in: .whitespaces)
+        return explicit.isEmpty ? settingsStore.settings.outputFolder : explicit
+    }
+
+    /// A determinate progress bar plus the specific master currently
+    /// being checked -- a bare "N/M" counter that only ever advances
+    /// once a master finishes leaves the operator staring at a stale
+    /// number for however long the current one (mounting/reading an
+    /// .img can take a few seconds) takes.
+    private var libraryAuditProgressView: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if let libraryAuditProgress {
+                ProgressView(value: Double(libraryAuditProgress.done), total: Double(max(libraryAuditProgress.total, 1)))
+                    .frame(maxWidth: .infinity)
+            }
+            HStack {
+                if let libraryAuditProgress {
+                    Text("\(libraryAuditProgress.done)/\(libraryAuditProgress.total)")
+                }
+                if let libraryAuditCurrentName {
+                    Text(isLibraryAuditRunning ? "Checking \(libraryAuditCurrentName)\u{2026}" : "Last: \(libraryAuditCurrentName)")
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private func masterAuditResultView(_ result: MasterContentAuditResult) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: result.isClean ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .foregroundStyle(result.isClean ? .green : .red)
+                Text(result.sku).bold()
+                Text(result.isbn ?? "no ISBN").foregroundStyle(.secondary)
+            }
+            .font(.caption)
+            detailRow("count.txt", result.declaredCount.map(String.init) ?? "-")
+            detailRow("master/tracks", result.masterTracks.map { "\($0.fileCount) files, \(mib(from: $0.totalBytes)) MiB" } ?? "-")
+            if result.imageChecked {
+                detailRow("image/tracks", result.imageTracks.map { "\($0.fileCount) files, \(mib(from: $0.totalBytes)) MiB" } ?? "not found")
+            }
+            detailRow("checksum.txt", result.checksumMatches == true ? "Matches" : (result.checksumMatches == false ? "Mismatch" : "-"))
+            detailRow("Catalog Duration", formatDuration(result.expectedDurationSeconds))
+            detailRow("Expected Size", result.expectedSizeBytes.map { "\(mib(from: $0)) MiB" } ?? "-")
+            if !result.issues.isEmpty {
+                ForEach(Array(result.issues.enumerated()), id: \.offset) { _, issue in
+                    Text("\u{2022} \(issue)").font(.caption2).foregroundStyle(.red)
+                }
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    private var libraryAuditResultsView: some View {
+        let cleanCount = libraryAuditResults.filter(\.isClean).count
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("\(cleanCount)/\(libraryAuditResults.count) clean")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(libraryAuditResults) { result in
+                        HStack(spacing: 6) {
+                            Image(systemName: result.isClean ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                .foregroundStyle(result.isClean ? .green : .red)
+                            Text(result.sku)
+                            if !result.isClean {
+                                Text(result.issues.joined(separator: "; "))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .font(.caption2)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 140)
+        }
+    }
+
+    private func mib(from bytes: Int64) -> Double {
+        (Double(bytes) / 1024.0 / 1024.0 * 10).rounded() / 10
+    }
+
+    /// A one-line summary of exactly what a Master Content Check looked
+    /// at, for the log -- the pass/fail badge shown in the UI doesn't
+    /// say what was actually inspected, which matters when the operator
+    /// wants to confirm a check really did read count.txt/tracks/the
+    /// image rather than just trust a green checkmark.
+    private func auditSummaryLine(_ result: MasterContentAuditResult) -> String {
+        var parts: [String] = ["id.txt=\(result.isbn ?? "missing")"]
+        parts.append("count.txt=\(result.declaredCount.map(String.init) ?? "missing")")
+        if let masterTracks = result.masterTracks {
+            parts.append("master/tracks=\(masterTracks.fileCount) files (\(mib(from: masterTracks.totalBytes)) MiB)")
+        } else {
+            parts.append("master/tracks=missing")
+        }
+        if result.imageChecked {
+            if let imageTracks = result.imageTracks {
+                parts.append("image=\(imageTracks.fileCount) files (\(mib(from: imageTracks.totalBytes)) MiB)")
+            } else {
+                parts.append("image=not found")
+            }
+        }
+        parts.append("checksum=\(result.checksumMatches == true ? "match" : (result.checksumMatches == false ? "MISMATCH" : "unknown"))")
+        if let expectedSizeBytes = result.expectedSizeBytes {
+            parts.append("expected \u{2248}\(mib(from: expectedSizeBytes)) MiB (\(formatDuration(result.expectedDurationSeconds)))")
+        }
+        let status = result.isClean ? "OK" : "\(result.issues.count) issue(s) \u{2014} \(result.issues.joined(separator: "; "))"
+        return "\(result.sku): \(status) [\(parts.joined(separator: ", "))]"
+    }
+
+    private func runSingleMasterAudit() {
+        let input = masterAuditInput.trimmingCharacters(in: .whitespaces)
+        guard !input.isEmpty else { return }
+        masterAuditError = nil
+        masterAuditResult = nil
+        isMasterAuditRunning = true
+        let checkImage = masterAuditCheckImage
+        let outputFolder = URL(fileURLWithPath: settingsStore.settings.outputFolder)
+
+        switch MasterResolver.resolve(input: input, outputFolder: outputFolder, productionLog: productionLog) {
+        case .success(let resolved):
+            let masterRoot = resolved.imagePath.deletingLastPathComponent().deletingLastPathComponent()
+            log.append("Checking master content for \(resolved.sku)\u{2026}")
+            Task {
+                let result = MasterContentAuditor.audit(
+                    masterRoot: masterRoot, checkImageContents: checkImage,
+                    log: { message in Task { @MainActor in log.append(message) } }
+                )
+                masterAuditResult = result
+                isMasterAuditRunning = false
+                log.append(auditSummaryLine(result))
+            }
+        case .failure(let error):
+            masterAuditError = error.description
+            isMasterAuditRunning = false
+        }
+    }
+
+    private func runLibraryAudit() {
+        let path = effectiveMastersLibraryPath
+        guard !path.isEmpty else { return }
+        libraryAuditError = nil
+        libraryAuditResults = []
+        libraryAuditProgress = nil
+        libraryAuditCurrentName = nil
+        isLibraryAuditRunning = true
+        let checkImage = libraryAuditCheckImage
+        let root = URL(fileURLWithPath: path)
+        log.append("Scanning \(path) for masters\u{2026}")
+
+        libraryAuditTask = Task {
+            do {
+                let results = try await MasterContentAuditor.auditLibrary(
+                    under: root, checkImageContents: checkImage,
+                    onStart: { done, total, name in
+                        Task { @MainActor in
+                            libraryAuditProgress = (done - 1, total)
+                            libraryAuditCurrentName = name
+                        }
+                    },
+                    onResult: { done, total, result in
+                        Task { @MainActor in
+                            libraryAuditProgress = (done, total)
+                            libraryAuditResults.append(result)
+                            log.append(auditSummaryLine(result))
+                        }
+                    },
+                    log: { message in Task { @MainActor in log.append(message) } }
+                )
+                let cleanCount = results.filter(\.isClean).count
+                log.append("Master library scan complete: \(cleanCount)/\(results.count) clean.")
+            } catch is CancellationError {
+                log.append("Master library scan cancelled.")
+            } catch {
+                libraryAuditError = "\(error)"
+                log.append("Master library scan failed: \(error)")
+            }
+            isLibraryAuditRunning = false
+            libraryAuditTask = nil
+        }
+    }
+
+    private func cancelLibraryAudit() {
+        log.append("Cancelling master library scan\u{2026}")
+        libraryAuditTask?.cancel()
+    }
+
+    private func browseForMastersLibraryFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        if !effectiveMastersLibraryPath.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: effectiveMastersLibraryPath)
+        }
+        if panel.runModal() == .OK, let url = panel.url {
+            settingsStore.settings.mastersLibraryPath = url.path
+            log.append("Masters library folder set to \(url.path)")
         }
     }
 
@@ -989,6 +1360,52 @@ struct ContentView: View {
     /// cleanup) — replaces the old checksum-only Check Master
     /// (MasterReader is still available for anything that specifically
     /// wants the build-time checksum, but this is the primary path now).
+    /// Logs everything a VerificationResult found, independent of
+    /// whether identity (SKU/ISBN) passed -- artifact/track/audio/ID3
+    /// checks all run and complete regardless, so a failed identity
+    /// check shouldn't mean losing visibility into the rest.
+    private func logVerificationDetails(_ result: VerificationResult) {
+        let rateNote = result.encodingRateAnomaly ? " \u{26A0}\u{FE0F} encoding rate anomaly" : ""
+        log.append(
+            "SKU=\(result.detectedSKU ?? "-") ISBN=\(result.detectedISBN ?? "-") "
+            + "tracks=\(result.trackCount) read=\(result.readSpeedMibS.map { "\($0) MiB/s" } ?? "skipped") "
+            + "encoding=\(result.encodingKbps.map { "\($0)kbps" } ?? "-")\(rateNote)"
+        )
+        if result.foundArtifactCount > 0 {
+            log.append("Found \(result.foundArtifactCount) unexpected artifact(s): \(result.foundArtifactSamples.joined(separator: ", "))")
+        }
+        if let id3TagIssues = result.id3TagIssues, !id3TagIssues.isEmpty {
+            let detail = id3TagIssues.map { "\($0.fileName) (\($0.reason))" }.joined(separator: "; ")
+            log.append("\u{26A0}\u{FE0F} ID3 tag issues found on \(id3TagIssues.count) track file(s): \(detail)")
+        }
+        if let silenceIssues = result.silenceIssues, !silenceIssues.isEmpty {
+            let detail = silenceIssues.map { "\($0.fileName) (\($0.reason))" }.joined(separator: "; ")
+            log.append("\u{26A0}\u{FE0F} Silence found on \(silenceIssues.count) track file(s): \(detail)")
+        }
+        if let loudnessIssues = result.loudnessIssues, !loudnessIssues.isEmpty {
+            let detail = loudnessIssues.map { "\($0.fileName) (\($0.reason))" }.joined(separator: "; ")
+            log.append("\u{26A0}\u{FE0F} Loudness issues on \(loudnessIssues.count) track file(s): \(detail)")
+        }
+        if let frameErrorIssues = result.frameErrorIssues, !frameErrorIssues.isEmpty {
+            let detail = frameErrorIssues.map { "\($0.fileName) (\($0.reason))" }.joined(separator: "; ")
+            log.append("\u{26A0}\u{FE0F} Frame errors on \(frameErrorIssues.count) track file(s): \(detail)")
+        }
+    }
+
+    /// Clears the panel's status dot for every check about to run back
+    /// to idle, immediately (not waiting for verify() to reach each one)
+    /// -- otherwise a check further down the run order keeps showing
+    /// its previous pass/fail color for however long it takes verify()
+    /// to get to it, which reads as stale, not "about to run."
+    private func resetCheckStatuses(for checks: DriveCheckOptions) {
+        for option in DriveCheckOptions.allSingle where checks.contains(option) {
+            if let name = option.displayName {
+                checkStatuses[name] = nil
+                checkProgress[name] = nil
+            }
+        }
+    }
+
     private func checkMaster() {
         guard let drive = selectedDrive, let mountPath = drive.mountPath else {
             log.append("No mounted drive selected to check.")
@@ -996,35 +1413,125 @@ struct ContentView: View {
         }
         log.append("Verifying \(mountPath)\u{2026}")
         isVerifying = true
+        let checks = enabledDriveChecks
+        resetCheckStatuses(for: checks)
+        verifyTask = Task {
+            do {
+                let identity = USBSerialLookup.identity(forBSDName: drive.bsdName)
+                let result = try await DriveVerifier.verify(
+                    mountPoint: URL(fileURLWithPath: mountPath),
+                    rawDevicePath: drive.rawDevicePath,
+                    checks: checks,
+                    deepAudioInspect: true,
+                    loudnessTolerancePercent: settingsStore.settings.loudnessTolerancePercent,
+                    productionLog: productionLog,
+                    serial: drive.serialNumber,
+                    vid: identity?.vid,
+                    pid: identity?.pid
+                ) { message in
+                    Task { @MainActor in log.append(message) }
+                } checkStatus: { option, status in
+                    guard let name = option.displayName else { return }
+                    Task { @MainActor in checkStatuses[name] = status }
+                } checkProgress: { option, current, total in
+                    guard let name = option.displayName else { return }
+                    Task { @MainActor in checkProgress[name] = (current, total) }
+                }
+                verificationResult = VerificationResult.merged(previous: verificationResult, new: result)
+                log.append("Verified:")
+                logVerificationDetails(result)
+            } catch is CancellationError {
+                clearRunningCheckStatuses()
+                log.append("Verification cancelled.")
+            } catch let error as DriveVerifierError {
+                if case .verificationFailed(let errors, let partialResult) = error {
+                    // Still show everything else this run found --
+                    // identity failing isn't a reason to discard the
+                    // track count, artifact scan, and ID3 results that
+                    // already completed successfully.
+                    verificationResult = VerificationResult.merged(previous: verificationResult, new: partialResult)
+                    log.append("Verification failed: \(errors.joined(separator: "; "))")
+                    logVerificationDetails(partialResult)
+                } else {
+                    log.append("Verification failed: \(error)")
+                }
+            } catch {
+                log.append("Verification failed: \(error)")
+            }
+            isVerifying = false
+            verifyTask = nil
+        }
+    }
+
+    /// A check still mid-run when cancellation lands never reached its
+    /// own pass/fail -- leaving its dot on "running" would read as a
+    /// hung check rather than one that was stopped on purpose.
+    private func clearRunningCheckStatuses() {
+        for (name, status) in checkStatuses where status == .running {
+            checkStatuses[name] = nil
+            checkProgress[name] = nil
+        }
+    }
+
+    private func cancelVerification() {
+        verifyTask?.cancel()
+        log.append("Cancelling verification\u{2026}")
+    }
+
+    /// "Check on mount" -- fires once per drive on the nil -> non-nil
+    /// mountPath transition (see the usbMonitor.drives onChange
+    /// handler), running only the Fast subset of whatever's enabled in
+    /// the Checks panel. Deliberately independent of `selectedDrive`:
+    /// the drive that just mounted isn't necessarily the one already
+    /// selected, but its result should still only replace what's on
+    /// screen when it is.
+    private func autoCheckOnMount(drive: USBDriveInfo) {
+        guard let mountPath = drive.mountPath else { return }
+        let checks = enabledDriveChecks.intersection(.fast)
+        guard !checks.isEmpty else { return }
+        log.append("Drive mounted: \(drive.volumeName ?? drive.bsdName) \u{2014} running fast checks (check on mount)\u{2026}")
+        // The status dots represent whichever drive is currently
+        // selected/displayed -- only touch them here when that's the
+        // drive this auto-check is actually for, so a background mount
+        // event for a different drive can't flicker what's on screen.
+        if drive.id == selectedDriveID { resetCheckStatuses(for: checks) }
+        let identity = USBSerialLookup.identity(forBSDName: drive.bsdName)
         Task {
             do {
                 let result = try await DriveVerifier.verify(
                     mountPoint: URL(fileURLWithPath: mountPath),
                     rawDevicePath: drive.rawDevicePath,
-                    skipSpeedTest: false,
-                    deepAudioInspect: true,
+                    checks: checks,
+                    deepAudioInspect: false,
+                    loudnessTolerancePercent: settingsStore.settings.loudnessTolerancePercent,
                     productionLog: productionLog,
-                    serial: drive.serialNumber
-                )
-                verificationResult = result
-                let rateNote = result.encodingRateAnomaly ? " \u{26A0}\u{FE0F} encoding rate anomaly" : ""
-                log.append(
-                    "Verified: SKU=\(result.detectedSKU ?? "-") ISBN=\(result.detectedISBN ?? "-") "
-                    + "tracks=\(result.trackCount) read=\(result.readSpeedMibS.map { "\($0) MiB/s" } ?? "skipped") "
-                    + "encoding=\(result.encodingKbps.map { "\($0)kbps" } ?? "-")\(rateNote)"
-                )
-                if result.foundArtifactCount > 0 {
-                    log.append("Found \(result.foundArtifactCount) unexpected artifact(s): \(result.foundArtifactSamples.joined(separator: ", "))")
+                    serial: drive.serialNumber,
+                    vid: identity?.vid,
+                    pid: identity?.pid
+                ) { message in
+                    Task { @MainActor in log.append("[\(drive.bsdName)] \(message)") }
+                } checkStatus: { option, status in
+                    guard drive.id == selectedDriveID, let name = option.displayName else { return }
+                    Task { @MainActor in checkStatuses[name] = status }
                 }
-                if result.hasID3TagIssues {
-                    let detail = result.id3TagIssues.map { "\($0.fileName) (\($0.reason))" }.joined(separator: "; ")
-                    log.append("\u{26A0}\u{FE0F} ID3 tag issues found on \(result.id3TagIssues.count) track file(s): \(detail)")
+                if drive.id == selectedDriveID {
+                    verificationResult = VerificationResult.merged(previous: verificationResult, new: result)
+                }
+                log.append("Check on mount (\(drive.bsdName)):")
+                logVerificationDetails(result)
+            } catch let error as DriveVerifierError {
+                if case .verificationFailed(let errors, let partialResult) = error {
+                    if drive.id == selectedDriveID {
+                        verificationResult = VerificationResult.merged(previous: verificationResult, new: partialResult)
+                    }
+                    log.append("Check on mount failed for \(drive.bsdName): \(errors.joined(separator: "; "))")
+                    logVerificationDetails(partialResult)
+                } else {
+                    log.append("Check on mount failed for \(drive.bsdName): \(error)")
                 }
             } catch {
-                verificationResult = nil
-                log.append("Verification failed: \(error)")
+                log.append("Check on mount failed for \(drive.bsdName): \(error)")
             }
-            isVerifying = false
         }
     }
 
@@ -1220,8 +1727,8 @@ struct ContentView: View {
         }
     }
 
-    private var usbDrivesPanel: some View {
-        GroupBox(usbMonitor.drives.isEmpty ? "No drives detected" : "Write to...") {
+    private func usbDrivesPanel(title: String, showCheckMasterButton: Bool = false) -> some View {
+        GroupBox(usbMonitor.drives.isEmpty ? "No drives detected" : title) {
             VStack(alignment: .leading, spacing: 6) {
                 if usbMonitor.drives.isEmpty {
                     Text("Waiting for USB devices...")
@@ -1234,6 +1741,20 @@ struct ContentView: View {
                     }
                     .frame(height: 60)
                 }
+                if showCheckMasterButton {
+                    HStack(spacing: 12) {
+                        Button(isVerifying ? "Verifying\u{2026}" : "Check Master") {
+                            checkMaster()
+                        }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(selectedDrive?.mountPath == nil || isVerifying)
+                        .help(selectedDrive?.mountPath == nil ? "Selected drive isn't mounted -- mount it first." : "")
+                        if isVerifying {
+                            Button("Cancel") { cancelVerification() }
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+                }
                 Divider()
                 Group {
                     detailRow("Capacity", selectedDrive.map { formatBytes($0.totalCapacityBytes) } ?? "-")
@@ -1241,13 +1762,14 @@ struct ContentView: View {
                     detailRow("FS", selectedDrive?.volumeKind ?? "-")
                     detailRow("Volume", selectedDrive?.volumeName ?? "-")
                     detailRow("Device", selectedDrive?.rawDevicePath ?? "-")
+                    detailRow("Serial", selectedDrive?.serialNumber ?? "-")
                 }
                 Divider()
                 if isVerifying {
                     HStack { ProgressView().controlSize(.small); Text("Verifying\u{2026}").font(.caption) }
                 }
                 Group {
-                    detailRow("Content", verificationResult == nil ? "-" : (verificationResult!.isValid ? "Valid" : "Invalid"))
+                    contentValidityRow
                     detailRow("SKU", verificationResult?.detectedSKU ?? "-")
                     detailRow("ISBN", verificationResult?.detectedISBN ?? "-")
                     detailRow("Tracks", verificationResult.map { String($0.trackCount) } ?? "-")
@@ -1256,6 +1778,13 @@ struct ContentView: View {
                     detailRow("Encoding", encodingRow)
                     detailRow("Artifacts Found", verificationResult.map { String($0.foundArtifactCount) } ?? "-")
                     id3TagsRow
+                    trackIssuesRow("Silence", issues: verificationResult?.silenceIssues)
+                    trackIssuesRow("Loudness", issues: verificationResult?.loudnessIssues)
+                    trackIssuesRow("Frames", issues: verificationResult?.frameErrorIssues)
+                }
+                if let verificationResult, !verificationResult.validationErrors.isEmpty {
+                    Divider()
+                    verificationIssuesSection(verificationResult.validationErrors)
                 }
             }
             .frame(width: 240, alignment: .leading)
@@ -1265,6 +1794,37 @@ struct ContentView: View {
     private var encodingRow: String {
         guard let result = verificationResult, let kbps = result.encodingKbps else { return "-" }
         return result.encodingRateAnomaly ? "\(kbps)kbps \u{26A0}\u{FE0F}" : "\(kbps)kbps"
+    }
+
+    private var contentValidityRow: some View {
+        HStack {
+            Text("Content:").foregroundStyle(.secondary)
+            Spacer()
+            if let verificationResult {
+                Text(verificationResult.isValid ? "Valid" : "Invalid")
+                    .foregroundStyle(verificationResult.isValid ? .green : .red)
+                    .bold()
+            } else {
+                Text("-")
+            }
+        }
+        .font(.caption)
+    }
+
+    /// Surfaces validationErrors directly in the panel, not just the
+    /// log -- a failed Check Master used to just leave every field at
+    /// "-" with nothing to look at but a log line, so the only way to
+    /// know *why* was to go read the log.
+    private func verificationIssuesSection(_ errors: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                Text("Verification Issues").font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(Array(errors.enumerated()), id: \.offset) { _, error in
+                Text("\u{2022} \(error)").font(.caption2).foregroundStyle(.red)
+            }
+        }
     }
 
     /// Its own row rather than a plain detailRow -- an ID3 tag issue is
@@ -1278,12 +1838,12 @@ struct ContentView: View {
         HStack {
             Text("ID3 Tags:").foregroundStyle(.secondary)
             Spacer()
-            if let result = verificationResult {
-                if result.hasID3TagIssues {
-                    Label("\(result.id3TagIssues.count) issue(s)", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                } else {
+            if let issues = verificationResult?.id3TagIssues {
+                if issues.isEmpty {
                     Text("OK")
+                } else {
+                    Label("\(issues.count) issue(s)", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
                 }
             } else {
                 Text("-")
@@ -1295,7 +1855,31 @@ struct ContentView: View {
 
     private var id3TagsHelpText: String {
         guard let result = verificationResult, result.hasID3TagIssues else { return "" }
-        return result.id3TagIssues.map { "\($0.fileName): \($0.reason)" }.joined(separator: "\n")
+        return (result.id3TagIssues ?? []).map { "\($0.fileName): \($0.reason)" }.joined(separator: "\n")
+    }
+
+    /// Shared row for the Silence/Loudness/Frames checks -- same shape
+    /// as id3TagsRow, but `issues` is nil rather than empty when the
+    /// check wasn't part of this run (e.g. unchecked in the Checks
+    /// panel, or a "check on mount" fast-only pass), showing "-"
+    /// instead of a possibly-misleading "OK".
+    private func trackIssuesRow(_ label: String, issues: [TrackAudioIssue]?) -> some View {
+        HStack {
+            Text("\(label):").foregroundStyle(.secondary)
+            Spacer()
+            if let issues {
+                if issues.isEmpty {
+                    Text("OK")
+                } else {
+                    Label("\(issues.count) issue(s)", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                }
+            } else {
+                Text("-")
+            }
+        }
+        .font(.caption)
+        .help(issues?.map { "\($0.fileName): \($0.reason)" }.joined(separator: "\n") ?? "")
     }
 
     // MARK: Book info (catalog lookup by the verified drive's ISBN)
@@ -1308,16 +1892,8 @@ struct ContentView: View {
         return BooksCatalog.lookup(isbn: isbn)
     }
 
-    /// books.csv's Duration column is H:MM (hours:minutes), not the
-    /// MM:SS/HH:MM:SS elapsed-time format DuplicatorLogParser deals
-    /// with -- an audiobook's declared runtime is always well over a
-    /// minute, so treating "01:18" as 1h18m (not 1m18s) is the only
-    /// sane reading.
     private func parseCatalogDurationSeconds(_ raw: String?) -> Int? {
-        guard let raw, !raw.isEmpty else { return nil }
-        let parts = raw.trimmingCharacters(in: .whitespaces).split(separator: ":").map(String.init)
-        guard parts.count == 2, let hours = Int(parts[0]), let minutes = Int(parts[1]) else { return nil }
-        return hours * 3600 + minutes * 60
+        BooksCatalog.parseDurationSeconds(raw)
     }
 
     private func formatDuration(_ seconds: Int?) -> String {
@@ -1376,7 +1952,7 @@ struct ContentView: View {
                 if result.hasID3TagIssues {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 3) {
-                            ForEach(Array(result.id3TagIssues.enumerated()), id: \.offset) { _, issue in
+                            ForEach(Array((result.id3TagIssues ?? []).enumerated()), id: \.offset) { _, issue in
                                 Text("\(issue.fileName): \(issue.reason)")
                                     .font(.caption2)
                                     .foregroundStyle(.red)
@@ -1461,14 +2037,100 @@ struct ContentView: View {
 
     private var usbChecksPanel: some View {
         GroupBox("Checks to run...") {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 Toggle("Check on mount", isOn: $settingsStore.settings.usbDriveCheckOnMount)
-                ForEach(availableTests, id: \.self) { test in
-                    Toggle(test, isOn: testBinding(for: test))
+                Text("Runs the Fast checks automatically when a drive mounts.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Divider()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Fast").font(.caption).foregroundStyle(.secondary)
+                    ForEach(fastTests, id: \.self) { test in
+                        checkToggleRow(test)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Slow").font(.caption).foregroundStyle(.secondary)
+                    ForEach(slowTests, id: \.self) { test in
+                        checkToggleRow(test)
+                        if test == "Loudness" { loudnessToleranceRow }
+                    }
                 }
             }
-            .frame(width: 160, alignment: .leading)
+            .frame(width: 210, alignment: .leading)
         }
+    }
+
+    /// One check's toggle plus its live status dot -- outline while
+    /// idle/never run; while running, a ring that fills in as
+    /// checkProgress advances for the three per-track checks (Silence/
+    /// Loudness/Frames), or a plain solid blue dot for Metadata/Speed,
+    /// which don't have a natural "N of M" to report; solid green/red
+    /// once DriveVerifier's checkStatus callback reports pass/fail. See
+    /// DriveVerifier.CheckRunStatus.
+    private func checkToggleRow(_ test: String) -> some View {
+        HStack(spacing: 6) {
+            Toggle(test, isOn: testBinding(for: test))
+            Spacer()
+            checkStatusDot(for: test).help(checkStatusHelpText(for: test))
+        }
+    }
+
+    @ViewBuilder
+    private func checkStatusDot(for test: String) -> some View {
+        switch checkStatuses[test] {
+        case nil:
+            Circle().stroke(Color.secondary.opacity(0.5), lineWidth: 1).frame(width: 10, height: 10)
+        case .running:
+            if let progress = checkProgress[test], progress.total > 0 {
+                Circle()
+                    .trim(from: 0, to: min(1, CGFloat(progress.current) / CGFloat(progress.total)))
+                    .stroke(Color.blue, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .frame(width: 10, height: 10)
+                    // A hairline background ring so a just-started (0/N)
+                    // check still reads as "in progress," not identical
+                    // to the idle outline above.
+                    .background(Circle().stroke(Color.blue.opacity(0.2), lineWidth: 2.5).frame(width: 10, height: 10))
+            } else {
+                Circle().fill(Color.blue).frame(width: 10, height: 10)
+            }
+        case .passed:
+            Circle().fill(Color.green).frame(width: 10, height: 10)
+        case .failed:
+            Circle().fill(Color.red).frame(width: 10, height: 10)
+        }
+    }
+
+    private func checkStatusHelpText(for test: String) -> String {
+        switch checkStatuses[test] {
+        case nil: return "Not run yet"
+        case .running:
+            if let progress = checkProgress[test], progress.total > 0 {
+                return "Running\u{2026} (\(progress.current)/\(progress.total) tracks)"
+            }
+            return "Running\u{2026}"
+        case .passed: return "Passed"
+        case .failed(let issueCount): return issueCount > 0 ? "\(issueCount) issue(s) found" : "Failed"
+        }
+    }
+
+    /// Shows the LUFS target Loudness checks against and lets the
+    /// allowed +/- deviation be tuned from here rather than only in
+    /// code -- see Settings.loudnessTolerancePercent and
+    /// AudioAnalysis.loudnessIsCloseToTarget.
+    private var loudnessToleranceRow: some View {
+        HStack(spacing: 4) {
+            Text("Target \(formattedTargetLufs) LUFS \u{00B1}\(settingsStore.settings.loudnessTolerancePercent.formatted())%")
+                .font(.caption2).foregroundStyle(.secondary)
+            Stepper("", value: $settingsStore.settings.loudnessTolerancePercent, in: 1...50, step: 1)
+                .labelsHidden()
+        }
+        .padding(.leading, 20)
+    }
+
+    private var formattedTargetLufs: String {
+        let v = ConfigStore.shared.encoding.targetLufs
+        return v == v.rounded() ? String(Int(v)) : String(v)
     }
 
     // MARK: Import tab -- production log / duplicator ingestion (ports voxmaster's ingest-dupe/match-dupe/stats)

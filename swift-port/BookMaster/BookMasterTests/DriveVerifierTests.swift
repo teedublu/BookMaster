@@ -234,7 +234,7 @@ final class DriveVerifierTests: XCTestCase {
         ])
 
         let result = try await DriveVerifier.verify(
-            mountPoint: mountPoint, rawDevicePath: nil, skipSpeedTest: true, deepAudioInspect: true
+            mountPoint: mountPoint, rawDevicePath: nil, deepAudioInspect: true
         )
 
         XCTAssertTrue(result.isValid)
@@ -258,15 +258,21 @@ final class DriveVerifierTests: XCTestCase {
         defer { try? fm.removeItem(at: mountPoint) }
 
         do {
-            _ = try await DriveVerifier.verify(mountPoint: mountPoint, rawDevicePath: nil, skipSpeedTest: true, deepAudioInspect: false)
+            _ = try await DriveVerifier.verify(mountPoint: mountPoint, rawDevicePath: nil, deepAudioInspect: false)
             XCTFail("expected verification to fail for a drive with no identifiable SKU/ISBN")
         } catch let error as DriveVerifierError {
-            guard case .verificationFailed(let errors) = error else {
+            guard case .verificationFailed(let errors, let partialResult) = error else {
                 XCTFail("expected verificationFailed, got \(error)")
                 return
             }
             XCTAssertTrue(errors.contains { $0.contains("SKU") })
             XCTAssertTrue(errors.contains { $0.contains("ISBN") })
+            // Every other check still ran and is still available on the
+            // thrown error, not just the identity failure -- a caller
+            // shouldn't have to lose track count/artifacts/ID3 findings
+            // just because SKU/ISBN came back missing.
+            XCTAssertFalse(partialResult.isValid)
+            XCTAssertEqual(partialResult.validationErrors, errors)
         }
     }
 }
