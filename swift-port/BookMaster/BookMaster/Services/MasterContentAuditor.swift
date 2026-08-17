@@ -70,6 +70,89 @@ public enum MasterContentAuditor {
         return found
     }
 
+    /// One content root's id.txt/count.txt/tracks/checksum stats --
+    /// shared between an on-disk master's `master/` folder and a
+    /// standalone .img's mounted root, since a built image mirrors that
+    /// same bookInfo/tracks layout at its own root (confirmed by the
+    /// existing in-image check below, which already reads
+    /// `mountPoint/tracks` directly rather than `mountPoint/master/tracks`).
+    private struct ContentRootInspection {
+        let isbn: String?
+        let declaredCount: Int?
+        let tracks: TrackFolderStats?
+        let checksumMatches: Bool?
+        let issues: [String]
+    }
+
+    /// `tracksLabel`/`hashSourceLabel` only affect issue text -- callers
+    /// pass "master/tracks"/"master/" for an on-disk build, "image"/"the
+    /// image" for a mounted .img, so messages read naturally either way.
+    private static func inspectContentRoot(
+        _ base: URL, tracksLabel: String, hashSourceLabel: String, config: AppConfig
+    ) -> ContentRootInspection {
+        var issues: [String] = []
+
+        let isbn = (try? String(contentsOf: base.appendingPathComponent(config.outputStructure.idFile), encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if isbn == nil || isbn?.isEmpty == true {
+            issues.append("Missing or unreadable id.txt")
+        }
+
+        let declaredCountText = (try? String(contentsOf: base.appendingPathComponent(config.outputStructure.countFile), encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let declaredCount = declaredCountText.flatMap { Int($0) }
+        if declaredCount == nil {
+            issues.append("Missing or unreadable count.txt")
+        }
+
+        let tracksPath = base.appendingPathComponent(config.outputStructure.tracksPath)
+        var tracks: TrackFolderStats?
+        if FileManager.default.fileExists(atPath: tracksPath.path) {
+            let (bytes, count) = AudioProfiler.measureTrackAudioBytes(tracksPath: tracksPath)
+            tracks = TrackFolderStats(fileCount: count, totalBytes: bytes)
+        } else {
+            issues.append("Missing \(tracksLabel) folder")
+        }
+
+        if let declaredCount, let tracks, declaredCount != tracks.fileCount {
+            issues.append("count.txt says \(declaredCount) but \(tracksLabel) has \(tracks.fileCount) file(s)")
+        }
+
+        // bookInfo/checksum.txt vs. a fresh hash of the content root --
+        // catches content that changed since the master was built
+        // (corruption, a manual edit) even when the count still lines
+        // up. Checksum itself excludes checksum.txt/version.txt so
+        // re-hashing here is safe (see Checksum.swift).
+        //
+        // Only meaningful for v3+ masters: the old Python builder
+        // (Master.checksum in master.py) cached its checksum on first
+        // property access, which happened via a debug log line *before*
+        // tracks were copied into tracks/ -- so every v2 checksum.txt
+        // hashes an empty tracks folder and will never match real
+        // content. Skip the check entirely for those rather than flag
+        // every legacy master as corrupt.
+        let builtVersion = (try? String(contentsOf: base.appendingPathComponent(config.outputStructure.versionFile), encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let isV3OrLater = builtVersion.flatMap { Double($0) }.map { $0 >= 3.0 } ?? false
+
+        var checksumMatches: Bool?
+        if isV3OrLater {
+            let storedChecksum = (try? String(contentsOf: base.appendingPathComponent(config.outputStructure.checksumFile), encoding: .utf8))?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let actualChecksum = try? Checksum.compute(rootDirectory: base)
+            if let storedChecksum, !storedChecksum.isEmpty, let actualChecksum {
+                checksumMatches = storedChecksum == actualChecksum
+                if checksumMatches == false {
+                    issues.append("checksum.txt doesn't match a fresh hash of \(hashSourceLabel) \u{2014} content changed since the master was built")
+                }
+            } else {
+                issues.append("Missing or unreadable checksum.txt")
+            }
+        }
+
+        return ContentRootInspection(isbn: isbn, declaredCount: declaredCount, tracks: tracks, checksumMatches: checksumMatches, issues: issues)
+    }
+
     /// Audits one master. `masterRoot` is the SKU folder itself (the
     /// parent of `master/` and `image/`), matching what
     /// findMasterRoots returns and what MasterResolver's ResolvedMaster
@@ -80,65 +163,10 @@ public enum MasterContentAuditor {
     ) -> MasterContentAuditResult {
         let masterPath = masterRoot.appendingPathComponent("master")
         let sku = masterRoot.lastPathComponent
-        var issues: [String] = []
 
-        let isbn = (try? String(contentsOf: masterPath.appendingPathComponent(config.outputStructure.idFile), encoding: .utf8))?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if isbn == nil || isbn?.isEmpty == true {
-            issues.append("Missing or unreadable id.txt")
-        }
-
-        let declaredCountText = (try? String(contentsOf: masterPath.appendingPathComponent(config.outputStructure.countFile), encoding: .utf8))?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let declaredCount = declaredCountText.flatMap { Int($0) }
-        if declaredCount == nil {
-            issues.append("Missing or unreadable count.txt")
-        }
-
-        let masterTracksPath = masterPath.appendingPathComponent(config.outputStructure.tracksPath)
-        var masterTracks: TrackFolderStats?
-        if FileManager.default.fileExists(atPath: masterTracksPath.path) {
-            let (bytes, count) = AudioProfiler.measureTrackAudioBytes(tracksPath: masterTracksPath)
-            masterTracks = TrackFolderStats(fileCount: count, totalBytes: bytes)
-        } else {
-            issues.append("Missing master/tracks folder")
-        }
-
-        if let declaredCount, let masterTracks, declaredCount != masterTracks.fileCount {
-            issues.append("count.txt says \(declaredCount) but master/tracks has \(masterTracks.fileCount) file(s)")
-        }
-
-        // bookInfo/checksum.txt vs. a fresh hash of master/ -- catches
-        // content that changed since the master was built (corruption,
-        // a manual edit) even when the count still lines up. Checksum
-        // itself excludes checksum.txt/version.txt so re-hashing here
-        // is safe (see Checksum.swift).
-        //
-        // Only meaningful for v3+ masters: the old Python builder
-        // (Master.checksum in master.py) cached its checksum on first
-        // property access, which happened via a debug log line *before*
-        // tracks were copied into tracks/ -- so every v2 checksum.txt
-        // hashes an empty tracks folder and will never match real
-        // content. Skip the check entirely for those rather than flag
-        // every legacy master as corrupt.
-        let builtVersion = (try? String(contentsOf: masterPath.appendingPathComponent(config.outputStructure.versionFile), encoding: .utf8))?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let isV3OrLater = builtVersion.flatMap { Double($0) }.map { $0 >= 3.0 } ?? false
-
-        var checksumMatches: Bool?
-        if isV3OrLater {
-            let storedChecksum = (try? String(contentsOf: masterPath.appendingPathComponent(config.outputStructure.checksumFile), encoding: .utf8))?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let actualChecksum = try? Checksum.compute(rootDirectory: masterPath)
-            if let storedChecksum, !storedChecksum.isEmpty, let actualChecksum {
-                checksumMatches = storedChecksum == actualChecksum
-                if checksumMatches == false {
-                    issues.append("checksum.txt doesn't match a fresh hash of master/ \u{2014} content changed since the master was built")
-                }
-            } else {
-                issues.append("Missing or unreadable checksum.txt")
-            }
-        }
+        let inspection = inspectContentRoot(masterPath, tracksLabel: "master/tracks", hashSourceLabel: "master/", config: config)
+        var issues = inspection.issues
+        let masterTracks = inspection.tracks
 
         var imageTracks: TrackFolderStats?
         if checkImageContents {
@@ -164,7 +192,7 @@ public enum MasterContentAuditor {
             issues.append("master/tracks has \(masterTracks.fileCount) file(s) but the image has \(imageTracks.fileCount)")
         }
 
-        let catalogRow = isbn.flatMap { BooksCatalog.lookup(isbn: $0) }
+        let catalogRow = inspection.isbn.flatMap { BooksCatalog.lookup(isbn: $0) }
         let expectedDurationSeconds = BooksCatalog.parseDurationSeconds(catalogRow?["Duration"])
         // bit_rate is stored in bits/sec already (config.json's own
         // comment: "without k as comparisons > < are performed").
@@ -184,9 +212,60 @@ public enum MasterContentAuditor {
         }
 
         return MasterContentAuditResult(
-            masterRoot: masterRoot, sku: sku, isbn: isbn, declaredCount: declaredCount,
+            masterRoot: masterRoot, sku: sku, isbn: inspection.isbn, declaredCount: inspection.declaredCount,
             masterTracks: masterTracks, imageTracks: imageTracks, imageChecked: checkImageContents,
-            checksumMatches: checksumMatches,
+            checksumMatches: inspection.checksumMatches,
+            expectedDurationSeconds: expectedDurationSeconds, expectedBitRateBPS: config.encoding.bitRate,
+            expectedSizeBytes: expectedSizeBytes, issues: issues
+        )
+    }
+
+    /// Audits a single .img file directly, with no on-disk master/
+    /// build folder alongside it to read bookInfo from -- for
+    /// spot-checking one image picked straight off a drive/backup or
+    /// out of a masters library, not just images sitting next to their
+    /// build output. Mounts it read-only and runs the same
+    /// id.txt/count.txt/tracks/checksum checks against the mounted
+    /// root that `audit()` runs against an on-disk master/ folder
+    /// (a built image mirrors that same layout at its own root -- see
+    /// ContentRootInspection). Reports everything through
+    /// imageTracks/imageChecked since there's no separate "master"
+    /// folder here to distinguish it from.
+    public static func auditImageFile(
+        _ imagePath: URL, config: AppConfig = ConfigStore.shared,
+        log: @escaping (String) -> Void = { _ in }
+    ) -> MasterContentAuditResult {
+        let sku = imagePath.deletingPathExtension().lastPathComponent
+        var issues: [String] = []
+        let inspection: ContentRootInspection
+        do {
+            inspection = try withMountedImage(imagePath, log: log) { mountPoint in
+                let result = inspectContentRoot(mountPoint, tracksLabel: "image", hashSourceLabel: "the image", config: config)
+                log("Read \(result.tracks?.fileCount ?? 0) track file(s), \(result.tracks?.totalBytes ?? 0) byte(s) from the mounted image.")
+                return result
+            }
+        } catch {
+            issues.append("Could not inspect .img: \(error)")
+            log("Could not inspect .img: \(error)")
+            inspection = ContentRootInspection(isbn: nil, declaredCount: nil, tracks: nil, checksumMatches: nil, issues: [])
+        }
+        issues.append(contentsOf: inspection.issues)
+
+        let catalogRow = inspection.isbn.flatMap { BooksCatalog.lookup(isbn: $0) }
+        let expectedDurationSeconds = BooksCatalog.parseDurationSeconds(catalogRow?["Duration"])
+        let expectedSizeBytes: Int64? = expectedDurationSeconds.map { Int64($0) * Int64(config.encoding.bitRate) / 8 }
+
+        if let expectedSizeBytes, let tracks = inspection.tracks {
+            appendSizeIssue(
+                label: "image", actualBytes: tracks.totalBytes, expectedBytes: expectedSizeBytes,
+                fileCount: tracks.fileCount, expectedDurationSeconds: expectedDurationSeconds, into: &issues
+            )
+        }
+
+        return MasterContentAuditResult(
+            masterRoot: imagePath, sku: sku, isbn: inspection.isbn, declaredCount: inspection.declaredCount,
+            masterTracks: nil, imageTracks: inspection.tracks, imageChecked: true,
+            checksumMatches: inspection.checksumMatches,
             expectedDurationSeconds: expectedDurationSeconds, expectedBitRateBPS: config.encoding.bitRate,
             expectedSizeBytes: expectedSizeBytes, issues: issues
         )

@@ -68,20 +68,15 @@ struct ContentView: View {
     // Separate from `camera` (Create Master's ISBN-lookup webcam) so the
     // two scan flows never cross-talk through a shared onChange handler.
     @StateObject private var writeCamera = CameraScanner()
-    // Master Content Check (single master)
-    @State private var masterAuditInput = ""
-    @State private var masterAuditCheckImage = false
-    @State private var isMasterAuditRunning = false
-    @State private var masterAuditResult: MasterContentAuditResult?
-    @State private var masterAuditError: String?
-    // Master Content Check (whole library)
-    @State private var libraryAuditCheckImage = false
-    @State private var isLibraryAuditRunning = false
-    @State private var libraryAuditTask: Task<Void, Never>?
-    @State private var libraryAuditResults: [MasterContentAuditResult] = []
-    @State private var libraryAuditProgress: (done: Int, total: Int)?
-    @State private var libraryAuditCurrentName: String?
-    @State private var libraryAuditError: String?
+    // Master Content Check -- one picker takes either a single .img file
+    // or a folder (itself a master structure, or a folder of them).
+    @State private var auditCheckImage = false
+    @State private var isContentAuditRunning = false
+    @State private var contentAuditTask: Task<Void, Never>?
+    @State private var auditResults: [MasterContentAuditResult] = []
+    @State private var auditProgress: (done: Int, total: Int)?
+    @State private var auditCurrentName: String?
+    @State private var auditError: String?
 
     private var productionLog: ProductionLog? { productionLogStore.log }
 
@@ -730,61 +725,44 @@ struct ContentView: View {
     // catching a master that's silently missing content before it's
     // ever written to a block.)
 
+    /// One picker for the whole audit: point it at a single .img to
+    /// mount and check just that image, or at a folder to check inside
+    /// -- which itself might be one master structure (a single result)
+    /// or a folder of them (a library scan, one result per master).
+    /// findMasterRoots/auditLibrary already handle both folder shapes
+    /// identically; only the .img-file branch is new.
     private var masterContentAuditSection: some View {
         GroupBox("Master Content Check") {
-            VStack(alignment: .leading, spacing: 12) {
-                singleMasterAuditRow
-                Divider()
-                libraryAuditRow
-            }
-        }
-    }
-
-    private var singleMasterAuditRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                TextField("ISBN or SKU", text: $masterAuditInput)
-                    .frame(maxWidth: 200)
-                    .onSubmit { runSingleMasterAudit() }
-                Button(isMasterAuditRunning ? "Checking\u{2026}" : "Check Master") { runSingleMasterAudit() }
-                    .disabled(masterAuditInput.trimmingCharacters(in: .whitespaces).isEmpty || isMasterAuditRunning)
-                Toggle("Check inside .IMG", isOn: $masterAuditCheckImage)
-                    .help("Mounts the built .img read-only to also count/size tracks inside it. Slower (one hdiutil attach/detach per check).")
-                if isMasterAuditRunning { ProgressView().controlSize(.small) }
-            }
-            if let masterAuditError {
-                Text(masterAuditError).font(.caption2).foregroundStyle(.red)
-            }
-            if let masterAuditResult {
-                masterAuditResultView(masterAuditResult)
-            }
-        }
-    }
-
-    private var libraryAuditRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                Text("Masters Library:").frame(width: 110, alignment: .trailing)
-                TextField("", text: $settingsStore.settings.mastersLibraryPath)
-                Button("Browse") { browseForMastersLibraryFolder() }
-            }
-            HStack(spacing: 12) {
-                Button(isLibraryAuditRunning ? "Scanning\u{2026}" : "Scan All Masters") { runLibraryAudit() }
-                    .disabled(effectiveMastersLibraryPath.isEmpty || isLibraryAuditRunning)
-                if isLibraryAuditRunning {
-                    Button("Cancel") { cancelLibraryAudit() }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    Text("Path:").frame(width: 90, alignment: .trailing)
+                    TextField("Masters folder or a single .img file", text: $settingsStore.settings.mastersLibraryPath)
+                        .onSubmit { runContentAudit() }
+                    Button("Browse") { browseForAuditPath() }
                 }
-                Toggle("Check inside .IMG", isOn: $libraryAuditCheckImage)
-                    .help("Mounts every found .img read-only -- with a large library this means hundreds of sequential hdiutil attach/detach cycles, so it's off by default.")
-            }
-            if isLibraryAuditRunning || libraryAuditProgress != nil {
-                libraryAuditProgressView
-            }
-            if let libraryAuditError {
-                Text(libraryAuditError).font(.caption2).foregroundStyle(.red)
-            }
-            if !libraryAuditResults.isEmpty {
-                libraryAuditResultsView
+                HStack(spacing: 12) {
+                    Button(isContentAuditRunning ? "Checking\u{2026}" : "Check") { runContentAudit() }
+                        .disabled(effectiveMastersLibraryPath.isEmpty || isContentAuditRunning)
+                    if isContentAuditRunning {
+                        Button("Cancel") { cancelContentAudit() }
+                        ProgressView().controlSize(.small)
+                    }
+                    if !isPickedPathAnImageFile {
+                        Toggle("Check inside .IMG", isOn: $auditCheckImage)
+                            .help("Mounts every found .img read-only -- with a large library this means hundreds of sequential hdiutil attach/detach cycles, so it's off by default.")
+                    }
+                }
+                if isContentAuditRunning || auditProgress != nil {
+                    libraryAuditProgressView
+                }
+                if let auditError {
+                    Text(auditError).font(.caption2).foregroundStyle(.red)
+                }
+                if auditResults.count == 1, let onlyResult = auditResults.first {
+                    masterAuditResultView(onlyResult)
+                } else if auditResults.count > 1 {
+                    libraryAuditResultsView
+                }
             }
         }
     }
@@ -799,23 +777,33 @@ struct ContentView: View {
         return explicit.isEmpty ? settingsStore.settings.outputFolder : explicit
     }
 
+    /// "Check inside .IMG" only means anything when scanning a folder
+    /// (whether or not to also mount each found .img) -- pointed
+    /// straight at a .img file, checking inside it is the entire point
+    /// and isn't optional, so the toggle would be misleading there.
+    private var isPickedPathAnImageFile: Bool {
+        effectiveMastersLibraryPath.lowercased().hasSuffix(".img")
+    }
+
     /// A determinate progress bar plus the specific master currently
     /// being checked -- a bare "N/M" counter that only ever advances
     /// once a master finishes leaves the operator staring at a stale
     /// number for however long the current one (mounting/reading an
-    /// .img can take a few seconds) takes.
+    /// .img can take a few seconds) takes. Stays empty (nothing to
+    /// render) for a single .img check, which has no multi-item
+    /// progress to report.
     private var libraryAuditProgressView: some View {
         VStack(alignment: .leading, spacing: 3) {
-            if let libraryAuditProgress {
-                ProgressView(value: Double(libraryAuditProgress.done), total: Double(max(libraryAuditProgress.total, 1)))
+            if let auditProgress {
+                ProgressView(value: Double(auditProgress.done), total: Double(max(auditProgress.total, 1)))
                     .frame(maxWidth: .infinity)
             }
             HStack {
-                if let libraryAuditProgress {
-                    Text("\(libraryAuditProgress.done)/\(libraryAuditProgress.total)")
+                if let auditProgress {
+                    Text("\(auditProgress.done)/\(auditProgress.total)")
                 }
-                if let libraryAuditCurrentName {
-                    Text(isLibraryAuditRunning ? "Checking \(libraryAuditCurrentName)\u{2026}" : "Last: \(libraryAuditCurrentName)")
+                if let auditCurrentName {
+                    Text(isContentAuditRunning ? "Checking \(auditCurrentName)\u{2026}" : "Last: \(auditCurrentName)")
                 }
             }
             .font(.caption2)
@@ -850,11 +838,11 @@ struct ContentView: View {
     }
 
     private var libraryAuditResultsView: some View {
-        let cleanCount = libraryAuditResults.filter(\.isClean).count
-        let failedCount = libraryAuditResults.count - cleanCount
+        let cleanCount = auditResults.filter(\.isClean).count
+        let failedCount = auditResults.count - cleanCount
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Text("\(cleanCount)/\(libraryAuditResults.count) clean")
+                Text("\(cleanCount)/\(auditResults.count) clean")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button("Copy Failures") { copyLibraryAuditFailures() }
@@ -863,7 +851,7 @@ struct ContentView: View {
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 3) {
-                    ForEach(libraryAuditResults) { result in
+                    ForEach(auditResults) { result in
                         HStack(spacing: 6) {
                             Image(systemName: result.isClean ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                                 .foregroundStyle(result.isClean ? .green : .red)
@@ -922,7 +910,7 @@ struct ContentView: View {
     /// (e.g. to paste into a message or ticket) without screenshotting
     /// the panel repeatedly.
     private func copyLibraryAuditFailures() {
-        let failures = libraryAuditResults.filter { !$0.isClean }
+        let failures = auditResults.filter { !$0.isClean }
         guard !failures.isEmpty else { return }
         let text = failures
             .map { "\($0.sku) (\($0.isbn ?? "no ISBN")): \($0.issues.joined(separator: "; "))" }
@@ -933,94 +921,96 @@ struct ContentView: View {
         log.append("Copied \(failures.count) failed master(s) to clipboard.")
     }
 
-    private func runSingleMasterAudit() {
-        let input = masterAuditInput.trimmingCharacters(in: .whitespaces)
-        guard !input.isEmpty else { return }
-        masterAuditError = nil
-        masterAuditResult = nil
-        isMasterAuditRunning = true
-        let checkImage = masterAuditCheckImage
-        let outputFolder = URL(fileURLWithPath: settingsStore.settings.outputFolder)
-
-        switch MasterResolver.resolve(input: input, outputFolder: outputFolder, productionLog: productionLog) {
-        case .success(let resolved):
-            let masterRoot = resolved.imagePath.deletingLastPathComponent().deletingLastPathComponent()
-            log.append("Checking master content for \(resolved.sku)\u{2026}")
-            Task {
-                let result = MasterContentAuditor.audit(
-                    masterRoot: masterRoot, checkImageContents: checkImage,
-                    log: { message in Task { @MainActor in log.append(message) } }
-                )
-                masterAuditResult = result
-                isMasterAuditRunning = false
-                log.append(auditSummaryLine(result))
-            }
-        case .failure(let error):
-            masterAuditError = error.description
-            isMasterAuditRunning = false
-        }
-    }
-
-    private func runLibraryAudit() {
+    /// Branches on what the picked path actually is: a .img file gets
+    /// mounted and checked directly (auditImageFile); anything else is
+    /// treated as a folder and handed to auditLibrary, which already
+    /// copes with the folder being either one master structure (a
+    /// single result comes back) or a library of many (findMasterRoots
+    /// doesn't descend into a matched master's own subfolders, so it
+    /// naturally stops at whichever level actually holds bookInfo/id.txt).
+    private func runContentAudit() {
         let path = effectiveMastersLibraryPath
         guard !path.isEmpty else { return }
-        libraryAuditError = nil
-        libraryAuditResults = []
-        libraryAuditProgress = nil
-        libraryAuditCurrentName = nil
-        isLibraryAuditRunning = true
-        let checkImage = libraryAuditCheckImage
-        let root = URL(fileURLWithPath: path)
-        log.append("Scanning \(path) for masters\u{2026}")
+        auditError = nil
+        auditResults = []
+        auditProgress = nil
+        auditCurrentName = nil
+        isContentAuditRunning = true
+        let checkImage = auditCheckImage
+        let url = URL(fileURLWithPath: path)
 
-        libraryAuditTask = Task {
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+
+        if exists, !isDirectory.boolValue, url.pathExtension.lowercased() == "img" {
+            log.append("Checking image \(url.lastPathComponent)\u{2026}")
+            contentAuditTask = Task {
+                let result = MasterContentAuditor.auditImageFile(
+                    url, log: { message in Task { @MainActor in log.append(message) } }
+                )
+                auditResults = [result]
+                log.append(auditSummaryLine(result))
+                isContentAuditRunning = false
+                contentAuditTask = nil
+            }
+            return
+        }
+
+        guard exists, isDirectory.boolValue else {
+            auditError = "\(path) isn't a folder or a .img file."
+            isContentAuditRunning = false
+            return
+        }
+
+        log.append("Scanning \(path) for masters\u{2026}")
+        contentAuditTask = Task {
             do {
                 let results = try await MasterContentAuditor.auditLibrary(
-                    under: root, checkImageContents: checkImage,
+                    under: url, checkImageContents: checkImage,
                     onStart: { done, total, name in
                         Task { @MainActor in
-                            libraryAuditProgress = (done - 1, total)
-                            libraryAuditCurrentName = name
+                            auditProgress = (done - 1, total)
+                            auditCurrentName = name
                         }
                     },
                     onResult: { done, total, result in
                         Task { @MainActor in
-                            libraryAuditProgress = (done, total)
-                            libraryAuditResults.append(result)
+                            auditProgress = (done, total)
+                            auditResults.append(result)
                             log.append(auditSummaryLine(result))
                         }
                     },
                     log: { message in Task { @MainActor in log.append(message) } }
                 )
                 let cleanCount = results.filter(\.isClean).count
-                log.append("Master library scan complete: \(cleanCount)/\(results.count) clean.")
+                log.append("Master scan complete: \(cleanCount)/\(results.count) clean.")
             } catch is CancellationError {
-                log.append("Master library scan cancelled.")
+                log.append("Master scan cancelled.")
             } catch {
-                libraryAuditError = "\(error)"
-                log.append("Master library scan failed: \(error)")
+                auditError = "\(error)"
+                log.append("Master scan failed: \(error)")
             }
-            isLibraryAuditRunning = false
-            libraryAuditTask = nil
+            isContentAuditRunning = false
+            contentAuditTask = nil
         }
     }
 
-    private func cancelLibraryAudit() {
-        log.append("Cancelling master library scan\u{2026}")
-        libraryAuditTask?.cancel()
+    private func cancelContentAudit() {
+        log.append("Cancelling master scan\u{2026}")
+        contentAuditTask?.cancel()
     }
 
-    private func browseForMastersLibraryFolder() {
+    private func browseForAuditPath() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
-        panel.canChooseFiles = false
+        panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
         if !effectiveMastersLibraryPath.isEmpty {
             panel.directoryURL = URL(fileURLWithPath: effectiveMastersLibraryPath)
         }
         if panel.runModal() == .OK, let url = panel.url {
             settingsStore.settings.mastersLibraryPath = url.path
-            log.append("Masters library folder set to \(url.path)")
+            log.append("Master content check path set to \(url.path)")
         }
     }
 
