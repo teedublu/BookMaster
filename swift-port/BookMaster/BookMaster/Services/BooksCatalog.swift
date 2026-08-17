@@ -79,10 +79,10 @@ public struct BookRow: Equatable {
 /// O(1) lookup, mirroring Python's `csv.DictReader` + dict-of-dicts.
 ///
 /// Note: main_window.py's _on_isbn_change() reads
-/// `row.get('ExpectedFileCount', 0)`, but books.csv has no
-/// "ExpectedFileCount" column — that lookup always silently falls back
-/// to 0 in the Python app today. Faithfully NOT fixed here; this port
-/// reproduces existing behavior rather than a bug it happens to notice.
+/// `row.get('ExpectedFileCount', 0)`, but books.csv's column is
+/// actually named "Files" — that lookup always silently fell back to 0
+/// in the Python app. Fixed here to read the real column name so File
+/// Count populates along with Title/Author on ISBN lookup.
 public enum BooksCatalog {
     public static let shared: [String: BookRow] = load()
 

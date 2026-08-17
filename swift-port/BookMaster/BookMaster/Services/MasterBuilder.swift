@@ -29,8 +29,14 @@ public struct MasterInputs {
     /// finish successfully.
     public let cacheFiles: Bool
     public let sampleRate: Int
+    /// The catalog's declared file count for this ISBN (books.csv's
+    /// "Files" column), when known and non-zero -- validate() compares
+    /// it against what's actually found in inputFolder so a short/extra
+    /// input folder is caught before a master gets built from it, rather
+    /// than only surfacing as a track-count surprise later.
+    public let expectedFileCount: Int?
 
-    public init(isbn: String, sku: String, title: String, author: String, inputFolder: URL, outputFolder: URL, maxDriveSizeBytes: Int64, imageFormat: ImageFormat = .superfloppy, stripInputTags: Bool = false, cacheFiles: Bool = false, sampleRate: Int = 44100) {
+    public init(isbn: String, sku: String, title: String, author: String, inputFolder: URL, outputFolder: URL, maxDriveSizeBytes: Int64, imageFormat: ImageFormat = .superfloppy, stripInputTags: Bool = false, cacheFiles: Bool = false, sampleRate: Int = 44100, expectedFileCount: Int? = nil) {
         self.isbn = isbn
         self.sku = sku
         self.title = title
@@ -42,6 +48,7 @@ public struct MasterInputs {
         self.stripInputTags = stripInputTags
         self.cacheFiles = cacheFiles
         self.sampleRate = sampleRate
+        self.expectedFileCount = expectedFileCount
     }
 }
 
@@ -110,6 +117,8 @@ public enum MasterBuilder {
             let audioFiles = findAudioFiles(in: inputs.inputFolder, validFormats: validFormats)
             if audioFiles.isEmpty {
                 errors.append("No valid audio files found in input folder: \(inputs.inputFolder.path)")
+            } else if let expected = inputs.expectedFileCount, expected > 0, expected != audioFiles.count {
+                errors.append("Expected \(expected) file(s) per catalog but found \(audioFiles.count) in input folder: \(inputs.inputFolder.path)")
             }
         }
         return errors

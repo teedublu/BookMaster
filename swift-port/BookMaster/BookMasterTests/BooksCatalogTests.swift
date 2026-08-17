@@ -15,11 +15,14 @@ final class BooksCatalogTests: XCTestCase {
         XCTAssertNil(BooksCatalog.lookup(isbn: "0000000000000"))
     }
 
-    func testExpectedFileCountColumnDoesNotExist() {
-        // Documents the existing Python behavior faithfully reproduced:
-        // main_window.py reads row.get('ExpectedFileCount', 0), which
-        // always falls back to 0 because books.csv has no such column.
-        let row = BooksCatalog.lookup(isbn: "9781917174060")
+    func testFileCountReadsFromFilesColumn() {
+        // books.csv's file-count column is named "Files", not
+        // "ExpectedFileCount" (the key main_window.py read, which always
+        // fell back to 0 since no such column exists) -- ContentView's
+        // ISBN lookup reads "Files" instead so File Count actually
+        // populates alongside Title/Author.
+        let row = BooksCatalog.lookup(isbn: "9781917979276")
+        XCTAssertEqual(row?["Files"], "5")
         XCTAssertNil(row?["ExpectedFileCount"])
     }
 

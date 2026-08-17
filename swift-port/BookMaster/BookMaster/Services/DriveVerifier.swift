@@ -11,6 +11,18 @@ public struct ID3TagIssue: Equatable {
     public let reason: String
 }
 
+/// The first track's own ID3 frames, formatted for display -- lets the
+/// Verify tab show a concrete example of what's actually written to the
+/// disc (e.g. "Title: ...", "Author: ...") instead of just "OK", since
+/// "OK" alone doesn't say *what* ended up in the tags.
+public struct ID3TagSample: Equatable {
+    public let fileName: String
+    public let title: String?
+    public let author: String?
+    public let trackName: String?
+    public let isbn: String?
+}
+
 public struct VerificationResult: Equatable {
     public let detectedSKU: String?
     public let detectedISBN: String?
@@ -27,6 +39,9 @@ public struct VerificationResult: Equatable {
     /// silenceIssues below. Distinct from an empty array, which means
     /// it ran and found no ID3 issues.
     public let id3TagIssues: [ID3TagIssue]?
+    /// nil when the Metadata check wasn't part of this run, same as
+    /// id3TagIssues above.
+    public let firstTrackTagSample: ID3TagSample?
     /// nil when the Silence check wasn't part of this run (unchecked in
     /// the Checks panel, or a "check on mount" fast-only pass) --
     /// distinct from an empty array, which means it ran and found none.
@@ -66,6 +81,7 @@ public struct VerificationResult: Equatable {
             encodingRateAnomaly: new.encodingRateAnomaly, foundArtifactCount: new.foundArtifactCount,
             foundArtifactSamples: new.foundArtifactSamples,
             id3TagIssues: new.id3TagIssues ?? previous.id3TagIssues,
+            firstTrackTagSample: new.firstTrackTagSample ?? previous.firstTrackTagSample,
             silenceIssues: new.silenceIssues ?? previous.silenceIssues,
             loudnessIssues: new.loudnessIssues ?? previous.loudnessIssues,
             frameErrorIssues: new.frameErrorIssues ?? previous.frameErrorIssues,
@@ -344,6 +360,21 @@ public enum DriveVerifier {
         return issues
     }
 
+    /// The first candidate file's own ID3 frames, formatted for
+    /// display -- see ID3TagSample. nil if there's no track, or the
+    /// first track has no ID3v2 tag at all (which scanForID3TagIssues
+    /// above would itself have nothing to say about, since an absent
+    /// tag isn't one of the "carries something unexpected" cases it
+    /// looks for).
+    static func sampleFirstTrackTags(tracksPath: URL) -> ID3TagSample? {
+        guard let file = AudioProfiler.candidateFiles(in: tracksPath).first else { return nil }
+        let frames = ID3Tag.readID3v2Frames(at: file)
+        guard !frames.isEmpty else { return nil }
+        func text(_ id: String) -> String? { frames.first { $0.id == id }?.text }
+        let isbn = text("TXXX:ID").flatMap(ID3Tag.decodeObfuscatedISBN)
+        return ID3TagSample(fileName: file.lastPathComponent, title: text("TALB"), author: text("TPE1"), trackName: text("TIT2"), isbn: isbn)
+    }
+
     // MARK: - Silence / Loudness / Frame-error verification (ports
     // track.py's Track.status: analyze_track's per-file ffmpeg checks,
     // gated by DriveCheckOptions rather than always running.)
@@ -404,20 +435,117 @@ public enum DriveVerifier {
         return issues
     }
 
+    /// Combines `scanForSilence` and `scanForLoudness` into one ffmpeg
+    /// pass per file via AudioAnalysis.analyzeLoudnessAndSilence --
+    /// used when both checks are selected together (the common case:
+    /// DriveCheckOptions.slow/.all) so a multi-track scan doesn't
+    /// decode every file twice.
+    static func scanForSilenceAndLoudness(
+        files: [URL], targetLufs: Double, tolerancePercent: Double = 5.0, ffmpegPath: String,
+        log: (String) -> Void = { _ in }, progress: (Int, Int) -> Void = { _, _ in }
+    ) -> (silence: [TrackAudioIssue], loudness: [TrackAudioIssue]) {
+        var silenceIssues: [TrackAudioIssue] = []
+        var loudnessIssues: [TrackAudioIssue] = []
+        for (index, file) in files.enumerated() {
+            guard !Task.isCancelled else { break }
+            log("Silence/Loudness: track \(index + 1)/\(files.count) (\(file.lastPathComponent))\u{2026}")
+            let (measurement, silences) = AudioAnalysis.analyzeLoudnessAndSilence(
+                file: file, targetLufs: targetLufs, ffmpegPath: ffmpegPath
+            )
+            if !silences.isEmpty {
+                silenceIssues.append(TrackAudioIssue(fileName: file.lastPathComponent, reason: "\(silences.count) silence period(s) detected"))
+            }
+            if !AudioAnalysis.loudnessIsCloseToTarget(measurement, targetLufs: targetLufs, tolerancePercent: tolerancePercent) {
+                let measured = measurement?.inputIntegrated.map { "\($0)" } ?? "unmeasured"
+                loudnessIssues.append(TrackAudioIssue(
+                    fileName: file.lastPathComponent,
+                    reason: "loudness \(measured) LUFS vs target \(targetLufs) LUFS (\u{00B1}\(tolerancePercent.formatted())% tolerance)"
+                ))
+            }
+            progress(index + 1, files.count)
+        }
+        return (silenceIssues, loudnessIssues)
+    }
+
+    /// Runs AudioAnalysis.checkFrames' four sub-checks per file and
+    /// turns whichever ones failed into a readable reason -- a file can
+    /// fail more than one at once (e.g. a truncated file both fails to
+    /// decode and lacks real audio parameters), so this reports all of
+    /// them rather than just the first.
     static func scanForFrameErrors(
-        files: [URL], ffmpegPath: String, log: (String) -> Void = { _ in }, progress: (Int, Int) -> Void = { _, _ in }
+        files: [URL], ffmpegPath: String, ffprobePath: String,
+        log: (String) -> Void = { _ in }, progress: (Int, Int) -> Void = { _, _ in }
     ) -> [TrackAudioIssue] {
         var issues: [TrackAudioIssue] = []
         for (index, file) in files.enumerated() {
             guard !Task.isCancelled else { break }
             log("Frames: track \(index + 1)/\(files.count) (\(file.lastPathComponent))\u{2026}")
-            let count = AudioAnalysis.countFrameErrors(file: file, ffmpegPath: ffmpegPath)
-            if count > 0 {
-                issues.append(TrackAudioIssue(fileName: file.lastPathComponent, reason: "\(count) frame error(s)"))
+            let result = AudioAnalysis.checkFrames(file: file, ffmpegPath: ffmpegPath, ffprobePath: ffprobePath)
+            if let reason = frameIssueReason(for: result) {
+                issues.append(TrackAudioIssue(fileName: file.lastPathComponent, reason: reason))
             }
             progress(index + 1, files.count)
         }
         return issues
+    }
+
+    /// Combines scanForSilenceAndLoudness with the Frames check's
+    /// decode-error scan into one ffmpeg pass per file via
+    /// AudioAnalysis.analyzeTrack -- used when silence, loudness, and
+    /// frames are all selected together (DriveCheckOptions.slow/.all,
+    /// the common case), so a track is decoded once instead of twice.
+    /// ffprobe's codec/parameter check and the raw header-byte check
+    /// still run per file -- those are cheap container/byte-level
+    /// lookups, not full decodes, so there's nothing to gain by folding
+    /// them into the ffmpeg pass too.
+    static func scanForSilenceLoudnessAndFrames(
+        files: [URL], targetLufs: Double, tolerancePercent: Double = 10.0, ffmpegPath: String, ffprobePath: String,
+        log: (String) -> Void = { _ in }, progress: (Int, Int) -> Void = { _, _ in }
+    ) -> (silence: [TrackAudioIssue], loudness: [TrackAudioIssue], frames: [TrackAudioIssue]) {
+        var silenceIssues: [TrackAudioIssue] = []
+        var loudnessIssues: [TrackAudioIssue] = []
+        var frameIssues: [TrackAudioIssue] = []
+        for (index, file) in files.enumerated() {
+            guard !Task.isCancelled else { break }
+            log("Silence/Loudness/Frames: track \(index + 1)/\(files.count) (\(file.lastPathComponent))\u{2026}")
+            let (measurement, silences, decodeErrorCount) = AudioAnalysis.analyzeTrack(
+                file: file, targetLufs: targetLufs, ffmpegPath: ffmpegPath
+            )
+            if !silences.isEmpty {
+                silenceIssues.append(TrackAudioIssue(fileName: file.lastPathComponent, reason: "\(silences.count) silence period(s) detected"))
+            }
+            if !AudioAnalysis.loudnessIsCloseToTarget(measurement, targetLufs: targetLufs, tolerancePercent: tolerancePercent) {
+                let measured = measurement?.inputIntegrated.map { "\($0)" } ?? "unmeasured"
+                loudnessIssues.append(TrackAudioIssue(
+                    fileName: file.lastPathComponent,
+                    reason: "loudness \(measured) LUFS vs target \(targetLufs) LUFS (\u{00B1}\(tolerancePercent.formatted())% tolerance)"
+                ))
+            }
+            let frameResult = AudioAnalysis.checkFrames(decodeErrorCount: decodeErrorCount, file: file, ffprobePath: ffprobePath)
+            if let reason = frameIssueReason(for: frameResult) {
+                frameIssues.append(TrackAudioIssue(fileName: file.lastPathComponent, reason: reason))
+            }
+            progress(index + 1, files.count)
+        }
+        return (silenceIssues, loudnessIssues, frameIssues)
+    }
+
+    /// nil when the file passed every Frames sub-check; otherwise the
+    /// failed ones joined into one reason -- shared by scanForFrameErrors
+    /// and scanForSilenceLoudnessAndFrames so the two code paths report
+    /// issues identically regardless of which ffmpeg pass produced them.
+    private static func frameIssueReason(for result: AudioAnalysis.FrameCheckResult) -> String? {
+        guard !result.isValid else { return nil }
+        var reasons: [String] = []
+        if !result.identifiesAsMP3 { reasons.append("does not identify as MP3") }
+        if !result.hasAudioParameters { reasons.append("no valid audio parameters") }
+        if result.decodeErrorCount < 0 {
+            reasons.append("ffmpeg could not decode the file")
+        } else if result.decodeErrorCount > 0 {
+            reasons.append("\(result.decodeErrorCount) frame error(s)")
+        }
+        if !result.startsWithValidHeader { reasons.append("missing ID3/MPEG sync header") }
+        return reasons.joined(separator: "; ")
     }
 
     private static func normalizedForComparison(_ text: String?) -> String? {
@@ -453,7 +581,8 @@ public enum DriveVerifier {
         readMib: Int = 256,
         checks: DriveCheckOptions = .all,
         deepAudioInspect: Bool = true,
-        loudnessTolerancePercent: Double = 5.0,
+        loudnessTolerancePercent: Double = 10.0,
+        minReadSpeedMibS: Double = 5.0,
         config: AppConfig = ConfigStore.shared,
         productionLog: ProductionLog? = nil,
         serial: String? = nil,
@@ -496,9 +625,19 @@ public enum DriveVerifier {
         var readSpeed: Double?
         if checks.contains(.speed), let rawDevicePath {
             checkStatus(.speed, .running)
-            log("Running read-speed probe (\(readMib) MiB)...")
+            log("Running read-speed probe (\(readMib) MiB, minimum \(minReadSpeedMibS) MiB/s)...")
             readSpeed = try? probeReadSpeed(rawDevicePath: rawDevicePath, readMib: readMib)
-            checkStatus(.speed, readSpeed != nil ? .passed : .failed(issueCount: 0))
+            // Previously this only checked whether the probe itself ran
+            // (readSpeed != nil) -- a measured-but-slow drive silently
+            // passed. Now a measured speed below minReadSpeedMibS fails
+            // the check too, same as a probe that couldn't run at all.
+            let meetsMinimum = (readSpeed ?? 0) >= minReadSpeedMibS
+            if let readSpeed {
+                log(meetsMinimum
+                    ? "Read speed \(readSpeed) MiB/s."
+                    : "\u{26A0}\u{FE0F} Read speed \(readSpeed) MiB/s is below the \(minReadSpeedMibS) MiB/s minimum.")
+            }
+            checkStatus(.speed, meetsMinimum ? .passed : .failed(issueCount: 0))
             try Task.checkCancellation()
         }
 
@@ -506,6 +645,7 @@ public enum DriveVerifier {
         var encodingKbps: Double?
         var tracksSizeMib: Double?
         var id3Issues: [ID3TagIssue]?
+        var tagSample: ID3TagSample?
         var silenceIssues: [TrackAudioIssue]?
         var loudnessIssues: [TrackAudioIssue]?
         var frameErrorIssues: [TrackAudioIssue]?
@@ -522,6 +662,7 @@ public enum DriveVerifier {
                 log("Checking ID3 tags against expected title/author/ISBN...")
                 let found = scanForID3TagIssues(tracksPath: tracksPath, isbn: isbn)
                 id3Issues = found
+                tagSample = sampleFirstTrackTags(tracksPath: tracksPath)
                 if !found.isEmpty {
                     let detail = found.map { "\($0.fileName) (\($0.reason))" }.joined(separator: "; ")
                     log("\u{26A0}\u{FE0F} ID3 tag issues found on \(found.count) track file(s): \(detail)")
@@ -534,41 +675,92 @@ public enum DriveVerifier {
 
             if !checks.isDisjoint(with: [.silence, .loudness, .frames]), let ffmpegPath = FFmpegEncoder.locateFFmpeg() {
                 let files = AudioProfiler.candidateFiles(in: tracksPath)
-                if checks.contains(.silence) {
+                let ffprobePath = checks.contains(.frames) ? FFmpegEncoder.locateFFprobe() : nil
+
+                if checks.contains(.silence), checks.contains(.loudness), checks.contains(.frames), let ffprobePath {
                     checkStatus(.silence, .running)
-                    log("Checking \(files.count) track(s) for silence...")
-                    let found = scanForSilence(files: files, ffmpegPath: ffmpegPath, log: log) { done, total in
-                        checkProgress(.silence, done, total)
-                    }
-                    silenceIssues = found
-                    log(found.isEmpty ? "No silence found." : "\u{26A0}\u{FE0F} Silence found on \(found.count) track file(s).")
-                    checkStatus(.silence, found.isEmpty ? .passed : .failed(issueCount: found.count))
-                    try Task.checkCancellation()
-                }
-                if checks.contains(.loudness) {
                     checkStatus(.loudness, .running)
-                    log("Checking \(files.count) track(s) for loudness (target \(config.encoding.targetLufs) LUFS \u{00B1}\(loudnessTolerancePercent.formatted())%)...")
-                    let found = scanForLoudness(
-                        files: files, targetLufs: config.encoding.targetLufs, tolerancePercent: loudnessTolerancePercent,
-                        ffmpegPath: ffmpegPath, log: log
-                    ) { done, total in
-                        checkProgress(.loudness, done, total)
-                    }
-                    loudnessIssues = found
-                    log(found.isEmpty ? "Loudness within target on all tracks." : "\u{26A0}\u{FE0F} Loudness issues on \(found.count) track file(s).")
-                    checkStatus(.loudness, found.isEmpty ? .passed : .failed(issueCount: found.count))
-                    try Task.checkCancellation()
-                }
-                if checks.contains(.frames) {
                     checkStatus(.frames, .running)
-                    log("Checking \(files.count) track(s) for frame errors...")
-                    let found = scanForFrameErrors(files: files, ffmpegPath: ffmpegPath, log: log) { done, total in
+                    log("Checking \(files.count) track(s) for silence, loudness (target \(config.encoding.targetLufs) LUFS \u{00B1}\(loudnessTolerancePercent.formatted())%), and frame/header integrity...")
+                    let (foundSilence, foundLoudness, foundFrames) = scanForSilenceLoudnessAndFrames(
+                        files: files, targetLufs: config.encoding.targetLufs, tolerancePercent: loudnessTolerancePercent,
+                        ffmpegPath: ffmpegPath, ffprobePath: ffprobePath, log: log
+                    ) { done, total in
+                        checkProgress(.silence, done, total)
+                        checkProgress(.loudness, done, total)
                         checkProgress(.frames, done, total)
                     }
-                    frameErrorIssues = found
-                    log(found.isEmpty ? "No frame errors found." : "\u{26A0}\u{FE0F} Frame errors on \(found.count) track file(s).")
-                    checkStatus(.frames, found.isEmpty ? .passed : .failed(issueCount: found.count))
+                    silenceIssues = foundSilence
+                    loudnessIssues = foundLoudness
+                    frameErrorIssues = foundFrames
+                    log(foundSilence.isEmpty ? "No silence found." : "\u{26A0}\u{FE0F} Silence found on \(foundSilence.count) track file(s).")
+                    checkStatus(.silence, foundSilence.isEmpty ? .passed : .failed(issueCount: foundSilence.count))
+                    log(foundLoudness.isEmpty ? "Loudness within target on all tracks." : "\u{26A0}\u{FE0F} Loudness issues on \(foundLoudness.count) track file(s).")
+                    checkStatus(.loudness, foundLoudness.isEmpty ? .passed : .failed(issueCount: foundLoudness.count))
+                    log(foundFrames.isEmpty ? "No frame errors found." : "\u{26A0}\u{FE0F} Frame errors on \(foundFrames.count) track file(s).")
+                    checkStatus(.frames, foundFrames.isEmpty ? .passed : .failed(issueCount: foundFrames.count))
                     try Task.checkCancellation()
+                } else {
+                    if checks.contains(.silence) && checks.contains(.loudness) {
+                        checkStatus(.silence, .running)
+                        checkStatus(.loudness, .running)
+                        log("Checking \(files.count) track(s) for silence and loudness (target \(config.encoding.targetLufs) LUFS \u{00B1}\(loudnessTolerancePercent.formatted())%)...")
+                        let (foundSilence, foundLoudness) = scanForSilenceAndLoudness(
+                            files: files, targetLufs: config.encoding.targetLufs, tolerancePercent: loudnessTolerancePercent,
+                            ffmpegPath: ffmpegPath, log: log
+                        ) { done, total in
+                            checkProgress(.silence, done, total)
+                            checkProgress(.loudness, done, total)
+                        }
+                        silenceIssues = foundSilence
+                        loudnessIssues = foundLoudness
+                        log(foundSilence.isEmpty ? "No silence found." : "\u{26A0}\u{FE0F} Silence found on \(foundSilence.count) track file(s).")
+                        checkStatus(.silence, foundSilence.isEmpty ? .passed : .failed(issueCount: foundSilence.count))
+                        log(foundLoudness.isEmpty ? "Loudness within target on all tracks." : "\u{26A0}\u{FE0F} Loudness issues on \(foundLoudness.count) track file(s).")
+                        checkStatus(.loudness, foundLoudness.isEmpty ? .passed : .failed(issueCount: foundLoudness.count))
+                        try Task.checkCancellation()
+                    } else {
+                        if checks.contains(.silence) {
+                            checkStatus(.silence, .running)
+                            log("Checking \(files.count) track(s) for silence...")
+                            let found = scanForSilence(files: files, ffmpegPath: ffmpegPath, log: log) { done, total in
+                                checkProgress(.silence, done, total)
+                            }
+                            silenceIssues = found
+                            log(found.isEmpty ? "No silence found." : "\u{26A0}\u{FE0F} Silence found on \(found.count) track file(s).")
+                            checkStatus(.silence, found.isEmpty ? .passed : .failed(issueCount: found.count))
+                            try Task.checkCancellation()
+                        }
+                        if checks.contains(.loudness) {
+                            checkStatus(.loudness, .running)
+                            log("Checking \(files.count) track(s) for loudness (target \(config.encoding.targetLufs) LUFS \u{00B1}\(loudnessTolerancePercent.formatted())%)...")
+                            let found = scanForLoudness(
+                                files: files, targetLufs: config.encoding.targetLufs, tolerancePercent: loudnessTolerancePercent,
+                                ffmpegPath: ffmpegPath, log: log
+                            ) { done, total in
+                                checkProgress(.loudness, done, total)
+                            }
+                            loudnessIssues = found
+                            log(found.isEmpty ? "Loudness within target on all tracks." : "\u{26A0}\u{FE0F} Loudness issues on \(found.count) track file(s).")
+                            checkStatus(.loudness, found.isEmpty ? .passed : .failed(issueCount: found.count))
+                            try Task.checkCancellation()
+                        }
+                    }
+                    if checks.contains(.frames) {
+                        if let ffprobePath {
+                            checkStatus(.frames, .running)
+                            log("Checking \(files.count) track(s) for frame/header integrity...")
+                            let found = scanForFrameErrors(files: files, ffmpegPath: ffmpegPath, ffprobePath: ffprobePath, log: log) { done, total in
+                                checkProgress(.frames, done, total)
+                            }
+                            frameErrorIssues = found
+                            log(found.isEmpty ? "No frame errors found." : "\u{26A0}\u{FE0F} Frame errors on \(found.count) track file(s).")
+                            checkStatus(.frames, found.isEmpty ? .passed : .failed(issueCount: found.count))
+                            try Task.checkCancellation()
+                        } else {
+                            log("Skipping Frames check: ffprobe not found.")
+                        }
+                    }
                 }
             }
         }
@@ -601,6 +793,7 @@ public enum DriveVerifier {
             tracksSizeMib: tracksSizeMib, readSpeedMibS: readSpeed, expectedDurationSeconds: expectedSeconds,
             encodingKbps: encodingKbps, encodingRateAnomaly: rateAnomaly,
             foundArtifactCount: found, foundArtifactSamples: samples, id3TagIssues: id3Issues,
+            firstTrackTagSample: tagSample,
             silenceIssues: silenceIssues, loudnessIssues: loudnessIssues, frameErrorIssues: frameErrorIssues,
             validationErrors: validationErrors
         )

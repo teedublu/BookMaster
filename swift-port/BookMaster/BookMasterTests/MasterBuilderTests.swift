@@ -123,6 +123,56 @@ final class MasterBuilderTests: XCTestCase {
         XCTAssertTrue(errors.contains { $0.contains("Input folder does not exist") })
     }
 
+    private func makeInputFolder(fileCount: Int) throws -> URL {
+        let fm = FileManager.default
+        let inputFolder = fm.temporaryDirectory.appendingPathComponent("mb-validate-\(UUID().uuidString)")
+        try fm.createDirectory(at: inputFolder, withIntermediateDirectories: true)
+        for index in 0..<fileCount {
+            fm.createFile(atPath: inputFolder.appendingPathComponent("track\(index).mp3").path, contents: Data())
+        }
+        return inputFolder
+    }
+
+    func testValidateFlagsExpectedFileCountMismatch() throws {
+        let inputFolder = try makeInputFolder(fileCount: 2)
+        defer { try? FileManager.default.removeItem(at: inputFolder) }
+
+        let inputs = MasterInputs(
+            isbn: "9781234567897", sku: "BK-67897-TEST", title: "Test Book", author: "Test Author",
+            inputFolder: inputFolder, outputFolder: URL(fileURLWithPath: "/tmp"),
+            maxDriveSizeBytes: 980_000_000, expectedFileCount: 3
+        )
+        let errors = MasterBuilder.validate(inputs: inputs)
+        XCTAssertTrue(errors.contains { $0.contains("Expected 3 file(s)") && $0.contains("found 2") })
+    }
+
+    func testValidatePassesWhenExpectedFileCountMatches() throws {
+        let inputFolder = try makeInputFolder(fileCount: 2)
+        defer { try? FileManager.default.removeItem(at: inputFolder) }
+
+        let inputs = MasterInputs(
+            isbn: "9781234567897", sku: "BK-67897-TEST", title: "Test Book", author: "Test Author",
+            inputFolder: inputFolder, outputFolder: URL(fileURLWithPath: "/tmp"),
+            maxDriveSizeBytes: 980_000_000, expectedFileCount: 2
+        )
+        XCTAssertTrue(MasterBuilder.validate(inputs: inputs).isEmpty)
+    }
+
+    func testValidateIgnoresZeroExpectedFileCount() throws {
+        // A zero expected count means "unknown" (e.g. books.csv had no
+        // Files value for this ISBN) rather than "must have zero files",
+        // so it shouldn't block a build with real content.
+        let inputFolder = try makeInputFolder(fileCount: 2)
+        defer { try? FileManager.default.removeItem(at: inputFolder) }
+
+        let inputs = MasterInputs(
+            isbn: "9781234567897", sku: "BK-67897-TEST", title: "Test Book", author: "Test Author",
+            inputFolder: inputFolder, outputFolder: URL(fileURLWithPath: "/tmp"),
+            maxDriveSizeBytes: 980_000_000, expectedFileCount: 0
+        )
+        XCTAssertTrue(MasterBuilder.validate(inputs: inputs).isEmpty)
+    }
+
     func testOutputFilenameMatchesTrackPyFormat() {
         let name = MasterBuilder.outputFilename(index: 3, isbn: "9781234567897", sku: "BK-67897-TEST")
         XCTAssertTrue(name.hasPrefix("003_"))

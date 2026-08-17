@@ -150,6 +150,14 @@ struct ContentView: View {
             }
             productionLogStore.open(inDirectory: resolvedDatabaseDirectory())
             syncDuplicatorLogs()
+            // .onChange(of: useWebcam) below only fires on a *transition* --
+            // if "Scan barcode" was already on when settings.json loaded
+            // (persisted true from a previous session), that onChange never
+            // fires, so camera.start() was never called even though macOS
+            // had already granted camera access. Explicitly syncing here on
+            // first appearance covers that case the same way toggling it
+            // off and back on would.
+            syncWebcamState(enabled: settingsStore.settings.useWebcam)
         }
         .onChange(of: settingsStore.settings.databasePath) { _ in
             productionLogStore.open(inDirectory: resolvedDatabaseDirectory())
@@ -198,13 +206,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: settingsStore.settings.useWebcam) { enabled in
-            if enabled {
-                settingsStore.settings.lookupCsv = true
-                log.append("Requesting camera access\u{2026}")
-                camera.start()
-            } else {
-                camera.stop()
-            }
+            syncWebcamState(enabled: enabled)
         }
         .onChange(of: camera.lastDetectedISBN) { isbn in
             guard let isbn else { return }
@@ -443,7 +445,7 @@ struct ContentView: View {
         // makes that overflow scroll (leading-anchored) instead.
         ScrollView(.horizontal, showsIndicators: true) {
             HStack(alignment: .top, spacing: 16) {
-                usbDrivesPanel(title: "Select Drive", showCheckMasterButton: true)
+                usbDrivesPanel(title: "Select Drive")
                 bookInfoPanel
                 usbChecksPanel
                 masterFixPanel
@@ -481,7 +483,7 @@ struct ContentView: View {
         settingsStore.settings.sku = row["SKU"] ?? ""
         settingsStore.settings.title = row["Title"] ?? ""
         settingsStore.settings.author = row["Author"] ?? ""
-        settingsStore.settings.pastMaster.fileCountExpected = Int(row["ExpectedFileCount"] ?? "") ?? 0
+        settingsStore.settings.pastMaster.fileCountExpected = Int(row["Files"] ?? "") ?? 0
         log.append("Catalog match for \(isbn): \(row["Title"] ?? "-") by \(row["Author"] ?? "-")")
     }
 
@@ -1211,7 +1213,8 @@ struct ContentView: View {
             imageFormat: ImageFormat(rawValue: settings.imageFormat) ?? .mbr,
             stripInputTags: settings.stripInputTags,
             cacheFiles: settings.cacheFiles,
-            sampleRate: settings.sampleRate
+            sampleRate: settings.sampleRate,
+            expectedFileCount: settings.pastMaster.fileCountExpected
         )
 
         let errors = MasterBuilder.validate(inputs: inputs)
@@ -1406,14 +1409,22 @@ struct ContentView: View {
         }
     }
 
-    private func checkMaster() {
+    /// `checks`/`deepAudioInspect` default to the full "Check Master"
+    /// button's behavior (whatever's toggled in the Checks panel, full
+    /// audio scan) -- fixMaster() passes a narrower `checks` set and
+    /// `deepAudioInspect: false` instead, so refreshing the panel after
+    /// a fix doesn't re-run the Speed probe and full Silence/Loudness/
+    /// Frames scan, which have nothing to do with what was just fixed
+    /// and are slow enough on a full drive to look like Fix Master did
+    /// nothing but restart the tests.
+    private func checkMaster(checks: DriveCheckOptions? = nil, deepAudioInspect: Bool = true) {
         guard let drive = selectedDrive, let mountPath = drive.mountPath else {
             log.append("No mounted drive selected to check.")
             return
         }
         log.append("Verifying \(mountPath)\u{2026}")
         isVerifying = true
-        let checks = enabledDriveChecks
+        let checks = checks ?? enabledDriveChecks
         resetCheckStatuses(for: checks)
         verifyTask = Task {
             do {
@@ -1422,8 +1433,9 @@ struct ContentView: View {
                     mountPoint: URL(fileURLWithPath: mountPath),
                     rawDevicePath: drive.rawDevicePath,
                     checks: checks,
-                    deepAudioInspect: true,
+                    deepAudioInspect: deepAudioInspect,
                     loudnessTolerancePercent: settingsStore.settings.loudnessTolerancePercent,
+                    minReadSpeedMibS: settingsStore.settings.minReadSpeedMibS,
                     productionLog: productionLog,
                     serial: drive.serialNumber,
                     vid: identity?.vid,
@@ -1504,6 +1516,7 @@ struct ContentView: View {
                     checks: checks,
                     deepAudioInspect: false,
                     loudnessTolerancePercent: settingsStore.settings.loudnessTolerancePercent,
+                    minReadSpeedMibS: settingsStore.settings.minReadSpeedMibS,
                     productionLog: productionLog,
                     serial: drive.serialNumber,
                     vid: identity?.vid,
@@ -1572,8 +1585,11 @@ struct ContentView: View {
     }
 
     /// Applies whichever fixes are checked to the selected drive, then
-    /// re-runs Check Master so the panels reflect the now-fixed state
-    /// rather than showing stale pre-fix issue counts.
+    /// refreshes just the panel fields those fixes touched -- Artifacts
+    /// and, if a tag cleanup ran, Metadata -- rather than showing stale
+    /// pre-fix issue counts (or re-running the full, much slower Check
+    /// Master suite, which included Speed/Silence/Loudness/Frames checks
+    /// completely unrelated to what Fix Master just did).
     private func fixMaster() {
         guard let drive = selectedDrive, let mountPath = drive.mountPath else {
             log.append("No mounted drive selected to fix.")
@@ -1614,7 +1630,11 @@ struct ContentView: View {
                 id3FilesFlagged: id3Flagged, id3FilesCleaned: id3Cleaned
             )
             isFixing = false
-            checkMaster()
+            // Artifacts are rescanned by DriveVerifier.verify()
+            // unconditionally, regardless of `checks` -- only Metadata
+            // (the ID3 check) needs to be explicitly requested here, and
+            // only when a tag cleanup actually ran.
+            checkMaster(checks: fixCleanID3Tags ? [.metadata] : [], deepAudioInspect: false)
         }
     }
 
@@ -1694,6 +1714,19 @@ struct ContentView: View {
 
     // MARK: Row 9 — Webcam / USB Drives / USB Checks panels
 
+    /// Shared by the useWebcam onChange handler and onAppear's initial
+    /// sync (see its call site above) -- kept as one function so the two
+    /// call sites can't drift into handling enable/disable differently.
+    private func syncWebcamState(enabled: Bool) {
+        if enabled {
+            settingsStore.settings.lookupCsv = true
+            log.append("Requesting camera access\u{2026}")
+            camera.start()
+        } else {
+            camera.stop()
+        }
+    }
+
     private var webcamPanel: some View {
         GroupBox("Webcam") {
             VStack(spacing: 4) {
@@ -1727,7 +1760,7 @@ struct ContentView: View {
         }
     }
 
-    private func usbDrivesPanel(title: String, showCheckMasterButton: Bool = false) -> some View {
+    private func usbDrivesPanel(title: String) -> some View {
         GroupBox(usbMonitor.drives.isEmpty ? "No drives detected" : title) {
             VStack(alignment: .leading, spacing: 6) {
                 if usbMonitor.drives.isEmpty {
@@ -1740,20 +1773,6 @@ struct ContentView: View {
                             .tag(drive.id as String?)
                     }
                     .frame(height: 60)
-                }
-                if showCheckMasterButton {
-                    HStack(spacing: 12) {
-                        Button(isVerifying ? "Verifying\u{2026}" : "Check Master") {
-                            checkMaster()
-                        }
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(selectedDrive?.mountPath == nil || isVerifying)
-                        .help(selectedDrive?.mountPath == nil ? "Selected drive isn't mounted -- mount it first." : "")
-                        if isVerifying {
-                            Button("Cancel") { cancelVerification() }
-                            ProgressView().controlSize(.small)
-                        }
-                    }
                 }
                 Divider()
                 Group {
@@ -1774,9 +1793,15 @@ struct ContentView: View {
                     detailRow("ISBN", verificationResult?.detectedISBN ?? "-")
                     detailRow("Tracks", verificationResult.map { String($0.trackCount) } ?? "-")
                     detailRow("Used", verificationResult?.stickUsedMib.map { "\($0) MiB" } ?? "-")
-                    detailRow("Read Speed", verificationResult?.readSpeedMibS.map { "\($0) MiB/s" } ?? "-")
+                    detailRow(
+                        "Read Speed", verificationResult?.readSpeedMibS.map { "\($0) MiB/s" } ?? "-",
+                        valueColor: readSpeedColor
+                    )
                     detailRow("Encoding", encodingRow)
-                    detailRow("Artifacts Found", verificationResult.map { String($0.foundArtifactCount) } ?? "-")
+                    detailRow(
+                        "Artifacts Found", verificationResult.map { String($0.foundArtifactCount) } ?? "-",
+                        valueColor: (verificationResult?.foundArtifactCount ?? 0) > 0 ? .red : nil
+                    )
                     id3TagsRow
                     trackIssuesRow("Silence", issues: verificationResult?.silenceIssues)
                     trackIssuesRow("Loudness", issues: verificationResult?.loudnessIssues)
@@ -1794,6 +1819,11 @@ struct ContentView: View {
     private var encodingRow: String {
         guard let result = verificationResult, let kbps = result.encodingKbps else { return "-" }
         return result.encodingRateAnomaly ? "\(kbps)kbps \u{26A0}\u{FE0F}" : "\(kbps)kbps"
+    }
+
+    private var readSpeedColor: Color? {
+        guard let speed = verificationResult?.readSpeedMibS else { return nil }
+        return speed < settingsStore.settings.minReadSpeedMibS ? .red : nil
     }
 
     private var contentValidityRow: some View {
@@ -1854,8 +1884,24 @@ struct ContentView: View {
     }
 
     private var id3TagsHelpText: String {
-        guard let result = verificationResult, result.hasID3TagIssues else { return "" }
-        return (result.id3TagIssues ?? []).map { "\($0.fileName): \($0.reason)" }.joined(separator: "\n")
+        guard let result = verificationResult else { return "" }
+        if result.hasID3TagIssues {
+            return (result.id3TagIssues ?? []).map { "\($0.fileName): \($0.reason)" }.joined(separator: "\n")
+        }
+        guard let sample = result.firstTrackTagSample else { return "" }
+        return "Example (\(sample.fileName)):\n\(formatTagSample(sample))"
+    }
+
+    /// "Title: ...", "Author: ...", etc., one per line -- only the
+    /// frames that were actually present, so a track missing one (e.g.
+    /// no obfuscated ISBN frame) doesn't show a misleading blank value.
+    private func formatTagSample(_ sample: ID3TagSample) -> String {
+        var lines: [String] = []
+        if let title = sample.title { lines.append("Title: \(title)") }
+        if let author = sample.author { lines.append("Author: \(author)") }
+        if let trackName = sample.trackName { lines.append("Track: \(trackName)") }
+        if let isbn = sample.isbn { lines.append("ISBN: \(isbn)") }
+        return lines.joined(separator: "\n")
     }
 
     /// Shared row for the Silence/Loudness/Frames checks -- same shape
@@ -1961,6 +2007,13 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .frame(height: 70)
+                } else if let sample = result.firstTrackTagSample {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("No ID3 tag issues. Example (\(sample.fileName)):")
+                            .font(.caption2).foregroundStyle(.secondary)
+                        Text(formatTagSample(sample))
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
                 } else {
                     Text("No ID3 tag issues.").font(.caption2).foregroundStyle(.secondary)
                 }
@@ -2026,11 +2079,11 @@ struct ContentView: View {
         return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
-    private func detailRow(_ label: String, _ value: String) -> some View {
+    private func detailRow(_ label: String, _ value: String, valueColor: Color? = nil) -> some View {
         HStack {
             Text("\(label):").foregroundStyle(.secondary)
             Spacer()
-            Text(value)
+            Text(value).foregroundStyle(valueColor ?? .primary)
         }
         .font(.caption)
     }
@@ -2046,6 +2099,7 @@ struct ContentView: View {
                     Text("Fast").font(.caption).foregroundStyle(.secondary)
                     ForEach(fastTests, id: \.self) { test in
                         checkToggleRow(test)
+                        if test == "Speed" { minSpeedRow }
                     }
                 }
                 VStack(alignment: .leading, spacing: 4) {
@@ -2053,6 +2107,19 @@ struct ContentView: View {
                     ForEach(slowTests, id: \.self) { test in
                         checkToggleRow(test)
                         if test == "Loudness" { loudnessToleranceRow }
+                    }
+                }
+                Divider()
+                HStack(spacing: 12) {
+                    Button(isVerifying ? "Verifying\u{2026}" : "Check Master") {
+                        checkMaster()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(selectedDrive?.mountPath == nil || isVerifying)
+                    .help(selectedDrive?.mountPath == nil ? "Selected drive isn't mounted -- mount it first." : "")
+                    if isVerifying {
+                        Button("Cancel") { cancelVerification() }
+                        ProgressView().controlSize(.small)
                     }
                 }
             }
@@ -2070,8 +2137,34 @@ struct ContentView: View {
     private func checkToggleRow(_ test: String) -> some View {
         HStack(spacing: 6) {
             Toggle(test, isOn: testBinding(for: test))
+            Image(systemName: "info.circle")
+                .foregroundStyle(.secondary)
+                .font(.caption2)
+                .help(checkDescription(for: test))
             Spacer()
             checkStatusDot(for: test).help(checkStatusHelpText(for: test))
+        }
+    }
+
+    /// What each check actually does -- shown as hover help text next to
+    /// its toggle, since "Silence"/"Frames"/etc. alone doesn't say what
+    /// ffmpeg invocation or threshold is behind it. See
+    /// DriveVerifier.scanForSilence/scanForLoudness/scanForFrameErrors
+    /// and AudioAnalysis for the checks these describe.
+    private func checkDescription(for test: String) -> String {
+        switch test {
+        case "Metadata":
+            return "Reads each track's ID3 tags and flags any title/author/ISBN that doesn't match what's expected for this book."
+        case "Speed":
+            return "Reads a fixed amount of data from the raw USB device and reports the throughput in MiB/s, as a hardware sanity check."
+        case "Silence":
+            return "Scans each track for gaps quieter than -90dB lasting 0.2s or longer."
+        case "Loudness":
+            return "Measures each track's integrated loudness (LUFS) and flags any track outside the target \u{00B1} tolerance below."
+        case "Frames":
+            return "Confirms each track identifies as MP3, has real audio parameters (sample rate/channels), decodes without frame/header errors, and starts with a valid ID3/MPEG sync header."
+        default:
+            return ""
         }
     }
 
@@ -2110,7 +2203,12 @@ struct ContentView: View {
             }
             return "Running\u{2026}"
         case .passed: return "Passed"
-        case .failed(let issueCount): return issueCount > 0 ? "\(issueCount) issue(s) found" : "Failed"
+        case .failed(let issueCount):
+            if test == "Speed" {
+                let measured = verificationResult?.readSpeedMibS.map { "\($0) MiB/s" } ?? "could not be measured"
+                return "Read speed \(measured) (required: \(settingsStore.settings.minReadSpeedMibS) MiB/s)"
+            }
+            return issueCount > 0 ? "\(issueCount) issue(s) found" : "Failed"
         }
     }
 
@@ -2118,6 +2216,19 @@ struct ContentView: View {
     /// allowed +/- deviation be tuned from here rather than only in
     /// code -- see Settings.loudnessTolerancePercent and
     /// AudioAnalysis.loudnessIsCloseToTarget.
+    /// Same shape as loudnessToleranceRow -- lets the Speed check's
+    /// minimum acceptable read throughput be tuned from here rather than
+    /// only in code. See Settings.minReadSpeedMibS.
+    private var minSpeedRow: some View {
+        HStack(spacing: 4) {
+            Text("Min \(settingsStore.settings.minReadSpeedMibS.formatted()) MiB/s")
+                .font(.caption2).foregroundStyle(.secondary)
+            Stepper("", value: $settingsStore.settings.minReadSpeedMibS, in: 0...100, step: 1)
+                .labelsHidden()
+        }
+        .padding(.leading, 20)
+    }
+
     private var loudnessToleranceRow: some View {
         HStack(spacing: 4) {
             Text("Target \(formattedTargetLufs) LUFS \u{00B1}\(settingsStore.settings.loudnessTolerancePercent.formatted())%")

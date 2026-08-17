@@ -50,14 +50,20 @@ public struct EncodeParameters {
 /// dependency (Phase 9 needs to bundle+sign it) rather than reimplement
 /// audio DSP.
 public enum FFmpegEncoder {
-    public static func locateFFmpeg() -> String? {
-        let candidates = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]
+    public static func locateFFmpeg() -> String? { locateTool(named: "ffmpeg") }
+
+    /// The Frames check's ffprobe-based sub-checks need this alongside
+    /// ffmpeg itself -- see AudioAnalysis.checkFrames.
+    public static func locateFFprobe() -> String? { locateTool(named: "ffprobe") }
+
+    private static func locateTool(named name: String) -> String? {
+        let candidates = ["/opt/homebrew/bin/\(name)", "/usr/local/bin/\(name)", "/usr/bin/\(name)"]
         for path in candidates where FileManager.default.isExecutableFile(atPath: path) {
             return path
         }
         // Fall back to $PATH resolution via /usr/bin/env, matching how a
         // shell would find it if none of the common install locations hit.
-        if let output = try? Shell.run("/usr/bin/env", ["which", "ffmpeg"]) {
+        if let output = try? Shell.run("/usr/bin/env", ["which", name]) {
             let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { return trimmed }
         }

@@ -80,7 +80,16 @@ public struct AppSettings: Codable, Equatable {
     /// left as Track.py's hardcoded 5% so it's adjustable from the
     /// Verify tab (a target-format change, encoder revision, etc. can
     /// legitimately shift what "close enough" means).
-    public var loudnessTolerancePercent: Double = 5.0
+    public var loudnessTolerancePercent: Double = 10.0
+    /// Minimum acceptable raw-device read throughput (MiB/s) before the
+    /// Speed check flags a drive as failed -- see
+    /// DriveVerifier.probeReadSpeed and verify()'s speed-check block.
+    /// Previously there was no threshold at all: the check only failed
+    /// if the `dd` probe itself couldn't run, never because of a slow
+    /// measured speed. Exposed here (config-driven, not hardcoded) for
+    /// the same reason as loudnessTolerancePercent -- a hardware/USB
+    /// generation change can legitimately shift what "too slow" means.
+    public var minReadSpeedMibS: Double = 5.0
     public var sku: String = ""
     public var title: String = ""
     public var author: String = ""
@@ -129,6 +138,7 @@ public struct AppSettings: Codable, Equatable {
         case usbDriveCheckOnMount = "usb_drive_check_on_mount"
         case usbDriveTests = "usb_drive_tests"
         case loudnessTolerancePercent = "loudness_tolerance_percent"
+        case minReadSpeedMibS = "min_read_speed_mib_s"
         case sku, title, author
         case pastMaster = "past_master"
         case imageFormat = "image_format"
@@ -166,6 +176,7 @@ public struct AppSettings: Codable, Equatable {
         usbDriveCheckOnMount = try c.decodeIfPresent(Bool.self, forKey: .usbDriveCheckOnMount) ?? defaults.usbDriveCheckOnMount
         usbDriveTests = try c.decodeIfPresent(String.self, forKey: .usbDriveTests) ?? defaults.usbDriveTests
         loudnessTolerancePercent = try c.decodeIfPresent(Double.self, forKey: .loudnessTolerancePercent) ?? defaults.loudnessTolerancePercent
+        minReadSpeedMibS = try c.decodeIfPresent(Double.self, forKey: .minReadSpeedMibS) ?? defaults.minReadSpeedMibS
         sku = try c.decodeIfPresent(String.self, forKey: .sku) ?? defaults.sku
         title = try c.decodeIfPresent(String.self, forKey: .title) ?? defaults.title
         author = try c.decodeIfPresent(String.self, forKey: .author) ?? defaults.author

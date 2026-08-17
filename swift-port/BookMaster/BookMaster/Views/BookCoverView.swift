@@ -1,15 +1,19 @@
 import SwiftUI
 
-/// Thumbnail cover art for a book, resolved by SKU via BookCoverLookup.
+/// Thumbnail cover art for a book, resolved by SKU via BookCoverCatalog
+/// -- a bundled, static lookup (see book_covers.csv), not a network
+/// query, so resolving the URL is just a computed property; AsyncImage
+/// below still does its own network fetch to actually load the image.
 /// Used both where Create Master looks a book up from ISBN and where
-/// Verify Master looks one up from a drive's detected SKU/ISBN -- `.task(id:
-/// sku)` re-triggers the lookup (and cancels any in-flight one) whenever
-/// the SKU changes, and clears back to the placeholder for a nil/empty SKU.
+/// Verify Master looks one up from a drive's detected SKU/ISBN.
 struct BookCoverView: View {
     let sku: String?
     var width: CGFloat = 64
 
-    @State private var imageURL: URL?
+    private var imageURL: URL? {
+        guard let sku else { return nil }
+        return BookCoverCatalog.coverImageURL(forSKU: sku)
+    }
 
     var body: some View {
         ZStack {
@@ -30,11 +34,6 @@ struct BookCoverView: View {
         .frame(width: width, height: width * 1.4)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.gray.opacity(0.2)))
-        .task(id: sku) {
-            imageURL = nil
-            guard let sku, !sku.isEmpty else { return }
-            imageURL = await BookCoverLookup.coverImageURL(forSKU: sku)
-        }
     }
 
     private var placeholder: some View {
