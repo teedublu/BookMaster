@@ -849,10 +849,16 @@ struct ContentView: View {
 
     private var libraryAuditResultsView: some View {
         let cleanCount = libraryAuditResults.filter(\.isClean).count
+        let failedCount = libraryAuditResults.count - cleanCount
         return VStack(alignment: .leading, spacing: 4) {
-            Text("\(cleanCount)/\(libraryAuditResults.count) clean")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Text("\(cleanCount)/\(libraryAuditResults.count) clean")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Copy Failures") { copyLibraryAuditFailures() }
+                    .font(.caption)
+                    .disabled(failedCount == 0)
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(libraryAuditResults) { result in
@@ -905,6 +911,24 @@ struct ContentView: View {
         }
         let status = result.isClean ? "OK" : "\(result.issues.count) issue(s) \u{2014} \(result.issues.joined(separator: "; "))"
         return "\(result.sku): \(status) [\(parts.joined(separator: ", "))]"
+    }
+
+    /// Puts every flagged master's SKU/ISBN/issues on the clipboard as
+    /// plain text -- the on-screen list truncates each issue to one
+    /// line and only shows whatever's currently scrolled into view, so
+    /// this is the only way to get the full failure set out of the app
+    /// (e.g. to paste into a message or ticket) without screenshotting
+    /// the panel repeatedly.
+    private func copyLibraryAuditFailures() {
+        let failures = libraryAuditResults.filter { !$0.isClean }
+        guard !failures.isEmpty else { return }
+        let text = failures
+            .map { "\($0.sku) (\($0.isbn ?? "no ISBN")): \($0.issues.joined(separator: "; "))" }
+            .joined(separator: "\n")
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        log.append("Copied \(failures.count) failed master(s) to clipboard.")
     }
 
     private func runSingleMasterAudit() {

@@ -171,10 +171,16 @@ public enum MasterContentAuditor {
         let expectedSizeBytes: Int64? = expectedDurationSeconds.map { Int64($0) * Int64(config.encoding.bitRate) / 8 }
 
         if let expectedSizeBytes, let masterTracks {
-            appendSizeIssue(label: "master/tracks", actualBytes: masterTracks.totalBytes, expectedBytes: expectedSizeBytes, into: &issues)
+            appendSizeIssue(
+                label: "master/tracks", actualBytes: masterTracks.totalBytes, expectedBytes: expectedSizeBytes,
+                fileCount: masterTracks.fileCount, expectedDurationSeconds: expectedDurationSeconds, into: &issues
+            )
         }
         if let expectedSizeBytes, let imageTracks {
-            appendSizeIssue(label: "image", actualBytes: imageTracks.totalBytes, expectedBytes: expectedSizeBytes, into: &issues)
+            appendSizeIssue(
+                label: "image", actualBytes: imageTracks.totalBytes, expectedBytes: expectedSizeBytes,
+                fileCount: imageTracks.fileCount, expectedDurationSeconds: expectedDurationSeconds, into: &issues
+            )
         }
 
         return MasterContentAuditResult(
@@ -223,13 +229,33 @@ public enum MasterContentAuditor {
     /// reduced the actual encode bitrate to fit the drive. Only ever
     /// flags a shortfall, not an overage -- extra content isn't a
     /// missing-content problem.
-    private static func appendSizeIssue(label: String, actualBytes: Int64, expectedBytes: Int64, into issues: inout [String]) {
+    ///
+    /// Reports the file count alongside the size gap, plus the encoding
+    /// rate implied by actualBytes against the catalog's known duration
+    /// (deliberately not a real AVFoundation duration probe -- this
+    /// audit stays on cheap file-count/size stats, see the type's doc
+    /// comment). A low implied rate against config.encoding.bitRate
+    /// points at genuinely missing content; one close to it just means
+    /// the shortfall is a low-bitrate encode, not a missing track.
+    private static func appendSizeIssue(
+        label: String, actualBytes: Int64, expectedBytes: Int64,
+        fileCount: Int, expectedDurationSeconds: Int?, into issues: inout [String]
+    ) {
         guard expectedBytes > 0 else { return }
         let delta = Double(actualBytes - expectedBytes) / Double(expectedBytes)
         guard delta < -0.15 else { return }
         let actualMib = Double(actualBytes) / 1024.0 / 1024.0
         let expectedMib = Double(expectedBytes) / 1024.0 / 1024.0
-        issues.append(String(format: "%@ is %.1f MiB but catalog duration implies ~%.1f MiB \u{2014} possible missing content", label, actualMib, expectedMib))
+        var message = String(
+            format: "%@ is %.1f MiB but catalog duration implies ~%.1f MiB \u{2014} possible missing content (%d file(s) found",
+            label, actualMib, expectedMib, fileCount
+        )
+        if let expectedDurationSeconds, expectedDurationSeconds > 0 {
+            let impliedKbps = Double(actualBytes) * 8.0 / Double(expectedDurationSeconds) / 1000.0
+            message += String(format: ", ~%.0f kbps implied by size \u{00f7} catalog duration", impliedKbps)
+        }
+        message += ")"
+        issues.append(message)
     }
 
     private static func findImageFile(inMasterRoot masterRoot: URL) -> URL? {
