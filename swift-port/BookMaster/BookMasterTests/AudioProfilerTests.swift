@@ -34,6 +34,33 @@ final class AudioProfilerTests: XCTestCase {
         XCTAssertEqual(quick.averageKbps ?? 0, 96.0, accuracy: 20.0)
     }
 
+    func testTagBytesOnAShortFirstTrackDoNotInflateTheRate() async throws {
+        guard let ffmpeg = FFmpegEncoder.locateFFmpeg() else { throw XCTSkip("ffmpeg not installed") }
+
+        let fm = FileManager.default
+        let tracksDir = fm.temporaryDirectory.appendingPathComponent("audioprofile-tags-\(UUID().uuidString)")
+        try fm.createDirectory(at: tracksDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tracksDir) }
+
+        // A 3-second intro carrying an 8 KB ID3 comment, then a 30-second chapter, both CBR 96kbps.
+        for (index, seconds, comment) in [(1, 3, String(repeating: "x", count: 8_000)), (2, 30, "")] {
+            try Shell.run(ffmpeg, [
+                "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=\(seconds)",
+                "-ar", "44100", "-ab", "96k", "-ac", "1", "-metadata", "comment=\(comment)",
+                tracksDir.appendingPathComponent(String(format: "%03d.mp3", index)).path,
+            ])
+        }
+        let introBytes = try XCTUnwrap(fm.attributesOfItem(atPath: tracksDir.appendingPathComponent("001.mp3").path)[.size] as? Int64)
+        XCTAssertGreaterThan(Double(introBytes) * 8 / 3 / 1000, 110, "whole-file size / duration reads far above 96kbps for this intro")
+
+        let quick = await AudioProfiler.inspectTracksAudioProfile(tracksPath: tracksDir, fullScan: false)
+        let full = await AudioProfiler.inspectTracksAudioProfile(tracksPath: tracksDir, fullScan: true)
+
+        XCTAssertEqual(try XCTUnwrap(quick.averageKbps), 96.0, accuracy: 0.05)
+        XCTAssertEqual(try XCTUnwrap(full.averageKbps), 96.0, accuracy: 0.05)
+        XCTAssertEqual(full.parsedFileCount, 2)
+    }
+
     func testEmptyFolderReturnsNilProfile() async throws {
         let fm = FileManager.default
         let emptyDir = fm.temporaryDirectory.appendingPathComponent("audioprofile-empty-\(UUID().uuidString)")

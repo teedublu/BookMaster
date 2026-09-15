@@ -1,5 +1,5 @@
 import Foundation
-import AVFoundation
+import AudioToolbox
 
 public struct AudioProfileResult: Equatable {
     public let durationSeconds: Int?
@@ -12,15 +12,7 @@ public struct AudioProfileResult: Equatable {
 /// encoding bitrate, either by sampling one file (quick) or inspecting
 /// every file (full scan).
 ///
-/// Uses native AVFoundation (AVURLAsset.load(.duration)) instead of
-/// shelling out to `afinfo` -- already established in Phase 6's
-/// AudioDuration.swift. This also happens to match what the Python
-/// code actually prioritizes: it computes "measured_bps" from
-/// (file_bytes * 8 / duration) and prefers that over afinfo's own
-/// reported bit-rate field whenever it's available, so accurate
-/// duration + file size (both trivial with AVFoundation) covers the
-/// primary code path faithfully without needing afinfo's raw bitrate
-/// parsing at all.
+/// Rates come from each file's audio data, not its size on disk, so ID3 tags and encoder headers can't inflate a short track's figure.
 public enum AudioProfiler {
     public static let trackAudioExtensions: Set<String> = [
         ".aac", ".aif", ".aifc", ".aiff", ".m4a", ".m4b", ".mp3", ".mps", ".wav",
@@ -57,16 +49,20 @@ public enum AudioProfiler {
         return (totalBytes, counted)
     }
 
-    /// One file's (duration, byte size), or nil if AVFoundation couldn't
-    /// read it (mirrors afinfo failing to parse a file -- treated as
-    /// unparsed, not a hard error, same as the Python version).
-    private static func probe(_ file: URL) async -> (duration: Double, bytes: Int64)? {
-        let asset = AVURLAsset(url: file)
-        guard let duration = try? await asset.load(.duration) else { return nil }
-        let seconds = CMTimeGetSeconds(duration)
-        guard seconds.isFinite, seconds > 0 else { return nil }
-        guard let bytes = try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int64 else { return nil }
-        return (seconds, bytes)
+    /// One file's duration and audio data size as AudioToolbox parses them (what afinfo prints), or nil if it can't read the file.
+    private static func probe(_ file: URL) -> (duration: Double, audioBytes: Int64)? {
+        var fileID: AudioFileID?
+        guard AudioFileOpenURL(file as CFURL, .readPermission, 0, &fileID) == noErr, let fileID else { return nil }
+        defer { AudioFileClose(fileID) }
+
+        var duration: Float64 = 0
+        var durationSize = UInt32(MemoryLayout<Float64>.size)
+        var audioBytes: UInt64 = 0
+        var audioBytesSize = UInt32(MemoryLayout<UInt64>.size)
+        guard AudioFileGetProperty(fileID, kAudioFilePropertyEstimatedDuration, &durationSize, &duration) == noErr,
+              AudioFileGetProperty(fileID, kAudioFilePropertyAudioDataByteCount, &audioBytesSize, &audioBytes) == noErr,
+              duration.isFinite, duration > 0, audioBytes > 0 else { return nil }
+        return (duration, Int64(audioBytes))
     }
 
     public static func inspectTracksAudioProfile(tracksPath: URL, fullScan: Bool) async -> AudioProfileResult {
@@ -75,50 +71,36 @@ public enum AudioProfiler {
 
         if !fullScan {
             let (totalBytes, _) = measureTrackAudioBytes(tracksPath: tracksPath)
-            guard let first = files.first, let probed = await probe(first) else {
+            guard let first = files.first, let probed = probe(first) else {
                 return AudioProfileResult(durationSeconds: nil, averageKbps: nil, parsedFileCount: 0)
             }
-            let measuredBps = (Double(probed.bytes) * 8.0) / probed.duration
-            guard measuredBps > 0 else {
-                return AudioProfileResult(durationSeconds: nil, averageKbps: nil, parsedFileCount: 0)
-            }
+            let measuredBps = Double(probed.audioBytes) * 8.0 / probed.duration
             let totalSecs = totalBytes > 0 ? Int((Double(totalBytes) * 8.0 / measuredBps).rounded()) : Int(probed.duration.rounded())
             return AudioProfileResult(durationSeconds: max(1, totalSecs), averageKbps: (measuredBps / 1000.0 * 10).rounded() / 10, parsedFileCount: 1)
         }
 
         var totalDuration = 0.0
-        var parsedBytes: Int64 = 0
+        var parsedAudioBytes: Int64 = 0
         var unparsedBytes: Int64 = 0
         var parsed = 0
 
         for file in files {
-            let fileBytes = (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int64) ?? 0
-            guard let probed = await probe(file) else {
-                unparsedBytes += fileBytes
+            guard let probed = probe(file) else {
+                unparsedBytes += (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int64) ?? 0
                 continue
             }
             totalDuration += probed.duration
+            parsedAudioBytes += probed.audioBytes
             parsed += 1
-            parsedBytes += probed.bytes
         }
 
-        guard parsed > 0, totalDuration > 0 else {
+        guard parsed > 0 else {
             return AudioProfileResult(durationSeconds: nil, averageKbps: nil, parsedFileCount: 0)
         }
 
-        var finalDuration = totalDuration
-        var observedBps: Double? = parsedBytes > 0 ? (Double(parsedBytes) * 8.0) / totalDuration : nil
-        if unparsedBytes > 0, let bps = observedBps, bps > 0 {
-            finalDuration += (Double(unparsedBytes) * 8.0) / bps
-        }
-
-        let profileBytes = parsedBytes + unparsedBytes
-        var avgKbps: Double?
-        if profileBytes > 0 {
-            avgKbps = (Double(profileBytes) * 8.0 / finalDuration / 1000.0 * 10).rounded() / 10
-        } else {
-            avgKbps = observedBps.map { ($0 / 1000.0 * 10).rounded() / 10 }
-        }
+        let measuredBps = Double(parsedAudioBytes) * 8.0 / totalDuration
+        let finalDuration = totalDuration + Double(unparsedBytes) * 8.0 / measuredBps
+        let avgKbps = (measuredBps / 1000.0 * 10).rounded() / 10
 
         return AudioProfileResult(durationSeconds: Int(finalDuration.rounded()), averageKbps: avgKbps, parsedFileCount: parsed)
     }
