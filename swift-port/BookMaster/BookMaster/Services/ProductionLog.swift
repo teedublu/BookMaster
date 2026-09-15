@@ -227,8 +227,39 @@ public final class ProductionLog {
         DeviceHistory(
             device: try device(serial: serial),
             writes: try writes(serial: serial),
-            duplicatorRuns: try duplicatorRuns(serial: serial)
+            duplicatorRuns: try duplicatorRuns(serial: serial),
+            writeVerifications: try masterWriteVerifications(serial: serial)
         )
+    }
+
+    // MARK: - Master write verifications (block side: did the block receive the image intact)
+
+    @discardableResult
+    public func insertMasterWriteVerification(
+        deviceId: Int, sku: String, imgPath: String, passed: Bool, fileCount: Int?, byteCount: Int64?, problems: [String]
+    ) throws -> Int {
+        try db.execute(
+            """
+            INSERT INTO master_write_verifications(device_id,sku,img_path,checked_at,passed,file_count,byte_count,problems)
+            VALUES(?,?,?,?,?,?,?,?)
+            """,
+            [.int(Int64(deviceId)), .text(sku), .text(imgPath), .text(Self.isoNow()), .int(passed ? 1 : 0),
+             fileCount.map { .int(Int64($0)) } ?? .null, byteCount.map(DBValue.int) ?? .null,
+             problems.isEmpty ? .null : .text(problems.joined(separator: "\n"))]
+        )
+        return Int(db.lastInsertRowID)
+    }
+
+    public func masterWriteVerifications(serial: String) throws -> [MasterWriteVerificationRecord] {
+        try db.query(
+            """
+            SELECT master_write_verifications.* FROM master_write_verifications
+            JOIN devices ON devices.device_id = master_write_verifications.device_id
+            WHERE devices.serial = ?
+            ORDER BY master_write_verifications.checked_at ASC, master_write_verifications.id ASC
+            """,
+            [.text(serial)]
+        ).map(MasterWriteVerificationRecord.init)
     }
 
     // MARK: - Duplicator <-> master reconciliation (ports exporter.py's export_matches/stats)

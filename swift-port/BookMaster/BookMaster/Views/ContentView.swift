@@ -1054,6 +1054,7 @@ struct ContentView: View {
                     }
                     if let writeResult {
                         Divider()
+                        detailRow("Verified", "\(writeResult.verifiedFileCount) files match image")
                         detailRow("Write Speed", "\(writeResult.throughputImageMibS) MiB/s")
                         detailRow("Elapsed", "\(writeResult.elapsedSeconds)s")
                         detailRow("Tracks", String(writeResult.trackCount))
@@ -1201,6 +1202,7 @@ struct ContentView: View {
             } catch {
                 writeError = "\(error)"
                 log.append("Write failed: \(error)")
+                blockHistory = lookUpHistory(for: drive)
             }
             isWriting = false
         }
@@ -1680,6 +1682,10 @@ struct ContentView: View {
                 + (lastWrite.map { " — last written as \($0.sku) at \($0.timestamp)" } ?? "")
                 + " (serial \(serial))."
             )
+            let failures = history.failedWriteVerifications
+            if let lastFailure = failures.last {
+                log.append("\u{26A0}\u{FE0F} \(drive.bsdName): this block has failed write verification \(failures.count) time(s), most recently writing \(lastFailure.sku) at \(lastFailure.checkedAt) (serial \(serial)).")
+            }
         }
     }
 
@@ -1701,11 +1707,18 @@ struct ContentView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     } else {
+                        let failedChecks = blockHistory.failedWriteVerifications
                         detailRow("Writes", String(blockHistory.writes.count))
+                        detailRow("Failed Write Checks", String(failedChecks.count), valueColor: failedChecks.isEmpty ? nil : .red)
                         detailRow("Duplicator Runs", String(blockHistory.duplicatorRuns.count))
                         Divider()
                         ScrollView {
                             VStack(alignment: .leading, spacing: 4) {
+                                ForEach(failedChecks) { check in
+                                    Text("\(check.checkedAt): \(check.sku) failed write check")
+                                        .font(.caption2)
+                                        .foregroundStyle(.red)
+                                }
                                 ForEach(Array(blockHistory.writes.enumerated()), id: \.offset) { _, write in
                                     Text("\(write.timestamp): \(write.sku)")
                                         .font(.caption2)

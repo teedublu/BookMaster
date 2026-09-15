@@ -103,6 +103,38 @@ final class ProductionLogTests: XCTestCase {
         XCTAssertTrue(emptyHistory.isEmpty)
     }
 
+    func testDeviceHistoryCountsFailedWriteVerificationsPerBlock() throws {
+        let (log, path) = try makeLog()
+        defer { cleanup(path) }
+
+        let badBlock = try log.upsertDevice(vid: "0781", pid: "5567", serial: "SER-BAD-BLOCK")
+        let otherBlock = try log.upsertDevice(vid: "0781", pid: "5567", serial: "SER-OTHER-BLOCK")
+        let problems = [
+            "tracks/002_79078RRPL.mp3: 131344 bytes differ from the image, starting at byte 3002402",
+            "tracks/003_79078RRPL.mp3: 512 bytes differ from the image, starting at byte 0",
+        ]
+        try log.insertMasterWriteVerification(
+            deviceId: badBlock, sku: "BK-79078-RRPL", imgPath: "/masters/BK-79078-RRPL.img",
+            passed: false, fileCount: 28, byteCount: 442_061_389, problems: problems
+        )
+        try log.insertMasterWriteVerification(
+            deviceId: badBlock, sku: "BK-79078-RRPL", imgPath: "/masters/BK-79078-RRPL.img",
+            passed: true, fileCount: 28, byteCount: 442_061_389, problems: []
+        )
+        try log.insertMasterWriteVerification(
+            deviceId: otherBlock, sku: "BK-1", imgPath: "/masters/BK-1.img",
+            passed: false, fileCount: nil, byteCount: nil, problems: ["could not be mounted to verify"]
+        )
+
+        let history = try log.deviceHistory(serial: "SER-BAD-BLOCK")
+        XCTAssertFalse(history.isEmpty, "a block with only verification rows still has history")
+        XCTAssertEqual(history.writeVerifications.map(\.passed), [false, true])
+        XCTAssertEqual(history.failedWriteVerifications.count, 1)
+        XCTAssertEqual(history.failedWriteVerifications.first?.problems, problems.joined(separator: "\n"))
+        XCTAssertEqual(history.failedWriteVerifications.first?.byteCount, 442_061_389)
+        XCTAssertNil(history.writeVerifications.last?.problems)
+    }
+
     func testMatchDuplicatorRunsClassifiesUniqueAmbiguousAndNoMatch() throws {
         let (log, path) = try makeLog()
         defer { cleanup(path) }

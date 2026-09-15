@@ -15,6 +15,7 @@
 		0DDE55DB47952D607C5FB04A /* DiskImageBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 635C3BB1B33D6430A061DF18 /* DiskImageBuilder.swift */; };
 		13E5532C533A3697F65D1234 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2241F49FAD10EA532B517D64 /* Settings.swift */; };
 		1591148ADB9107E0B907665F /* USBMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BC1B5F1452EF892820A7BB8 /* USBMonitor.swift */; };
+		1C10A84BADC08B148810C902 /* MasterWriteVerifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E87BB1D628F8B7F09DBFC23C /* MasterWriteVerifierTests.swift */; };
 		29636ECF31D8E876D6B427AD /* BooksCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAB7948B5D4B05947D3A3B07 /* BooksCatalogTests.swift */; };
 		2CA8F8155CBD06901A1A8E13 /* ProductionLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B985C52675B9886E4AE7C09A /* ProductionLogStore.swift */; };
 		2DAC89108B0D400ED11BA4EA /* RawDirectoryLister.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AD1189181653D375EF8B6EE /* RawDirectoryLister.swift */; };
@@ -52,6 +53,7 @@
 		A641DE2C6A3BA7FE1AF5165A /* MasterResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DEBAB49CA98E9B8E15E9AB7 /* MasterResolver.swift */; };
 		AF719BC5EC8A903FB0C343A9 /* ProductionLogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D42E6F20DA4293009AC137E8 /* ProductionLogTests.swift */; };
 		B4B4DD8874F6915A87BE1760 /* InputFolderResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD60949677FA18E4AA4CDF87 /* InputFolderResolverTests.swift */; };
+		B63710A8FA24B5F4A21AF003 /* MasterWriteVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB4F298A9A127C39A3ED314F /* MasterWriteVerifier.swift */; };
 		B9F0BAFD03B9E2A5DA754036 /* MBRImageBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8A310DE63610EEB8323933F /* MBRImageBuilderTests.swift */; };
 		BAB05E5631C3063122DB2ED8 /* MasterBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F84EC8E959D50BF682616C67 /* MasterBuilder.swift */; };
 		BC0DAEAAA71B18AA5E012670 /* AudioProfiler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 701529DA6FF20A5736EB6E75 /* AudioProfiler.swift */; };
@@ -175,8 +177,10 @@
 		E0E6C07A3FFC2C07BD256615 /* MasterFixerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterFixerTests.swift; sourceTree = "<group>"; };
 		E21335F896B71CEC5A32D765 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E22AC261DC70A4CF8FA6143E /* book_covers.csv */ = {isa = PBXFileReference; path = book_covers.csv; sourceTree = "<group>"; };
+		E87BB1D628F8B7F09DBFC23C /* MasterWriteVerifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterWriteVerifierTests.swift; sourceTree = "<group>"; };
 		E9E8B5B741411F10AD474CE1 /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
 		EA3D47524E5CB779E0D9619B /* DuplicatorLogSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicatorLogSyncTests.swift; sourceTree = "<group>"; };
+		EB4F298A9A127C39A3ED314F /* MasterWriteVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterWriteVerifier.swift; sourceTree = "<group>"; };
 		EBBBEE7C448E030CA9754E93 /* ProductionLogStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionLogStoreTests.swift; sourceTree = "<group>"; };
 		EBC22281304C21632EF9372F /* ConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigStore.swift; sourceTree = "<group>"; };
 		ED3182A0187CB1B22CD99A76 /* USBDriveInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = USBDriveInfo.swift; sourceTree = "<group>"; };
@@ -230,6 +234,7 @@
 				95F091F77CF7A03CBCD4F6AF /* MasterReaderTests.swift */,
 				095A4D99884D4804EF8AC037 /* MasterResolverTests.swift */,
 				C517B7C18FAE95A5F05C8B73 /* MasterWriterTests.swift */,
+				E87BB1D628F8B7F09DBFC23C /* MasterWriteVerifierTests.swift */,
 				B8A310DE63610EEB8323933F /* MBRImageBuilderTests.swift */,
 				CB980C4E495321B7DB7D54FC /* PlaceholderTests.swift */,
 				A4778E9F0BF19F3A6AFC4B3F /* ProductionLogMasterBlockTests.swift */,
@@ -290,6 +295,7 @@
 				62317B067E905A79B4500F37 /* MasterReader.swift */,
 				8DEBAB49CA98E9B8E15E9AB7 /* MasterResolver.swift */,
 				E055E794E72F09FC77C7D0C0 /* MasterWriter.swift */,
+				EB4F298A9A127C39A3ED314F /* MasterWriteVerifier.swift */,
 				4C2E92077E14003FCA19489D /* MBRImageBuilder.swift */,
 				D59F4B47359321E57167094A /* NaturalSort.swift */,
 				A4E5F9A2C61AF0A85AC9240D /* ProductionLog.swift */,
@@ -463,6 +469,7 @@
 				F108D56F3C0AC0CB7110CC56 /* MasterFixer.swift in Sources */,
 				5494326BDEDC8B9E93798053 /* MasterReader.swift in Sources */,
 				A641DE2C6A3BA7FE1AF5165A /* MasterResolver.swift in Sources */,
+				B63710A8FA24B5F4A21AF003 /* MasterWriteVerifier.swift in Sources */,
 				3446DF9488C554712EB2F38B /* MasterWriter.swift in Sources */,
 				D967B0D15D6614B18413C343 /* NaturalSort.swift in Sources */,
 				E44016E16615949553C3FB1B /* ProductionLog.swift in Sources */,
@@ -505,6 +512,7 @@
 				31E4F2308D715BA3311457E6 /* MasterFixerTests.swift in Sources */,
 				3AC401A9B9A2000A2A91F36A /* MasterReaderTests.swift in Sources */,
 				F016A9D681F889BCFC02B0A5 /* MasterResolverTests.swift in Sources */,
+				1C10A84BADC08B148810C902 /* MasterWriteVerifierTests.swift in Sources */,
 				82DC1E71DEC5E542D61BE118 /* MasterWriterTests.swift in Sources */,
 				BEAC654CA3F4753FBAC46945 /* PlaceholderTests.swift in Sources */,
 				625644D7D5062BA7D3AED520 /* ProductionLogMasterBlockTests.swift in Sources */,

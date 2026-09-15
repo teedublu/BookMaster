@@ -273,6 +273,23 @@ public final class AppDatabase {
         """)
         try execute("CREATE INDEX IF NOT EXISTS idx_master_verifications_device ON master_verifications(device_id);")
         try execute("CREATE INDEX IF NOT EXISTS idx_master_verifications_sku ON master_verifications(sku);")
+
+        // Every post-write block-vs-image comparison, failures included, so a block that keeps failing stands out by serial.
+        try execute("""
+        CREATE TABLE IF NOT EXISTS master_write_verifications (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          device_id INTEGER NOT NULL,
+          sku TEXT NOT NULL,
+          img_path TEXT NOT NULL,
+          checked_at TEXT NOT NULL,
+          passed INTEGER NOT NULL,
+          file_count INTEGER,
+          byte_count INTEGER,
+          problems TEXT,
+          FOREIGN KEY(device_id) REFERENCES devices(device_id)
+        );
+        """)
+        try execute("CREATE INDEX IF NOT EXISTS idx_master_write_verifications_device ON master_write_verifications(device_id);")
     }
 
     // MARK: - Low-level execute / query

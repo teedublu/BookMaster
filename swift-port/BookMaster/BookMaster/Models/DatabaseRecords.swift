@@ -172,8 +172,35 @@ public struct DeviceHistory: Equatable {
     public let device: DeviceRecord?
     public let writes: [WriteRecord]
     public let duplicatorRuns: [DuplicatorRunRecord]
+    public let writeVerifications: [MasterWriteVerificationRecord]
 
-    public var isEmpty: Bool { writes.isEmpty && duplicatorRuns.isEmpty }
+    public var isEmpty: Bool { writes.isEmpty && duplicatorRuns.isEmpty && writeVerifications.isEmpty }
+    public var failedWriteVerifications: [MasterWriteVerificationRecord] { writeVerifications.filter { !$0.passed } }
+}
+
+/// One post-write comparison of a block against the image written to it (MasterWriteVerifier).
+public struct MasterWriteVerificationRecord: Equatable, Identifiable {
+    public let id: Int
+    public let deviceId: Int
+    public let sku: String
+    public let imgPath: String
+    public let checkedAt: String
+    public let passed: Bool
+    public let fileCount: Int?
+    public let byteCount: Int64?
+    public let problems: String?
+
+    init(row: DBRow) {
+        id = row["id"]?.intValue ?? 0
+        deviceId = row["device_id"]?.intValue ?? 0
+        sku = row["sku"]?.stringValue ?? ""
+        imgPath = row["img_path"]?.stringValue ?? ""
+        checkedAt = row["checked_at"]?.stringValue ?? ""
+        passed = (row["passed"]?.intValue ?? 0) != 0
+        fileCount = row["file_count"]?.intValue
+        byteCount = row["byte_count"]?.int64Value
+        problems = row["problems"]?.stringValue
+    }
 }
 
 // MARK: - Master-block lineage (file side: what a build produced; block
