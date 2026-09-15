@@ -10,7 +10,7 @@ import Foundation
 /// implies it's safe to write to; Phase 4 re-checks this same
 /// classification live, immediately before writing, rather than
 /// trusting a value cached this far upstream in the flow.
-public struct USBDriveInfo: Identifiable, Equatable {
+public struct USBDriveInfo: Identifiable, Equatable, Sendable {
     public var id: String { bsdName }
 
     public var bsdName: String

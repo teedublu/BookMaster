@@ -1,4 +1,4 @@
-import DiskArbitration
+@preconcurrency import DiskArbitration
 import Foundation
 import Combine
 
@@ -19,13 +19,41 @@ public final class USBMonitor: ObservableObject {
 
     private var session: DASession?
 
+    /// Every callback on `session` runs here, never on main. Describing a
+    /// drive can shell out to `diskutil` (partitionVolumeInfo), and on main
+    /// that did more than stall the UI: `Process.waitUntilExit()` spins a
+    /// nested run loop, so XCTest (hosted in this app) could start running
+    /// tests inside the callback and then hang at exit, unable to drain
+    /// the main queue underneath it. Serial, so each event's result is
+    /// handed to main before the next event is looked at: `drives` changes
+    /// land in DiskArbitration's order, and a disappeared event can't be
+    /// overtaken by a slower appeared one for the same disk.
+    private let queue = DispatchQueue(label: "co.uk.voxblock.bookmaster.usbmonitor")
+
+    /// The appeared/disappeared/changed callbacks' `context`. It holds only
+    /// a weak reference to the monitor, not the monitor itself: those
+    /// callbacks run on `queue`, so one can still be in flight while the
+    /// monitor is deallocated on main. Retained until deinit. Unchecked
+    /// Sendable because `monitor` is only ever assigned in init.
+    private final class CallbackContext: @unchecked Sendable {
+        weak var monitor: USBMonitor?
+        init(monitor: USBMonitor) { self.monitor = monitor }
+    }
+
+    private var callbackContext: Unmanaged<CallbackContext>?
+
     public init() {
         start()
     }
 
     deinit {
-        if let session {
+        guard let session, let callbackContext else { return }
+        // On `queue` itself, so this can't free the context out from under
+        // a callback that's running there right now. No callback runs after
+        // the session is unscheduled.
+        queue.async {
             DASessionSetDispatchQueue(session, nil)
+            callbackContext.release()
         }
     }
 
@@ -35,9 +63,11 @@ public final class USBMonitor: ObservableObject {
             return
         }
         self.session = session
-        DASessionSetDispatchQueue(session, DispatchQueue.main)
+        DASessionSetDispatchQueue(session, queue)
 
-        let context = Unmanaged.passUnretained(self).toOpaque()
+        let callbackContext = Unmanaged.passRetained(CallbackContext(monitor: self))
+        self.callbackContext = callbackContext
+        let context = callbackContext.toOpaque()
         DARegisterDiskAppearedCallback(session, nil, USBMonitor.appearedCallback, context)
         DARegisterDiskDisappearedCallback(session, nil, USBMonitor.disappearedCallback, context)
 
@@ -57,29 +87,43 @@ public final class USBMonitor: ObservableObject {
     // MARK: - C-callback trampolines
     //
     // DiskArbitration callbacks are @convention(c) function pointers and
-    // so cannot capture state; the instance is threaded through via the
-    // `context` opaque pointer instead (Unmanaged.passUnretained in
+    // so cannot capture state; the monitor is threaded through via the
+    // `context` opaque pointer instead (a CallbackContext, retained in
     // start(), reconstituted here) rather than as a closure capture.
+    // They run on `queue`, hence nonisolated.
 
-    private static let appearedCallback: DADiskAppearedCallback = { disk, context in
+    nonisolated private static let appearedCallback: DADiskAppearedCallback = { disk, context in
         guard let context else { return }
-        Unmanaged<USBMonitor>.fromOpaque(context).takeUnretainedValue().handle(disk: disk)
+        handle(disk: disk, context: context)
     }
 
-    private static let disappearedCallback: DADiskDisappearedCallback = { disk, context in
-        guard let context else { return }
-        Unmanaged<USBMonitor>.fromOpaque(context).takeUnretainedValue().remove(disk: disk)
+    nonisolated private static let disappearedCallback: DADiskDisappearedCallback = { disk, context in
+        guard let context, let bsdName = DADiskGetBSDName(disk).map({ String(cString: $0) }) else { return }
+        let callbackContext = Unmanaged<CallbackContext>.fromOpaque(context).takeUnretainedValue()
+        DispatchQueue.main.async { callbackContext.monitor?.remove(bsdName: bsdName) }
     }
 
-    private static let changedCallback: DADiskDescriptionChangedCallback = { disk, _, context in
+    nonisolated private static let changedCallback: DADiskDescriptionChangedCallback = { disk, _, context in
         guard let context else { return }
-        Unmanaged<USBMonitor>.fromOpaque(context).takeUnretainedValue().handle(disk: disk)
+        handle(disk: disk, context: context)
     }
 
     // MARK: - State updates
+    //
+    // The slow part runs on `queue` (handle/candidateInfo); only the
+    // resulting change goes to main (upsert/remove). That hop is
+    // DispatchQueue.main.async rather than a Task because blocks queued
+    // from one serial queue run in the order they were queued, which is
+    // what keeps `drives` changes in DiskArbitration's event order.
 
-    private func handle(disk: DADisk) {
-        guard let info = Self.describe(disk: disk) else { return }
+    nonisolated private static func handle(disk: DADisk, context: UnsafeMutableRawPointer) {
+        guard let info = candidateInfo(for: disk) else { return }
+        let callbackContext = Unmanaged<CallbackContext>.fromOpaque(context).takeUnretainedValue()
+        DispatchQueue.main.async { callbackContext.monitor?.upsert(info) }
+    }
+
+    nonisolated private static func candidateInfo(for disk: DADisk) -> USBDriveInfo? {
+        guard let info = describe(disk: disk) else { return nil }
         guard info.isCandidate else {
             // Not the whole disk itself -- almost always its partition
             // slice (isWhole false). For an MBR-partitioned master, the
@@ -95,13 +139,12 @@ public final class USBMonitor: ObservableObject {
             // forever: its entry never gets touched again because every
             // subsequent signal targets the partition's DADisk, which
             // isCandidate always rejects.
-            guard let wholeDisk = DADiskCopyWholeDisk(disk), let wholeInfo = Self.describe(disk: wholeDisk), wholeInfo.isCandidate else {
-                return
+            guard let wholeDisk = DADiskCopyWholeDisk(disk), let wholeInfo = describe(disk: wholeDisk), wholeInfo.isCandidate else {
+                return nil
             }
-            upsert(wholeInfo)
-            return
+            return wholeInfo
         }
-        upsert(info)
+        return info
     }
 
     private func upsert(_ info: USBDriveInfo) {
@@ -113,8 +156,7 @@ public final class USBMonitor: ObservableObject {
         drives.sort { $0.bsdName < $1.bsdName }
     }
 
-    private func remove(disk: DADisk) {
-        guard let bsdName = DADiskGetBSDName(disk).map({ String(cString: $0) }) else { return }
+    private func remove(bsdName: String) {
         drives.removeAll { $0.bsdName == bsdName }
     }
 
@@ -169,7 +211,8 @@ public final class USBMonitor: ObservableObject {
         }
     }
 
-    private static let unmountCallback: DADiskUnmountCallback = { disk, dissenter, context in
+    // Delivered on `queue`, like every other callback on this session.
+    nonisolated private static let unmountCallback: DADiskUnmountCallback = { disk, dissenter, context in
         guard let context else { return }
         let ejectContext = Unmanaged<EjectContext>.fromOpaque(context).takeUnretainedValue()
         if let dissenter {
@@ -181,7 +224,7 @@ public final class USBMonitor: ObservableObject {
         DADiskEject(disk, DADiskEjectOptions(kDADiskEjectOptionDefault), USBMonitor.ejectCallback, context)
     }
 
-    private static let ejectCallback: DADiskEjectCallback = { _, dissenter, context in
+    nonisolated private static let ejectCallback: DADiskEjectCallback = { _, dissenter, context in
         guard let context else { return }
         let ejectContext = Unmanaged<EjectContext>.fromOpaque(context).takeRetainedValue()
         if let dissenter {
@@ -194,19 +237,34 @@ public final class USBMonitor: ObservableObject {
 
     // MARK: - Description decoding
 
-    private static func describe(disk: DADisk) -> USBDriveInfo? {
+    /// For a disk that isn't a candidate this stops at DiskArbitration's
+    /// own fields, since candidateInfo(for:) reads nothing but isCandidate
+    /// from it. The rest (partitionVolumeInfo's diskutil shell-out, a
+    /// capacity read off the mounted volume, an IORegistry walk for the
+    /// serial) is slow, and at launch DiskArbitration reports every
+    /// existing disk, slice, and attached image in one go.
+    nonisolated private static func describe(disk: DADisk) -> USBDriveInfo? {
         guard let bsdName = DADiskGetBSDName(disk).map({ String(cString: $0) }) else { return nil }
         guard let desc = DADiskCopyDescription(disk) as? [String: Any] else { return nil }
 
-        let isRemovable = desc[kDADiskDescriptionMediaRemovableKey as String] as? Bool ?? false
-        let isEjectable = desc[kDADiskDescriptionMediaEjectableKey as String] as? Bool ?? false
-        let isWhole = desc[kDADiskDescriptionMediaWholeKey as String] as? Bool ?? false
-        let protocolName = desc[kDADiskDescriptionDeviceProtocolKey as String] as? String ?? ""
-        let sizeBytes = (desc[kDADiskDescriptionMediaSizeKey as String] as? NSNumber)?.int64Value ?? 0
-        let mediaName = desc[kDADiskDescriptionMediaNameKey as String] as? String
-        var volumeName = desc[kDADiskDescriptionVolumeNameKey as String] as? String
-        var volumeKind = desc[kDADiskDescriptionVolumeKindKey as String] as? String
         var volumeURL = desc[kDADiskDescriptionVolumePathKey as String] as? URL
+        var info = USBDriveInfo(
+            bsdName: bsdName,
+            rawDevicePath: "/dev/r\(bsdName)",
+            isRemovable: desc[kDADiskDescriptionMediaRemovableKey as String] as? Bool ?? false,
+            isEjectable: desc[kDADiskDescriptionMediaEjectableKey as String] as? Bool ?? false,
+            isWhole: desc[kDADiskDescriptionMediaWholeKey as String] as? Bool ?? false,
+            protocolName: desc[kDADiskDescriptionDeviceProtocolKey as String] as? String ?? "",
+            sizeBytes: (desc[kDADiskDescriptionMediaSizeKey as String] as? NSNumber)?.int64Value ?? 0,
+            mediaName: desc[kDADiskDescriptionMediaNameKey as String] as? String,
+            volumeName: desc[kDADiskDescriptionVolumeNameKey as String] as? String,
+            volumeKind: desc[kDADiskDescriptionVolumeKindKey as String] as? String,
+            mountPath: volumeURL?.path,
+            totalCapacityBytes: nil,
+            availableCapacityBytes: nil,
+            serialNumber: nil
+        )
+        guard info.isCandidate else { return info }
 
         // MBR-partitioned masters (this app's default imageFormat) put
         // their FAT32 filesystem on the first partition slice, not on
@@ -217,35 +275,20 @@ public final class USBMonitor: ObservableObject {
         // permanently unmounted here (no capacity/volume/mount info,
         // Check Master disabled) even once it's actually mounted.
         if volumeURL == nil, let partition = partitionVolumeInfo(forWholeDiskBSDName: bsdName) {
-            volumeName = partition.volumeName ?? volumeName
-            volumeKind = partition.volumeKind ?? volumeKind
+            info.volumeName = partition.volumeName ?? info.volumeName
+            info.volumeKind = partition.volumeKind ?? info.volumeKind
             volumeURL = partition.mountPath.map { URL(fileURLWithPath: $0) }
+            info.mountPath = volumeURL?.path
         }
 
-        var total: Int64?
-        var available: Int64?
         if let volumeURL {
             let values = try? volumeURL.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey])
-            total = values?.volumeTotalCapacity.map(Int64.init)
-            available = values?.volumeAvailableCapacity.map(Int64.init)
+            info.totalCapacityBytes = values?.volumeTotalCapacity.map(Int64.init)
+            info.availableCapacityBytes = values?.volumeAvailableCapacity.map(Int64.init)
         }
 
-        return USBDriveInfo(
-            bsdName: bsdName,
-            rawDevicePath: "/dev/r\(bsdName)",
-            isRemovable: isRemovable,
-            isEjectable: isEjectable,
-            isWhole: isWhole,
-            protocolName: protocolName,
-            sizeBytes: sizeBytes,
-            mediaName: mediaName,
-            volumeName: volumeName,
-            volumeKind: volumeKind,
-            mountPath: volumeURL?.path,
-            totalCapacityBytes: total,
-            availableCapacityBytes: available,
-            serialNumber: USBSerialLookup.serialNumber(forBSDName: bsdName)
-        )
+        info.serialNumber = USBSerialLookup.serialNumber(forBSDName: bsdName)
+        return info
     }
 
     private struct PartitionVolumeInfo {
@@ -260,7 +303,7 @@ public final class USBMonitor: ObservableObject {
     /// no "s1" slice to query -- that layout's volume info already
     /// comes through directly on the whole disk's own DiskArbitration
     /// description, so this fallback is simply never needed there.
-    private static func partitionVolumeInfo(forWholeDiskBSDName bsdName: String) -> PartitionVolumeInfo? {
+    nonisolated private static func partitionVolumeInfo(forWholeDiskBSDName bsdName: String) -> PartitionVolumeInfo? {
         guard let output = try? Shell.run("/usr/sbin/diskutil", ["info", "\(bsdName)s1"]) else { return nil }
 
         func field(_ label: String) -> String? {
