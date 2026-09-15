@@ -121,6 +121,8 @@ public struct AppSettings: Codable, Equatable {
     /// output location. Empty means unset; defaults to outputFolder in
     /// the UI until the user points it elsewhere.
     public var mastersLibraryPath: String = ""
+    /// Drive or folder "Update Known Masters" scans for built images (<sku>/image/<sku>.img). Empty means unset.
+    public var mastersCatalogFolder: String = ""
 
     enum CodingKeys: String, CodingKey {
         case useWebcam = "use_webcam"
@@ -145,6 +147,7 @@ public struct AppSettings: Codable, Equatable {
         case databasePath = "database_path"
         case duplicatorLogFolder = "duplicator_log_folder"
         case mastersLibraryPath = "masters_library_path"
+        case mastersCatalogFolder = "masters_catalog_folder"
     }
 
     public init() {}
@@ -185,5 +188,6 @@ public struct AppSettings: Codable, Equatable {
         databasePath = try c.decodeIfPresent(String.self, forKey: .databasePath) ?? defaults.databasePath
         duplicatorLogFolder = try c.decodeIfPresent(String.self, forKey: .duplicatorLogFolder) ?? defaults.duplicatorLogFolder
         mastersLibraryPath = try c.decodeIfPresent(String.self, forKey: .mastersLibraryPath) ?? defaults.mastersLibraryPath
+        mastersCatalogFolder = try c.decodeIfPresent(String.self, forKey: .mastersCatalogFolder) ?? defaults.mastersCatalogFolder
     }
 }

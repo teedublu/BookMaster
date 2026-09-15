@@ -49,6 +49,10 @@ struct ContentView: View {
     @State private var batchSummary: (success: Int, failed: Int)?
     @State private var duplicatorSyncSummary: DuplicatorSyncSummary?
     @State private var isSyncingDuplicatorLogs = false
+    @State private var masterCatalogSummary: MasterCatalogSummary?
+    @State private var masterCatalogTask: Task<Void, Never>?
+    @State private var masterCatalogProgress: (done: Int, total: Int, sku: String)?
+    @State private var recheckUnchangedMasters = false
     @State private var isEjecting = false
     @State private var isLogPanelVisible = true
     @State private var logPanelWidth: CGFloat = 300
@@ -2300,6 +2304,8 @@ struct ContentView: View {
                     }
                 }
                 Divider()
+                knownMastersSection
+                Divider()
                 if let stats = productionStats {
                     detailRow("Total Runs", String(stats.totalDuplicatorRuns))
                     detailRow("Unique", String(stats.uniqueMatches))
@@ -2312,6 +2318,100 @@ struct ContentView: View {
                 }
             }
             .frame(minWidth: 280, maxWidth: 480, alignment: .leading)
+        }
+    }
+
+    private var knownMastersSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Masters Folder (known masters):").font(.caption).foregroundStyle(.secondary)
+            HStack {
+                TextField("Drive or folder of built masters", text: $settingsStore.settings.mastersCatalogFolder)
+                    .font(.caption2)
+                Button("Browse\u{2026}") { browseForMastersCatalogFolder() }
+            }
+            Toggle("Re-check unchanged images", isOn: $recheckUnchangedMasters)
+                .font(.caption)
+                .help("Mounts every image again, even ones whose file hasn't changed since the last update.")
+            HStack(spacing: 8) {
+                Button(masterCatalogTask == nil ? "Update Known Masters" : "Updating\u{2026}") { updateKnownMasters() }
+                    .disabled(
+                        settingsStore.settings.mastersCatalogFolder.trimmingCharacters(in: .whitespaces).isEmpty
+                            || masterCatalogTask != nil || productionLog == nil
+                    )
+                if masterCatalogTask != nil {
+                    Button("Cancel") { masterCatalogTask?.cancel() }
+                    ProgressView().controlSize(.small)
+                }
+            }
+            if masterCatalogTask != nil, let progress = masterCatalogProgress {
+                Text("\(progress.done)/\(progress.total) Reading \(progress.sku)\u{2026}")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            if let summary = masterCatalogSummary {
+                if summary.isEmpty {
+                    Text("No masters found (expects <sku>/image/<sku>.img).")
+                        .font(.caption2).foregroundStyle(.secondary)
+                } else {
+                    detailRow("Updated", String(summary.updatedSkus.count))
+                    detailRow("Unchanged", String(summary.skippedUnchangedCount))
+                    if !summary.failures.isEmpty {
+                        detailRow("Failed", String(summary.failures.count), valueColor: .red)
+                    }
+                }
+            }
+        }
+    }
+
+    private func browseForMastersCatalogFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = "Choose the drive or folder holding built masters (<sku>/image/<sku>.img)."
+        if !settingsStore.settings.mastersCatalogFolder.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: settingsStore.settings.mastersCatalogFolder)
+        }
+        if panel.runModal() == .OK, let url = panel.url {
+            settingsStore.settings.mastersCatalogFolder = url.path
+        }
+    }
+
+    private func updateKnownMasters() {
+        let path = settingsStore.settings.mastersCatalogFolder.trimmingCharacters(in: .whitespaces)
+        guard !path.isEmpty, let productionLog else { return }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            log.append("Masters folder not found: \(path) \u{2014} is the drive mounted?")
+            return
+        }
+        masterCatalogSummary = nil
+        masterCatalogProgress = nil
+        let recheck = recheckUnchangedMasters
+        log.append("Updating known masters from \(path)\u{2026}")
+        masterCatalogTask = Task {
+            do {
+                let summary = try await MasterCatalogSync.sync(
+                    root: URL(fileURLWithPath: path, isDirectory: true), productionLog: productionLog,
+                    recheckUnchanged: recheck,
+                    onStart: { done, total, sku in
+                        Task { @MainActor in masterCatalogProgress = (done, total, sku) }
+                    },
+                    log: { message in Task { @MainActor in log.append(message) } }
+                )
+                masterCatalogSummary = summary
+                let knownCount = (try? productionLog.allMasters().count).map(String.init) ?? "?"
+                log.append("Known masters updated: \(summary.updatedSkus.count) updated, \(summary.skippedUnchangedCount) unchanged, \(summary.failures.count) failed. Database now knows \(knownCount) master(s).")
+                if productionStats != nil {
+                    productionStats = try? productionLog.stats()
+                }
+                refreshAvailableMasters()
+            } catch is CancellationError {
+                log.append("Known masters update cancelled.")
+            } catch {
+                log.append("Known masters update failed: \(error)")
+            }
+            masterCatalogTask = nil
         }
     }
 

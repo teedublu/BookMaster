@@ -27,6 +27,7 @@
 		3F958BD9623DDB742DAB369F /* URL+Canonical.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F8FA7CDFFC480AC2D770D3B /* URL+Canonical.swift */; };
 		4697B71C4D0840C10385E537 /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9E8B5B741411F10AD474CE1 /* AppConfig.swift */; };
 		5494326BDEDC8B9E93798053 /* MasterReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62317B067E905A79B4500F37 /* MasterReader.swift */; };
+		58AE658D5582C843FA0A254F /* MasterCatalogSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5614EB85880C846419371C82 /* MasterCatalogSyncTests.swift */; };
 		60ED62A7A20305FE955A4C1F /* RawDeviceWriterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 179802A6F6113FBF97DD79F1 /* RawDeviceWriterTests.swift */; };
 		625644D7D5062BA7D3AED520 /* ProductionLogMasterBlockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4778E9F0BF19F3A6AFC4B3F /* ProductionLogMasterBlockTests.swift */; };
 		630076DB54DADE57663A5D49 /* DiskImageBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3610DD2CAE2FF93FB02F64CA /* DiskImageBuilderTests.swift */; };
@@ -66,6 +67,7 @@
 		CE9D2FC4C985BCD44F1BB882 /* BitrateFittingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25BC7173B44E25CF5071670C /* BitrateFittingTests.swift */; };
 		D4B629C4A545068195D5C107 /* MasterBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04DA644A47CAA4D7E935203E /* MasterBuilderTests.swift */; };
 		D618F0D60E67F211BB95A3A9 /* MasterContentAuditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19789ED3FF37D12271ECF4BB /* MasterContentAuditor.swift */; };
+		D70215436C13E1804A084C3F /* MasterCatalogSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EB8D56718282A30371BFE8B /* MasterCatalogSync.swift */; };
 		D967B0D15D6614B18413C343 /* NaturalSort.swift in Sources */ = {isa = PBXBuildFile; fileRef = D59F4B47359321E57167094A /* NaturalSort.swift */; };
 		DA09C85748E8165AE0EB0FB6 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 786412822CF06260E571ECA3 /* Constants.swift */; };
 		DCE6096B335DA39C4B7E0119 /* config.json in Resources */ = {isa = PBXBuildFile; fileRef = 1CA0858216CAFC29555344B3 /* config.json */; };
@@ -111,6 +113,7 @@
 		1ADDE2B1B3F68FE6EF300DCA /* DuplicatorLogSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicatorLogSync.swift; sourceTree = "<group>"; };
 		1AFCC49CF0B95CF9A140E052 /* AppDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDatabase.swift; sourceTree = "<group>"; };
 		1CA0858216CAFC29555344B3 /* config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = config.json; sourceTree = "<group>"; };
+		1EB8D56718282A30371BFE8B /* MasterCatalogSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterCatalogSync.swift; sourceTree = "<group>"; };
 		1F0307520B0E14FC0185CA41 /* TestDataGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestDataGenerator.swift; sourceTree = "<group>"; };
 		1F34F65D189C67CA4BCC2043 /* DatabaseRecords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseRecords.swift; sourceTree = "<group>"; };
 		212DE7821632C7DD475A788D /* BookCoverCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookCoverCatalog.swift; sourceTree = "<group>"; };
@@ -125,6 +128,7 @@
 		4AD1189181653D375EF8B6EE /* RawDirectoryLister.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawDirectoryLister.swift; sourceTree = "<group>"; };
 		4C2E92077E14003FCA19489D /* MBRImageBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MBRImageBuilder.swift; sourceTree = "<group>"; };
 		4D84E9E76BB21B897F35428E /* ImageLayoutInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageLayoutInspector.swift; sourceTree = "<group>"; };
+		5614EB85880C846419371C82 /* MasterCatalogSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterCatalogSyncTests.swift; sourceTree = "<group>"; };
 		62317B067E905A79B4500F37 /* MasterReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MasterReader.swift; sourceTree = "<group>"; };
 		635C3BB1B33D6430A061DF18 /* DiskImageBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiskImageBuilder.swift; sourceTree = "<group>"; };
 		6996630954DE44A833691DE0 /* InputFolderResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputFolderResolver.swift; sourceTree = "<group>"; };
@@ -221,6 +225,7 @@
 				9B18C9268736E05D14BC64F8 /* FFmpegEncoderTests.swift */,
 				DD60949677FA18E4AA4CDF87 /* InputFolderResolverTests.swift */,
 				04DA644A47CAA4D7E935203E /* MasterBuilderTests.swift */,
+				5614EB85880C846419371C82 /* MasterCatalogSyncTests.swift */,
 				E0E6C07A3FFC2C07BD256615 /* MasterFixerTests.swift */,
 				95F091F77CF7A03CBCD4F6AF /* MasterReaderTests.swift */,
 				095A4D99884D4804EF8AC037 /* MasterResolverTests.swift */,
@@ -279,6 +284,7 @@
 				4D84E9E76BB21B897F35428E /* ImageLayoutInspector.swift */,
 				6996630954DE44A833691DE0 /* InputFolderResolver.swift */,
 				F84EC8E959D50BF682616C67 /* MasterBuilder.swift */,
+				1EB8D56718282A30371BFE8B /* MasterCatalogSync.swift */,
 				19789ED3FF37D12271ECF4BB /* MasterContentAuditor.swift */,
 				D717C5FB331377345AFF509D /* MasterFixer.swift */,
 				62317B067E905A79B4500F37 /* MasterReader.swift */,
@@ -452,6 +458,7 @@
 				0D038F62D1FA42FB9038FA86 /* LogStore.swift in Sources */,
 				DF2D9D9346B9FE42DFD86B6A /* MBRImageBuilder.swift in Sources */,
 				BAB05E5631C3063122DB2ED8 /* MasterBuilder.swift in Sources */,
+				D70215436C13E1804A084C3F /* MasterCatalogSync.swift in Sources */,
 				D618F0D60E67F211BB95A3A9 /* MasterContentAuditor.swift in Sources */,
 				F108D56F3C0AC0CB7110CC56 /* MasterFixer.swift in Sources */,
 				5494326BDEDC8B9E93798053 /* MasterReader.swift in Sources */,
@@ -494,6 +501,7 @@
 				B4B4DD8874F6915A87BE1760 /* InputFolderResolverTests.swift in Sources */,
 				B9F0BAFD03B9E2A5DA754036 /* MBRImageBuilderTests.swift in Sources */,
 				D4B629C4A545068195D5C107 /* MasterBuilderTests.swift in Sources */,
+				58AE658D5582C843FA0A254F /* MasterCatalogSyncTests.swift in Sources */,
 				31E4F2308D715BA3311457E6 /* MasterFixerTests.swift in Sources */,
 				3AC401A9B9A2000A2A91F36A /* MasterReaderTests.swift in Sources */,
 				F016A9D681F889BCFC02B0A5 /* MasterResolverTests.swift in Sources */,

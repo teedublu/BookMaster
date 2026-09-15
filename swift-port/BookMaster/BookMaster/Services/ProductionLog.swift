@@ -83,6 +83,27 @@ public final class ProductionLog {
         )
     }
 
+    /// Ports catalog.py's upsert: every value is measured from an existing image file, including its timestamps.
+    public func upsertScannedMaster(
+        sku: String, imgPath: String, imageBytes: Int64, imageMib1dp: Double, usedMib1dp: Double,
+        imageFileCount: Int, imageTrackCount: Int, imageIsbn: String?, createdAt: String?, modifiedAt: String?
+    ) throws {
+        try db.execute(
+            """
+            INSERT INTO masters(sku,img_path,image_bytes,image_mib_1dp,used_mib_1dp,image_file_count,image_track_count,image_isbn,created_at,modified_at,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(sku) DO UPDATE SET
+              img_path=excluded.img_path, image_bytes=excluded.image_bytes, image_mib_1dp=excluded.image_mib_1dp,
+              used_mib_1dp=excluded.used_mib_1dp, image_file_count=excluded.image_file_count,
+              image_track_count=excluded.image_track_count, image_isbn=excluded.image_isbn,
+              created_at=excluded.created_at, modified_at=excluded.modified_at, updated_at=excluded.updated_at
+            """,
+            [.text(sku), .text(imgPath), .int(imageBytes), .real(imageMib1dp), .real(usedMib1dp),
+             .int(Int64(imageFileCount)), .int(Int64(imageTrackCount)), imageIsbn.map(DBValue.text) ?? .null,
+             createdAt.map(DBValue.text) ?? .null, modifiedAt.map(DBValue.text) ?? .null, .text(Self.isoNow())]
+        )
+    }
+
     /// Ports verify()'s post-verification upsert into masters (serial,
     /// isbn, track_count, read_mib_s, last_stick_used_mib_1dp).
     public func recordVerification(
