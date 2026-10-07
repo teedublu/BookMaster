@@ -45,21 +45,42 @@ final class MasterCatalogSyncTests: XCTestCase {
         ).imagePath
     }
 
-    func testFindsMasterImagesAtAnyDepthPreferringTheImageNamedAfterItsFolder() throws {
+    private func setModified(_ library: URL, _ relativePath: String, _ seconds: TimeInterval) throws {
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: seconds)],
+            ofItemAtPath: library.appendingPathComponent(relativePath).path
+        )
+    }
+
+    func testFindsMasterImagesAtAnyDepthPreferringTheNewestImageNamedAfterItsFolder() throws {
         let library = try makeScratchDirectory("catalog-find")
         try touch(library, "2025/BK-1/image/BK-1.img")
         try touch(library, "2025/BK-1/image/MBR-BK-1.img")
+        try setModified(library, "2025/BK-1/image/BK-1.img", 1_000)
+        try setModified(library, "2025/BK-1/image/MBR-BK-1.img", 1_000) // tie: <sku>.img wins
         try touch(library, "BK-2/image/renamed.img")
         try touch(library, "BK-2/master/bookInfo/id.txt")
         try touch(library, "BK-3/image/a.img")
         try touch(library, "BK-3/image/b.img")
         try touch(library, "BK-4/processed/001.mp3")
         try touch(library, "Photos/image/cover.jpg")
+        try touch(library, "BK-5/image/BK-5.img")
+        try touch(library, "BK-5/image/MBR-BK-5.img")
+        try setModified(library, "BK-5/image/BK-5.img", 1_000)
+        try setModified(library, "BK-5/image/MBR-BK-5.img", 2_000) // MBR rebuild is newer
+        try touch(library, "BK-6/image/MBR-BK-6.img")
+        try touch(library, "BK-7/image/BK-7.img")
+        try touch(library, "BK-7/image/MBR-BK-7.img")
+        try setModified(library, "BK-7/image/BK-7.img", 2_000) // superfloppy rebuild is newer
+        try setModified(library, "BK-7/image/MBR-BK-7.img", 1_000)
 
         let found = MasterCatalogSync.findMasterImages(under: library)
 
-        XCTAssertEqual(found.images.map(\.sku), ["BK-1", "BK-2"])
-        XCTAssertEqual(found.images.map(\.path.lastPathComponent), ["BK-1.img", "renamed.img"])
+        XCTAssertEqual(found.images.map(\.sku), ["BK-1", "BK-2", "BK-5", "BK-6", "BK-7"])
+        XCTAssertEqual(
+            found.images.map(\.path.lastPathComponent),
+            ["BK-1.img", "renamed.img", "MBR-BK-5.img", "MBR-BK-6.img", "BK-7.img"]
+        )
         XCTAssertEqual(found.failures.map(\.sku), ["BK-3"])
         XCTAssertEqual(
             MasterCatalogSync.findMasterImages(under: library.appendingPathComponent("BK-2")).images.map(\.sku), ["BK-2"],

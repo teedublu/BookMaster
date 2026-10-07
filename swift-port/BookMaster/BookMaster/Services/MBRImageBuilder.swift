@@ -7,12 +7,16 @@ public enum MBRImageError: Error, CustomStringConvertible {
     case sourceMissing(String)
     case parseFailed(String)
     case validationFailed(String)
+    case notSuperfloppy(String)
+    case destinationExists(String)
 
     public var description: String {
         switch self {
         case .sourceMissing(let path): return "source folder does not exist: \(path)"
         case .parseFailed(let detail): return "could not parse hdiutil/diskutil output: \(detail)"
         case .validationFailed(let detail): return "rebuilt image failed validation: \(detail)"
+        case .notSuperfloppy(let kind): return "source is not a superfloppy FAT image: \(kind)"
+        case .destinationExists(let path): return "destination already exists: \(path)"
         }
     }
 }
@@ -35,6 +39,12 @@ public enum MBRImageError: Error, CustomStringConvertible {
 /// is not valid") below roughly 128MiB for FAT32, which is exactly why
 /// voxmaster's own minimum floor is 128MiB.
 public enum MBRImageBuilder {
+    /// MBR masters publish as `MBR-<sku>.img`, so the layout is visible
+    /// in the filename and a rebuild in the other format never overwrites
+    /// it (superfloppy masters stay `<sku>.img`).
+    static let filenamePrefix = "MBR-"
+    static func imageFilename(volumeLabel: String) -> String { "\(filenamePrefix)\(volumeLabel).img" }
+
     static let sectorSize = 512
     static let mb: Int64 = 1_000_000
     static let mib: Int64 = 1024 * 1024
@@ -81,10 +91,15 @@ public enum MBRImageBuilder {
     /// function's exclusion-pattern-based copy logic conceptually, but
     /// copies into a real mounted FAT32 volume (via `diskutil
     /// partitionDisk`) rather than a bare superfloppy filesystem.
+    ///
+    /// `volumeLabel` names the output file and, unless `fatLabel` is
+    /// given, derives the FAT label (hyphens stripped, uppercased). Pass
+    /// `fatLabel` to keep an existing image's label exactly as it is.
     public static func buildImage(
         fromSourceFolder sourceFolder: URL,
         volumeLabel: String,
         outputPath: URL,
+        fatLabel: String? = nil,
         minSizeMib: Int = 128,
         patternsToExclude: [String] = ConfigStore.shared.patternsToRemove,
         log: (String) -> Void = { _ in }
@@ -100,7 +115,9 @@ public enum MBRImageBuilder {
         try fm.createDirectory(at: workDir, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: workDir) }
 
-        let safeLabel = safeVolumeLabel(String(volumeLabel.replacingOccurrences(of: "-", with: "").uppercased().prefix(11)), fallback: "VOXMASTER")
+        let safeLabel = safeVolumeLabel(
+            fatLabel ?? String(volumeLabel.replacingOccurrences(of: "-", with: "").uppercased().prefix(11)), fallback: "VOXMASTER"
+        )
         // hdiutil infers format from a .dmg-suffixed name; the final
         // published artifact still ends in .img (renamed at the end).
         let stagingDmg = workDir.appendingPathComponent("\(volumeLabel).img.dmg")
@@ -157,7 +174,7 @@ public enum MBRImageBuilder {
             throw MBRImageError.validationFailed("partition does not start after sector 0")
         }
 
-        let finalPath = outputPath.appendingPathComponent("\(volumeLabel).img")
+        let finalPath = outputPath.appendingPathComponent(imageFilename(volumeLabel: volumeLabel))
         if fm.fileExists(atPath: finalPath.path) {
             try fm.removeItem(at: finalPath)
         }

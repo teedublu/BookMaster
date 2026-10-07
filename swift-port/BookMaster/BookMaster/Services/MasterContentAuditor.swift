@@ -342,7 +342,7 @@ public enum MasterContentAuditor {
         guard let entries = try? FileManager.default.contentsOfDirectory(at: imageDir, includingPropertiesForKeys: nil) else {
             return nil
         }
-        return entries.first { $0.pathExtension.lowercased() == "img" }
+        return MasterResolver.newestImage(among: entries.filter { $0.pathExtension.lowercased() == "img" })
     }
 
     // MARK: - Read-only .img mount

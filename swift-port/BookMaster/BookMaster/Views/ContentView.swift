@@ -53,6 +53,9 @@ struct ContentView: View {
     @State private var masterCatalogTask: Task<Void, Never>?
     @State private var masterCatalogProgress: (done: Int, total: Int, sku: String)?
     @State private var recheckUnchangedMasters = false
+    @State private var mbrConversionSummary: MBRConversionSummary?
+    @State private var mbrConversionTask: Task<Void, Never>?
+    @State private var mbrConversionProgress: (done: Int, total: Int, sku: String)?
     @State private var isEjecting = false
     @State private var isLogPanelVisible = true
     @State private var logPanelWidth: CGFloat = 300
@@ -2349,11 +2352,39 @@ struct ContentView: View {
                 Button(masterCatalogTask == nil ? "Update Known Masters" : "Updating\u{2026}") { updateKnownMasters() }
                     .disabled(
                         settingsStore.settings.mastersCatalogFolder.trimmingCharacters(in: .whitespaces).isEmpty
-                            || masterCatalogTask != nil || productionLog == nil
+                            || masterCatalogTask != nil || mbrConversionTask != nil || productionLog == nil
                     )
                 if masterCatalogTask != nil {
                     Button("Cancel") { masterCatalogTask?.cancel() }
                     ProgressView().controlSize(.small)
+                }
+            }
+            HStack(spacing: 8) {
+                Button(mbrConversionTask == nil ? "Convert to MBR" : "Converting\u{2026}") { convertMastersToMBR() }
+                    .disabled(
+                        settingsStore.settings.mastersCatalogFolder.trimmingCharacters(in: .whitespaces).isEmpty
+                            || mbrConversionTask != nil || masterCatalogTask != nil
+                    )
+                    .help("Rebuilds each superfloppy master image in this folder as MBR-<name>.img beside it, and makes that the catalogued image. Originals are left untouched.")
+                if mbrConversionTask != nil {
+                    Button("Cancel") { mbrConversionTask?.cancel() }
+                    ProgressView().controlSize(.small)
+                }
+            }
+            if mbrConversionTask != nil, let progress = mbrConversionProgress {
+                Text("\(progress.done)/\(progress.total) Converting \(progress.sku)\u{2026}")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            if let summary = mbrConversionSummary {
+                if summary.isEmpty {
+                    Text("No masters found (expects <sku>/image/<sku>.img).")
+                        .font(.caption2).foregroundStyle(.secondary)
+                } else {
+                    detailRow("Converted", String(summary.converted.count))
+                    detailRow("Skipped", String(summary.skipped.count))
+                    if !summary.failures.isEmpty {
+                        detailRow("Failed", String(summary.failures.count), valueColor: .red)
+                    }
                 }
             }
             if masterCatalogTask != nil, let progress = masterCatalogProgress {
@@ -2362,7 +2393,7 @@ struct ContentView: View {
             }
             if let summary = masterCatalogSummary {
                 if summary.isEmpty {
-                    Text("No masters found (expects <sku>/image/<sku>.img).")
+                    Text("No masters found (expects <sku>/image/<sku>.img or MBR-<sku>.img).")
                         .font(.caption2).foregroundStyle(.secondary)
                 } else {
                     detailRow("Updated", String(summary.updatedSkus.count))
@@ -2381,7 +2412,7 @@ struct ContentView: View {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.prompt = "Choose"
-        panel.message = "Choose the drive or folder holding built masters (<sku>/image/<sku>.img)."
+        panel.message = "Choose the drive or folder holding built masters (<sku>/image/<sku>.img or MBR-<sku>.img)."
         if !settingsStore.settings.mastersCatalogFolder.isEmpty {
             panel.directoryURL = URL(fileURLWithPath: settingsStore.settings.mastersCatalogFolder)
         }
@@ -2425,6 +2456,42 @@ struct ContentView: View {
                 log.append("Known masters update failed: \(error)")
             }
             masterCatalogTask = nil
+        }
+    }
+
+    private func convertMastersToMBR() {
+        let path = settingsStore.settings.mastersCatalogFolder.trimmingCharacters(in: .whitespaces)
+        guard !path.isEmpty else { return }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            log.append("Masters folder not found: \(path) \u{2014} is the drive mounted?")
+            return
+        }
+        mbrConversionSummary = nil
+        mbrConversionProgress = nil
+        log.append("Converting superfloppy masters under \(path) to MBR\u{2026}")
+        let catalog = productionLog
+        mbrConversionTask = Task {
+            do {
+                let summary = try await MBRImageConverter.convertAll(
+                    under: URL(fileURLWithPath: path, isDirectory: true), productionLog: catalog,
+                    onStart: { done, total, sku in
+                        Task { @MainActor in mbrConversionProgress = (done, total, sku) }
+                    },
+                    log: { message in Task { @MainActor in log.append(message) } }
+                )
+                mbrConversionSummary = summary
+                log.append("MBR conversion finished: \(summary.converted.count) converted, \(summary.skipped.count) skipped, \(summary.failures.count) failed.")
+            } catch is CancellationError {
+                log.append("MBR conversion cancelled. Images already converted were kept.")
+            } catch {
+                log.append("MBR conversion failed: \(error)")
+            }
+            if let catalog, productionStats != nil {
+                productionStats = try? catalog.stats()
+            }
+            refreshAvailableMasters()
+            mbrConversionTask = nil
         }
     }
 

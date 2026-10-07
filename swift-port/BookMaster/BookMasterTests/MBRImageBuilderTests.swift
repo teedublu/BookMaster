@@ -58,6 +58,7 @@ final class MBRImageBuilderTests: XCTestCase {
         )
 
         XCTAssertTrue(fm.fileExists(atPath: result.imagePath.path))
+        XCTAssertEqual(result.imagePath.lastPathComponent, "MBR-BK-12345-TEST.img")
         XCTAssertGreaterThanOrEqual(result.sizeBytes, 128 * 1024 * 1024)
 
         // Real byte-level validation, not just "hdiutil says it worked".

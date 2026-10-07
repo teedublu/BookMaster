@@ -114,14 +114,14 @@ public struct AppSettings: Codable, Equatable {
     /// off.
     public var duplicatorLogFolder: String = ""
     /// Root folder to recursively scan for built masters (<sku>/master,
-    /// <sku>/image/<sku>.img) when auditing content across the whole
+    /// <sku>/image/<sku>.img or MBR-<sku>.img) when auditing content across the whole
     /// library rather than one master at a time -- independent of
     /// outputFolder since the audit is often run against an archive/NAS
     /// copy of everything ever built, not just this machine's current
     /// output location. Empty means unset; defaults to outputFolder in
     /// the UI until the user points it elsewhere.
     public var mastersLibraryPath: String = ""
-    /// Drive or folder "Update Known Masters" scans for built images (<sku>/image/<sku>.img). Empty means unset.
+    /// Drive or folder "Update Known Masters" scans for built images (<sku>/image/<sku>.img or MBR-<sku>.img). Empty means unset.
     public var mastersCatalogFolder: String = ""
 
     enum CodingKeys: String, CodingKey {

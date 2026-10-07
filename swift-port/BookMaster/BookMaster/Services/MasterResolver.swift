@@ -22,9 +22,10 @@ public struct ResolvedMaster: Equatable {
 /// direct list selection) to an actual `.img` file to write -- ports
 /// voxmaster's writer.py `_resolve_master`/`_resolve_root_img`, adapted
 /// to this app's actual on-disk layout (MasterBuilder/DiskImageBuilder/
-/// MBRImageBuilder all write to `<outputFolder>/<sku>/image/<sku>.img`,
-/// regardless of image format -- unlike voxmaster's Python CLI, there's
-/// no separate "MBR-<sku>.img" filename variant to disambiguate here).
+/// MBRImageBuilder write to `<outputFolder>/<sku>/image/`: `<sku>.img` for
+/// a superfloppy master, `MBR-<sku>.img` for an MBR one -- masters built
+/// before the MBR- prefix existed are MBR images named `<sku>.img`, so
+/// both names are accepted and the newest build wins).
 ///
 /// Two sources, in order: the production catalog DB (accurate image/used
 /// size, kept in sync by MasterBuilder.build's upsertMasterCatalog), then
@@ -46,8 +47,11 @@ public enum MasterResolver {
             ))
         }
 
-        let fallbackPath = outputFolder.appendingPathComponent(sku).appendingPathComponent("image").appendingPathComponent("\(sku).img")
-        guard FileManager.default.fileExists(atPath: fallbackPath.path) else {
+        let imageDirectory = outputFolder.appendingPathComponent(sku).appendingPathComponent("image")
+        let candidates = imageFilenames(forSKU: sku)
+            .map { imageDirectory.appendingPathComponent($0) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard let fallbackPath = newestImage(among: candidates) else {
             return .failure(.notFound(input))
         }
         let bytes = (try? FileManager.default.attributesOfItem(atPath: fallbackPath.path)[.size] as? Int64) ?? nil
@@ -57,6 +61,20 @@ public enum MasterResolver {
         // gets properly cataloged (e.g. by rebuilding it with the DB
         // reachable).
         return .success(ResolvedMaster(sku: sku, imagePath: fallbackPath, imageMib: mib, usedMib: mib))
+    }
+
+    /// Filenames a master for `sku` can have, `<sku>.img` first.
+    static func imageFilenames(forSKU sku: String) -> [String] {
+        ["\(sku).img", MBRImageBuilder.imageFilename(volumeLabel: sku)]
+    }
+
+    /// The most recently modified of `images`; on a tie the earlier one wins.
+    /// A rebuilt master leaves the other format's older image beside the new one.
+    static func newestImage(among images: [URL]) -> URL? {
+        func modified(_ url: URL) -> Date {
+            (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+        }
+        return images.max { modified($0) < modified($1) }
     }
 
     /// A 13-digit numeric input is treated as an ISBN and translated via

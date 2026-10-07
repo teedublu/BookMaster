@@ -97,15 +97,9 @@ public enum MasterCatalogSync {
             let sku = entry.image.sku
             onStart(index + 1, pending.count, sku)
             do {
-                let contents = try inspectImage(at: entry.image.path, config: config)
+                let contents = try record(entry.image, identity: entry.identity, in: productionLog, config: config)
                 let usedMib = mib1dp(fromKiB: contents.usedKiB)
                 let imageMib = MasterBuilder.mib1dp(entry.identity.bytes)
-                try productionLog.upsertScannedMaster(
-                    sku: sku, imgPath: entry.image.path.path, imageBytes: entry.identity.bytes,
-                    imageMib1dp: imageMib, usedMib1dp: usedMib,
-                    imageFileCount: contents.fileCount, imageTrackCount: contents.trackCount, imageIsbn: contents.isbn,
-                    createdAt: entry.identity.createdAt, modifiedAt: entry.identity.modifiedAt
-                )
                 updated.append(sku)
                 var line = "\(sku): used \(usedMib) MiB, image \(imageMib) MiB, \(contents.fileCount) file(s), \(contents.trackCount) track(s), ISBN \(contents.isbn ?? "-")"
                 if contents.unexpectedEntryCount > 0 {
@@ -122,27 +116,31 @@ public enum MasterCatalogSync {
         return MasterCatalogSummary(updatedSkus: updated, skippedUnchangedCount: skipped, failures: failures)
     }
 
-    /// Finds `<sku>/image/*.img` at any depth, not descending into a matched SKU folder.
-    static func findMasterImages(under directory: URL) -> (images: [MasterImage], failures: [MasterCatalogFailure]) {
+    /// Reads `image` and writes (or refreshes) its row in the `masters` table.
+    @discardableResult
+    static func record(
+        _ image: MasterImage, identity: ImageFileIdentity, in productionLog: ProductionLog, config: AppConfig = ConfigStore.shared
+    ) throws -> MasterImageContents {
+        let contents = try inspectImage(at: image.path, config: config)
+        try productionLog.upsertScannedMaster(
+            sku: image.sku, imgPath: image.path.path, imageBytes: identity.bytes,
+            imageMib1dp: MasterBuilder.mib1dp(identity.bytes), usedMib1dp: mib1dp(fromKiB: contents.usedKiB),
+            imageFileCount: contents.fileCount, imageTrackCount: contents.trackCount, imageIsbn: contents.isbn,
+            createdAt: identity.createdAt, modifiedAt: identity.modifiedAt
+        )
+        return contents
+    }
+
+    /// Finds `<sku>/image/` folders holding `.img` files at any depth, not descending into a matched SKU folder.
+    static func findMasterImageFolders(under directory: URL) -> [(sku: String, images: [URL])] {
         let fm = FileManager.default
-        var images: [MasterImage] = []
-        var failures: [MasterCatalogFailure] = []
+        var folders: [(sku: String, images: [URL])] = []
 
         func walk(_ folder: URL) {
             guard !Task.isCancelled else { return }
             let imageFiles = imgFiles(in: folder.appendingPathComponent("image"))
             if !imageFiles.isEmpty {
-                let sku = folder.lastPathComponent
-                // voxmaster's rebuild-mbr leaves MBR-<sku>.img beside <sku>.img; the masters row tracks <sku>.img, as catalog.py did.
-                if let named = imageFiles.first(where: { $0.deletingPathExtension().lastPathComponent == sku }) {
-                    images.append(MasterImage(sku: sku, path: named))
-                } else if imageFiles.count == 1 {
-                    images.append(MasterImage(sku: sku, path: imageFiles[0]))
-                } else {
-                    failures.append(MasterCatalogFailure(
-                        sku: sku, error: "image/ holds \(imageFiles.count) .img files and none is named \(sku).img"
-                    ))
-                }
+                folders.append((folder.lastPathComponent, imageFiles))
                 return
             }
 
@@ -156,6 +154,28 @@ public enum MasterCatalogSync {
         }
 
         walk(directory)
+        return folders
+    }
+
+    /// Picks each folder's master from `findMasterImageFolders`: `<sku>.img` or `MBR-<sku>.img` (the newest).
+    static func findMasterImages(under directory: URL) -> (images: [MasterImage], failures: [MasterCatalogFailure]) {
+        var images: [MasterImage] = []
+        var failures: [MasterCatalogFailure] = []
+
+        for (sku, imageFiles) in findMasterImageFolders(under: directory) {
+            // <sku>.img and MBR-<sku>.img can sit side by side (voxmaster's rebuild-mbr, or a rebuild
+            // in the other format); the newest is the current master, <sku>.img winning a tie.
+            let names = Set(MasterResolver.imageFilenames(forSKU: sku))
+            if let named = MasterResolver.newestImage(among: imageFiles.filter { names.contains($0.lastPathComponent) }) {
+                images.append(MasterImage(sku: sku, path: named))
+            } else if imageFiles.count == 1 {
+                images.append(MasterImage(sku: sku, path: imageFiles[0]))
+            } else {
+                failures.append(MasterCatalogFailure(
+                    sku: sku, error: "image/ holds \(imageFiles.count) .img files and none is named \(sku).img or MBR-\(sku).img"
+                ))
+            }
+        }
         return (images, failures)
     }
 

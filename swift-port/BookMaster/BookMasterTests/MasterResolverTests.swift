@@ -59,6 +59,47 @@ final class MasterResolverTests: XCTestCase {
         }
     }
 
+    func testFallbackFindsMBRPrefixedImage() throws {
+        let outputFolder = FileManager.default.temporaryDirectory.appendingPathComponent("resolver-out-\(UUID().uuidString)")
+        let imageDir = outputFolder.appendingPathComponent("BK-3").appendingPathComponent("image")
+        try FileManager.default.createDirectory(at: imageDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outputFolder) }
+        try Data(count: 1_048_576).write(to: imageDir.appendingPathComponent("MBR-BK-3.img"))
+
+        switch MasterResolver.resolve(input: "BK-3", outputFolder: outputFolder, productionLog: nil) {
+        case .success(let master):
+            XCTAssertEqual(master.imagePath.lastPathComponent, "MBR-BK-3.img")
+        case .failure(let error):
+            XCTFail("expected success, got \(error)")
+        }
+    }
+
+    func testFallbackPrefersTheNewerOfSkuAndMBRImages() throws {
+        let outputFolder = FileManager.default.temporaryDirectory.appendingPathComponent("resolver-out-\(UUID().uuidString)")
+        let imageDir = outputFolder.appendingPathComponent("BK-4").appendingPathComponent("image")
+        try FileManager.default.createDirectory(at: imageDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outputFolder) }
+        let plain = imageDir.appendingPathComponent("BK-4.img")
+        let mbr = imageDir.appendingPathComponent("MBR-BK-4.img")
+        try Data(count: 1_048_576).write(to: plain)
+        try Data(count: 1_048_576).write(to: mbr)
+
+        // A pre-prefix master rebuilt as MBR: the old <sku>.img is the stale one.
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000)], ofItemAtPath: plain.path)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 2_000)], ofItemAtPath: mbr.path)
+        guard case .success(let rebuilt) = MasterResolver.resolve(input: "BK-4", outputFolder: outputFolder, productionLog: nil) else {
+            return XCTFail("expected success")
+        }
+        XCTAssertEqual(rebuilt.imagePath.lastPathComponent, "MBR-BK-4.img")
+
+        // And the other way round: rebuilt as superfloppy after an MBR build.
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 3_000)], ofItemAtPath: plain.path)
+        guard case .success(let flipped) = MasterResolver.resolve(input: "BK-4", outputFolder: outputFolder, productionLog: nil) else {
+            return XCTFail("expected success")
+        }
+        XCTAssertEqual(flipped.imagePath.lastPathComponent, "BK-4.img")
+    }
+
     func testTranslatesThirteenDigitISBNToCatalogSKU() {
         // BooksCatalog is loaded from the bundled books.csv resource;
         // this ISBN/SKU pair is used elsewhere in this test suite too
