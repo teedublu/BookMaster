@@ -184,6 +184,8 @@ public enum DriveVerifierError: Error, CustomStringConvertible {
 /// drive: real read-speed benchmarking, real audio content inspection,
 /// and two independent identity signals (SKU parsed from the volume
 /// name, ISBN parsed from bookInfo/id.txt) that must both agree.
+/// MYO blocks are the exception: their volume is always `VOXBLOCK`, so
+/// the ISBN is their identity and the SKU is looked up from it.
 public enum DriveVerifier {
     private static let expectedBitRateBPS = 96_000.0
 
@@ -233,14 +235,47 @@ public enum DriveVerifier {
         return isbn
     }
 
-    private static func detectIdentity(mountPoint: URL) -> (sku: String?, isbn: String?) {
-        let volumeSKU = normalizeVolumeSKU(mountPoint.lastPathComponent)
+    /// Volume label of MYO ("make your own") blocks. The MYO app finds a block by this name, so unlike
+    /// every other master's label it can't carry the SKU.
+    static let genericBlockVolumeName = VolumeNameChoice.voxblockLabel
+
+    /// `VOXBLOCK`, or the numbered copy macOS mounts it as (`VOXBLOCK 1`, `VOXBLOCK 2`, ...) while another
+    /// block with the same label is already mounted.
+    static func isGenericBlockVolume(_ volumeName: String) -> Bool {
+        let raw = volumeName.trimmingCharacters(in: .whitespaces).uppercased()
+        return firstMatch(pattern: "^\(genericBlockVolumeName)( [0-9]+)?$", in: raw) != nil
+    }
+
+    /// The SKU for an ISBN, for a block whose volume name doesn't carry one: the book catalog first, then
+    /// the masters recorded in the production log. Nil when neither knows the ISBN, or the recorded
+    /// masters disagree about it.
+    static func lookUpSKU(forISBN isbn: String, productionLog: ProductionLog?) -> String? {
+        if let catalogSKU = BooksCatalog.lookup(isbn: isbn)?["SKU"], let sku = normalizeVolumeSKU(catalogSKU) {
+            return sku
+        }
+        guard let masters = try? productionLog?.allMasters() else { return nil }
+        let skus = Set(masters.filter { $0.imageIsbn == isbn || $0.isbn == isbn }.map(\.sku))
+        return skus.count == 1 ? skus.first : nil
+    }
+
+    /// `genericVolume` is true for a `VOXBLOCK` volume: its SKU is looked up from the ISBN instead of
+    /// parsed from the name, and a SKU that can't be found isn't an error, since the name was never going
+    /// to carry one.
+    static func detectIdentity(
+        mountPoint: URL, productionLog: ProductionLog? = nil
+    ) -> (sku: String?, isbn: String?, genericVolume: Bool) {
+        let volumeName = mountPoint.lastPathComponent
+        var sku = normalizeVolumeSKU(volumeName)
+        let genericVolume = sku == nil && isGenericBlockVolume(volumeName)
         var isbn: String?
         let idFile = mountPoint.appendingPathComponent("bookInfo/id.txt")
         if let text = try? String(contentsOf: idFile, encoding: .utf8) {
             isbn = parseISBN(fromIdFileText: text)
         }
-        return (volumeSKU, isbn)
+        if genericVolume, let isbn {
+            sku = lookUpSKU(forISBN: isbn, productionLog: productionLog)
+        }
+        return (sku, isbn, genericVolume)
     }
 
     // MARK: - Artifact cleanup (ports _remove_unexpected_entries)
@@ -606,7 +641,14 @@ public enum DriveVerifier {
             log("No unexpected macOS artifacts found.")
         }
 
-        let (sku, isbn) = detectIdentity(mountPoint: mountPoint)
+        let (sku, isbn, genericVolume) = detectIdentity(mountPoint: mountPoint, productionLog: productionLog)
+        if genericVolume {
+            if let sku {
+                log("Volume \(mountPoint.lastPathComponent) is a MYO block: SKU \(sku) matched from ISBN \(isbn ?? "-").")
+            } else {
+                log("Volume \(mountPoint.lastPathComponent) is a MYO block: no SKU is known for ISBN \(isbn ?? "-"), so none is recorded.")
+            }
+        }
 
         let tracksPath = mountPoint.appendingPathComponent("tracks")
         let hasTracksDir = FileManager.default.fileExists(atPath: tracksPath.path)
@@ -619,7 +661,7 @@ public enum DriveVerifier {
         }
 
         var validationErrors: [String] = []
-        if sku == nil { validationErrors.append("SKU missing/invalid in volume name") }
+        if sku == nil, !genericVolume { validationErrors.append("SKU missing/invalid in volume name") }
         if isbn == nil { validationErrors.append("ISBN missing in id.txt") }
 
         var readSpeed: Double?

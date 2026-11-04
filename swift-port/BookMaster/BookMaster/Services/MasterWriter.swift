@@ -80,15 +80,7 @@ public enum MasterWriter {
         }
 
         log("Remounting to inspect written content\u{2026}")
-        // The FAT volume label actually written to the image is a
-        // sanitized form of the SKU (dashes stripped, uppercased, capped
-        // at 11 chars -- see DiskImageBuilder/MBRImageBuilder's
-        // sanitizedLabel/safeLabel), not the SKU itself, so polling for
-        // "/Volumes/<sku>" verbatim never finds it and this step always
-        // silently no-ops. Read the label actually embedded in the image
-        // file instead of re-deriving the sanitization rule here.
-        let expectedVolumeLabel = (try? ImageLayoutInspector.inspect(master.imagePath))?.volumeLabel ?? master.sku
-        guard let mountPoint = try? await remountAndLocateVolume(bsdName: authorization.bsdName, expectedVolumeLabel: expectedVolumeLabel) else {
+        guard let mountPoint = try? await remountAndLocateVolume(bsdName: authorization.bsdName) else {
             let error = MasterWriteError.couldNotMountToVerify(bsdName: authorization.bsdName)
             recordVerification(passed: false, fileCount: nil, byteCount: nil, problems: [error.description])
             throw error
@@ -161,20 +153,30 @@ public enum MasterWriter {
         return (mib / Double(elapsedSeconds) * 100).rounded() / 100
     }
 
-    /// Polls for `/Volumes/<expectedVolumeLabel>` after `diskutil
-    /// mountDisk` -- MasterBuilder/DiskImageBuilder/MBRImageBuilder all
-    /// use the SKU as the volume label, so the mount point is
-    /// deterministic in the common case rather than needing to parse
-    /// `diskutil list`/DiskArbitration events for it.
-    private static func remountAndLocateVolume(bsdName: String, expectedVolumeLabel: String, timeout: TimeInterval = 8) async throws -> URL? {
+    /// Polls for the volume mounted from `bsdName` after `diskutil mountDisk`. It asks the disk itself,
+    /// rather than guessing `/Volumes/<label>`: blocks that share a label (every MYO block is `VOXBLOCK`)
+    /// mount as `VOXBLOCK`, `VOXBLOCK 1`, ..., so a path built from the label can be another drive, and the
+    /// artifact cleanup and file comparison that follow would run against that one.
+    private static func remountAndLocateVolume(bsdName: String, timeout: TimeInterval = 8) async throws -> URL? {
         try? Shell.run("/usr/sbin/diskutil", ["mountDisk", "/dev/\(bsdName)"])
-        let expected = URL(fileURLWithPath: "/Volumes/\(expectedVolumeLabel)")
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if FileManager.default.fileExists(atPath: expected.path) {
-                return expected
+            if let mountPoint = mountPoint(ofBSDName: bsdName) {
+                return mountPoint
             }
             try await Task.sleep(nanoseconds: 200_000_000)
+        }
+        return nil
+    }
+
+    /// Where `bsdName`'s filesystem is mounted: its first slice for an MBR image, else the whole disk
+    /// for a bare-FAT one (which has no `s1`, so that query fails and falls through).
+    static func mountPoint(ofBSDName bsdName: String) -> URL? {
+        for device in ["\(bsdName)s1", bsdName] {
+            if let output = try? Shell.run("/usr/sbin/diskutil", ["info", device]),
+               let path = Shell.mountPoint(fromDiskutilInfo: output) {
+                return URL(fileURLWithPath: path)
+            }
         }
         return nil
     }

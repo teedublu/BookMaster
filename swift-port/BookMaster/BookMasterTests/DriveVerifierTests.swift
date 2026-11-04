@@ -34,6 +34,27 @@ final class DriveVerifierTests: XCTestCase {
         XCTAssertNil(DriveVerifier.parseISBN(fromIdFileText: ""))
     }
 
+    // MARK: - MYO blocks (VOXBLOCK volume)
+
+    func testGenericBlockVolumeIsRecognisedIncludingMacOSNumberedCopies() {
+        // macOS mounts a second block with the same label as "VOXBLOCK 1".
+        for name in ["VOXBLOCK", "voxblock", " VOXBLOCK ", "VOXBLOCK 1", "VOXBLOCK 12"] {
+            XCTAssertTrue(DriveVerifier.isGenericBlockVolume(name), name)
+        }
+    }
+
+    func testGenericBlockVolumeRejectsOtherNames() {
+        for name in ["", "VOXBLOCKS", "MYVOXBLOCK", "VOXBLOCK1", "VOXBLOCK 1A", "BK-26657-MYOB", "UNTITLED"] {
+            XCTAssertFalse(DriveVerifier.isGenericBlockVolume(name), name)
+        }
+    }
+
+    func testGenericBlockVolumeNameIsTheOneMastersAreBuiltWith() {
+        XCTAssertEqual(DriveVerifier.genericBlockVolumeName, "VOXBLOCK")
+        XCTAssertEqual(VolumeNameChoice.voxblock.fatLabel, "VOXBLOCK")
+        XCTAssertNil(VolumeNameChoice.sku.fatLabel)
+    }
+
     // MARK: - Artifact cleanup
 
     func testRemovesUnexpectedArtifactsButKeepsRealContent() throws {
@@ -273,6 +294,144 @@ final class DriveVerifierTests: XCTestCase {
             // just because SKU/ISBN came back missing.
             XCTAssertFalse(partialResult.isValid)
             XCTAssertEqual(partialResult.validationErrors, errors)
+        }
+    }
+
+    // MARK: - MYO blocks: identity on a VOXBLOCK volume
+
+    /// A stand-in for a mounted block: the directory's own name is the volume name, like a real mount point.
+    private func makeMountPoint(volumeName: String, idText: String?) throws -> URL {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("verify-volume-\(UUID().uuidString)")
+        let mountPoint = root.appendingPathComponent(volumeName)
+        try fm.createDirectory(at: mountPoint.appendingPathComponent("bookInfo"), withIntermediateDirectories: true)
+        if let idText {
+            try idText.write(to: mountPoint.appendingPathComponent("bookInfo/id.txt"), atomically: true, encoding: .utf8)
+        }
+        addTeardownBlock { try? fm.removeItem(at: root) }
+        return mountPoint
+    }
+
+    private func makeProductionLog() throws -> ProductionLog {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("verify-db-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        return ProductionLog(db: try AppDatabase(path: directory.appendingPathComponent("voxmaster.db")))
+    }
+
+    private func recordKnownMaster(_ log: ProductionLog, sku: String, isbn: String) throws {
+        try log.upsertMasterCatalog(
+            sku: sku, imgPath: "/tmp/\(sku).img", imageBytes: 1, imageMib1dp: 128, usedMib1dp: 1,
+            imageFileCount: 1, imageTrackCount: 1, imageIsbn: isbn
+        )
+    }
+
+    func testGenericVolumeSKUComesFromTheBookCatalogWhenItKnowsTheISBN() throws {
+        let entry = try XCTUnwrap(BooksCatalog.shared.first { key, row in
+            key.count == 13 && key.allSatisfy(\.isNumber) && DriveVerifier.normalizeVolumeSKU(row["SKU"] ?? "") != nil
+        })
+        let expected = try XCTUnwrap(DriveVerifier.normalizeVolumeSKU(entry.value["SKU"] ?? ""))
+        let mountPoint = try makeMountPoint(volumeName: "VOXBLOCK", idText: entry.key)
+
+        let identity = DriveVerifier.detectIdentity(mountPoint: mountPoint)
+
+        XCTAssertTrue(identity.genericVolume)
+        XCTAssertEqual(identity.isbn, entry.key)
+        XCTAssertEqual(identity.sku, expected)
+    }
+
+    func testGenericVolumeSKUComesFromKnownMastersWhenTheCatalogLacksTheISBN() throws {
+        let log = try makeProductionLog()
+        try recordKnownMaster(log, sku: "BK-26657-MYOB", isbn: "5061050126657")
+        // The second block mounted with the same label.
+        let mountPoint = try makeMountPoint(volumeName: "VOXBLOCK 1", idText: "5061050126657")
+
+        let identity = DriveVerifier.detectIdentity(mountPoint: mountPoint, productionLog: log)
+
+        XCTAssertTrue(identity.genericVolume)
+        XCTAssertEqual(identity.sku, "BK-26657-MYOB")
+    }
+
+    func testGenericVolumeSKUIsLeftBlankWhenKnownMastersDisagree() throws {
+        let log = try makeProductionLog()
+        try recordKnownMaster(log, sku: "BK-11111-AAAA", isbn: "5061050100099")
+        try recordKnownMaster(log, sku: "BK-22222-BBBB", isbn: "5061050100099")
+        let mountPoint = try makeMountPoint(volumeName: "VOXBLOCK", idText: "5061050100099")
+
+        let identity = DriveVerifier.detectIdentity(mountPoint: mountPoint, productionLog: log)
+
+        XCTAssertTrue(identity.genericVolume)
+        XCTAssertNil(identity.sku, "two SKUs claim this ISBN, so neither is a safe guess")
+    }
+
+    func testNamedVolumeStillTakesItsSKUFromTheVolumeName() throws {
+        let mountPoint = try makeMountPoint(volumeName: "BK-74107-CLAE", idText: "9781234567897")
+
+        let identity = DriveVerifier.detectIdentity(mountPoint: mountPoint)
+
+        XCTAssertFalse(identity.genericVolume)
+        XCTAssertEqual(identity.sku, "BK-74107-CLAE")
+    }
+
+    func testVerifyAcceptsAMYOBlockIdentifiedOnlyByItsISBN() async throws {
+        // An ISBN no catalog or master knows, so there is no SKU to find.
+        let mountPoint = try makeMountPoint(volumeName: "VOXBLOCK", idText: "5061050100001")
+
+        let result = try await DriveVerifier.verify(
+            mountPoint: mountPoint, rawDevicePath: nil, checks: [], deepAudioInspect: false
+        )
+
+        XCTAssertTrue(result.isValid, "validation errors: \(result.validationErrors)")
+        XCTAssertEqual(result.detectedISBN, "5061050100001")
+        XCTAssertNil(result.detectedSKU)
+    }
+
+    func testVerifyOfAMYOBlockRecordsTheSKUFoundFromItsISBN() async throws {
+        let log = try makeProductionLog()
+        try recordKnownMaster(log, sku: "BK-26657-MYOB", isbn: "5061050126657")
+        let mountPoint = try makeMountPoint(volumeName: "VOXBLOCK", idText: "5061050126657")
+
+        let result = try await DriveVerifier.verify(
+            mountPoint: mountPoint, rawDevicePath: nil, checks: [], deepAudioInspect: false, productionLog: log
+        )
+
+        XCTAssertTrue(result.isValid)
+        XCTAssertEqual(result.detectedSKU, "BK-26657-MYOB")
+        XCTAssertEqual(try log.master(sku: "BK-26657-MYOB")?.isbn, "5061050126657")
+    }
+
+    func testVerifyStillRejectsAMYOBlockWithNoISBN() async throws {
+        let mountPoint = try makeMountPoint(volumeName: "VOXBLOCK", idText: nil)
+
+        do {
+            _ = try await DriveVerifier.verify(
+                mountPoint: mountPoint, rawDevicePath: nil, checks: [], deepAudioInspect: false
+            )
+            XCTFail("a block with no ISBN can't be identified")
+        } catch let error as DriveVerifierError {
+            guard case .verificationFailed(let errors, _) = error else {
+                XCTFail("expected verificationFailed, got \(error)")
+                return
+            }
+            XCTAssertTrue(errors.contains { $0.contains("ISBN") })
+            XCTAssertFalse(errors.contains { $0.contains("SKU") }, "a VOXBLOCK name was never going to carry a SKU")
+        }
+    }
+
+    func testVerifyStillRejectsAnUnrelatedVolumeNameWithoutASKU() async throws {
+        let mountPoint = try makeMountPoint(volumeName: "UNTITLED", idText: "5061050100001")
+
+        do {
+            _ = try await DriveVerifier.verify(
+                mountPoint: mountPoint, rawDevicePath: nil, checks: [], deepAudioInspect: false
+            )
+            XCTFail("only a VOXBLOCK volume is exempt from needing a SKU in its name")
+        } catch let error as DriveVerifierError {
+            guard case .verificationFailed(let errors, _) = error else {
+                XCTFail("expected verificationFailed, got \(error)")
+                return
+            }
+            XCTAssertTrue(errors.contains { $0.contains("SKU") })
         }
     }
 }

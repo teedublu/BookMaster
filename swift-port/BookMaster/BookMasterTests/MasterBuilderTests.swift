@@ -179,4 +179,124 @@ final class MasterBuilderTests: XCTestCase {
         XCTAssertTrue(name.hasSuffix(".mp3"))
         XCTAssertLessThanOrEqual(name.count, 17) // 13 chars + ".mp3"
     }
+
+    // MARK: - Volume name (SKU, or VOXBLOCK for MYO blocks)
+
+    private func buildOneTrackMaster(volumeName: VolumeNameChoice?, imageFormat: ImageFormat) async throws -> MasterBuildResult {
+        let fm = FileManager.default
+        let inputFolder = fm.temporaryDirectory.appendingPathComponent("mb-vol-input-\(UUID().uuidString)")
+        let outputFolder = fm.temporaryDirectory.appendingPathComponent("mb-vol-output-\(UUID().uuidString)")
+        try fm.createDirectory(at: inputFolder, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? Shell.run("/usr/bin/chflags", ["-R", "nouchg", outputFolder.path])
+            try? fm.removeItem(at: inputFolder)
+            try? fm.removeItem(at: outputFolder)
+        }
+        try Shell.run(FFmpegEncoder.locateFFmpeg()!, [
+            "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", inputFolder.appendingPathComponent("Chapter 1.wav").path,
+        ])
+        let inputs = MasterInputs(
+            isbn: "9781234567897", sku: "BK-67897-TEST", title: "Test Book", author: "Test Author",
+            inputFolder: inputFolder, outputFolder: outputFolder, maxDriveSizeBytes: 980_000_000,
+            imageFormat: imageFormat, volumeName: volumeName ?? .sku
+        )
+        return try await MasterBuilder.build(inputs: inputs)
+    }
+
+    func testMasterBuiltWithVoxblockVolumeNameKeepsItsSKUFilename() async throws {
+        guard ffmpegAvailable else { throw XCTSkip("ffmpeg not installed on this machine") }
+
+        for (format, expectedFilename) in [(ImageFormat.mbr, "MBR-BK-67897-TEST.img"), (.superfloppy, "BK-67897-TEST.img")] {
+            let result = try await buildOneTrackMaster(volumeName: .voxblock, imageFormat: format)
+
+            // The app finds a master by SKU, so only the volume label may change.
+            XCTAssertEqual(result.imagePath.lastPathComponent, expectedFilename, "\(format)")
+            XCTAssertEqual(try ImageLayoutInspector.inspect(result.imagePath).volumeLabel, "VOXBLOCK", "\(format)")
+        }
+    }
+
+    func testMasterBuiltWithTheDefaultVolumeNameIsLabelledWithTheSKU() async throws {
+        guard ffmpegAvailable else { throw XCTSkip("ffmpeg not installed on this machine") }
+
+        let result = try await buildOneTrackMaster(volumeName: nil, imageFormat: .mbr)
+
+        XCTAssertEqual(try ImageLayoutInspector.inspect(result.imagePath).volumeLabel, "BK67897TEST")
+    }
+
+    // MARK: - VolumeNameSelection: confirm before use, and only for one master
+
+    func testVolumeNameSelectionStartsOnTheSKU() {
+        let selection = VolumeNameSelection()
+        XCTAssertEqual(selection.choice, .sku)
+        XCTAssertNil(selection.pendingChoice)
+    }
+
+    func testPickingAnotherNameDoesNotTakeEffectUntilConfirmed() {
+        var selection = VolumeNameSelection()
+
+        selection.select(.voxblock)
+        XCTAssertEqual(selection.choice, .sku, "picking it only asks for confirmation")
+        XCTAssertEqual(selection.pendingChoice, .voxblock)
+
+        selection.confirmPending()
+        XCTAssertEqual(selection.choice, .voxblock)
+        XCTAssertNil(selection.pendingChoice)
+    }
+
+    func testDecliningTheConfirmationLeavesTheSKU() {
+        var selection = VolumeNameSelection()
+        selection.select(.voxblock)
+
+        selection.cancelPending()
+        selection.confirmPending() // nothing left to confirm
+
+        XCTAssertEqual(selection.choice, .sku)
+        XCTAssertNil(selection.pendingChoice)
+    }
+
+    func testConfirmingWithNothingPendingChangesNothing() {
+        var selection = VolumeNameSelection()
+        selection.confirmPending()
+        XCTAssertEqual(selection.choice, .sku)
+    }
+
+    func testChoosingTheSKUAgainAppliesAtOnceAndDropsAnyPendingChoice() {
+        var selection = VolumeNameSelection()
+        selection.select(.voxblock)
+        selection.confirmPending()
+
+        selection.select(.sku)
+
+        XCTAssertEqual(selection.choice, .sku)
+
+        selection.select(.voxblock)
+        selection.select(.sku)
+        selection.confirmPending()
+        XCTAssertEqual(selection.choice, .sku, "choosing the SKU withdrew the pending request")
+    }
+
+    func testFinishingAMasterRevertsToTheSKUSoTheNextOneNeedsItsOwnConfirmation() {
+        var selection = VolumeNameSelection()
+        selection.select(.voxblock)
+        selection.confirmPending()
+        XCTAssertEqual(selection.choice, .voxblock)
+
+        selection.finishMaster()
+        XCTAssertEqual(selection.choice, .sku)
+        XCTAssertNil(selection.pendingChoice)
+
+        // Picking it again is back to needing a confirmation, not silently reusing the last one.
+        selection.select(.voxblock)
+        XCTAssertEqual(selection.choice, .sku)
+    }
+
+    func testFinishingAMasterAlsoDropsAnUnconfirmedRequest() {
+        var selection = VolumeNameSelection()
+        selection.select(.voxblock)
+
+        selection.finishMaster()
+        selection.confirmPending()
+
+        XCTAssertEqual(selection.choice, .sku)
+    }
 }

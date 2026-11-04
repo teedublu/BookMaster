@@ -106,4 +106,27 @@ final class MBRImageBuilderTests: XCTestCase {
         XCTAssertEqual(layout.kind, .superfloppyFat)
         XCTAssertNil(layout.partitionStartLBA, "a superfloppy image has no partition table")
     }
+
+    /// MYO blocks are labelled VOXBLOCK, but the image is still found by its SKU-named file.
+    func testBuildMBRImageCanLabelTheVolumeSeparatelyFromTheFileName() throws {
+        let fm = FileManager.default
+        let sourceDir = fm.temporaryDirectory.appendingPathComponent("mbr-label-\(UUID().uuidString)")
+        let outputDir = fm.temporaryDirectory.appendingPathComponent("mbr-label-out-\(UUID().uuidString)")
+        try fm.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        try "x".write(to: sourceDir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        defer {
+            try? fm.removeItem(at: sourceDir)
+            try? fm.removeItem(at: outputDir)
+        }
+
+        let result = try MBRImageBuilder.buildImage(
+            fromSourceFolder: sourceDir, volumeLabel: "BK-12345-TEST", outputPath: outputDir, fatLabel: "VOXBLOCK"
+        )
+
+        XCTAssertEqual(result.imagePath.lastPathComponent, "MBR-BK-12345-TEST.img")
+        XCTAssertEqual(result.volumeLabel, "VOXBLOCK")
+        let layout = try ImageLayoutInspector.inspect(result.imagePath)
+        XCTAssertEqual(layout.kind, .mbrFat)
+        XCTAssertEqual(layout.volumeLabel, "VOXBLOCK")
+    }
 }

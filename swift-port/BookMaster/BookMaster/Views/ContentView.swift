@@ -18,6 +18,9 @@ struct ContentView: View {
     /// not on every unrelated drives-array change).
     @State private var driveMountPaths: [String: String] = [:]
     @State private var isBuilding = false
+    /// Deliberately not part of AppSettings: it must never persist, and is dropped after every master.
+    @State private var volumeNameSelection = VolumeNameSelection()
+    @State private var showVolumeNameConfirmation = false
     @State private var isCancellingBuild = false
     @State private var buildProgress: Double = 0
     @State private var buildPhaseDescription = ""
@@ -174,6 +177,11 @@ struct ContentView: View {
         }
         .onChange(of: settingsStore.settings) { _ in
             settingsStore.save()
+        }
+        .onChange(of: metadataMode) { mode in
+            // Batch always names volumes after the SKU, so a confirmed non-SKU name is dropped rather
+            // than left armed for whenever the user switches back to Single.
+            if mode == .batch { volumeNameSelection.finishMaster() }
         }
         .onChange(of: usbMonitor.drives) { newDrives in
             let currentIDs = Set(newDrives.map(\.id))
@@ -545,6 +553,32 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
                 HStack {
+                    Text("Volume Name:").frame(width: 110, alignment: .trailing)
+                    Picker("", selection: volumeNameBinding) {
+                        Text("SKU").tag(VolumeNameChoice.sku)
+                        Text("Other").tag(VolumeNameChoice.voxblock)
+                    }
+                    .pickerStyle(.radioGroup)
+                    .horizontalRadioGroupLayout()
+                    .disabled(isBuilding || metadataMode == .batch)
+                    TextField("", text: .constant(volumeNameSelection.choice.fatLabel ?? ""))
+                        .disabled(true)
+                        .frame(width: 100)
+                    Text("(Other = \(VolumeNameChoice.voxblockLabel), for MYO blocks. Must be confirmed, and goes back to SKU after every master. Batch always uses the SKU.)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .confirmationDialog(
+                    "Name the volume \(VolumeNameChoice.voxblockLabel) instead of the SKU?",
+                    isPresented: $showVolumeNameConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Use \(VolumeNameChoice.voxblockLabel) for the next master") { volumeNameSelection.confirmPending() }
+                    Button("Keep SKU", role: .cancel) { volumeNameSelection.cancelPending() }
+                } message: {
+                    Text("Only for MYO blocks, whose app looks them up by this name. It applies to the next master only, then goes back to SKU. The image file is still named for the SKU.")
+                }
+                HStack {
                     Text("Sample Rate:").frame(width: 110, alignment: .trailing)
                     Picker("", selection: $settingsStore.settings.sampleRate) {
                         Text("44.1 kHz").tag(44100)
@@ -555,6 +589,18 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    /// Picking anything but the SKU doesn't change the choice: it opens the confirmation, and only
+    /// confirming it does (see VolumeNameSelection).
+    private var volumeNameBinding: Binding<VolumeNameChoice> {
+        Binding(
+            get: { volumeNameSelection.choice },
+            set: { newValue in
+                volumeNameSelection.select(newValue)
+                showVolumeNameConfirmation = volumeNameSelection.pendingChoice != nil
+            }
+        )
     }
 
     // MARK: Rows 3-7 — Book metadata (Single / Batch sub-tabs)
@@ -1237,7 +1283,8 @@ struct ContentView: View {
             stripInputTags: settings.stripInputTags,
             cacheFiles: settings.cacheFiles,
             sampleRate: settings.sampleRate,
-            expectedFileCount: settings.pastMaster.fileCountExpected
+            expectedFileCount: settings.pastMaster.fileCountExpected,
+            volumeName: volumeNameSelection.choice
         )
 
         let errors = MasterBuilder.validate(inputs: inputs)
@@ -1277,6 +1324,9 @@ struct ContentView: View {
             } catch {
                 log.append("Master creation failed: \(error)")
             }
+            // Whatever the outcome, the next master needs its own confirmation to use a non-SKU volume name.
+            if volumeNameSelection.choice != .sku { log.append("Volume name back to SKU.") }
+            volumeNameSelection.finishMaster()
             isBuilding = false
             isCancellingBuild = false
             buildTask = nil

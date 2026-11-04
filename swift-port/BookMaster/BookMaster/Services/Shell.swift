@@ -65,4 +65,15 @@ enum Shell {
         }
         return nil
     }
+
+    /// Parses the `Mount Point:` line of `diskutil info` output. Nil when the device isn't mounted: the
+    /// value is empty, or reads "Not applicable (no file system)".
+    static func mountPoint(fromDiskutilInfo output: String) -> String? {
+        for line in output.split(separator: "\n") {
+            guard let marker = line.range(of: "Mount Point:") else { continue }
+            let value = line[marker.upperBound...].trimmingCharacters(in: .whitespaces)
+            if !value.isEmpty, !value.hasPrefix("Not applicable") { return value }
+        }
+        return nil
+    }
 }

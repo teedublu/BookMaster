@@ -9,6 +9,57 @@ public enum ImageFormat: String, Equatable, CaseIterable {
     case mbr
 }
 
+/// What the image's FAT volume is called. Only the volume label changes: the image file is always named
+/// after the SKU, which is how the app finds a master again.
+public enum VolumeNameChoice: String, Equatable, CaseIterable {
+    /// The SKU, like every other master. The default.
+    case sku
+    /// `VOXBLOCK`, which the MYO app looks its blocks up by.
+    case voxblock
+
+    public static let voxblockLabel = "VOXBLOCK"
+
+    /// The FAT label to write in place of the one derived from the SKU; nil keeps the SKU-derived one.
+    public var fatLabel: String? { self == .voxblock ? Self.voxblockLabel : nil }
+}
+
+/// The Create Master form's volume-name choice, with the two rules that keep a non-SKU name from being
+/// used by accident: it only takes effect once the user confirms it, and it drops back to the SKU
+/// whenever a master build ends (`finishMaster()`), so each master needs its own confirmation.
+public struct VolumeNameSelection: Equatable {
+    /// What the next master will use. Always `.sku` until a choice has been confirmed.
+    public private(set) var choice: VolumeNameChoice = .sku
+    /// A non-SKU choice the user has picked but not yet confirmed.
+    public private(set) var pendingChoice: VolumeNameChoice?
+
+    public init() {}
+
+    /// The user picked `newChoice`. The SKU applies at once; anything else waits for `confirmPending()`.
+    public mutating func select(_ newChoice: VolumeNameChoice) {
+        if newChoice == .sku {
+            choice = .sku
+            pendingChoice = nil
+        } else if newChoice != choice {
+            pendingChoice = newChoice
+        }
+    }
+
+    public mutating func confirmPending() {
+        guard let pendingChoice else { return }
+        choice = pendingChoice
+        self.pendingChoice = nil
+    }
+
+    public mutating func cancelPending() {
+        pendingChoice = nil
+    }
+
+    /// A master build ended, whether it succeeded, failed or was cancelled: back to the SKU.
+    public mutating func finishMaster() {
+        self = VolumeNameSelection()
+    }
+}
+
 public struct MasterInputs {
     public let isbn: String
     public let sku: String
@@ -35,8 +86,10 @@ public struct MasterInputs {
     /// input folder is caught before a master gets built from it, rather
     /// than only surfacing as a track-count surprise later.
     public let expectedFileCount: Int?
+    /// The image's FAT volume name. Only the label is affected, never the image's filename.
+    public let volumeName: VolumeNameChoice
 
-    public init(isbn: String, sku: String, title: String, author: String, inputFolder: URL, outputFolder: URL, maxDriveSizeBytes: Int64, imageFormat: ImageFormat = .superfloppy, stripInputTags: Bool = false, cacheFiles: Bool = false, sampleRate: Int = 44100, expectedFileCount: Int? = nil) {
+    public init(isbn: String, sku: String, title: String, author: String, inputFolder: URL, outputFolder: URL, maxDriveSizeBytes: Int64, imageFormat: ImageFormat = .superfloppy, stripInputTags: Bool = false, cacheFiles: Bool = false, sampleRate: Int = 44100, expectedFileCount: Int? = nil, volumeName: VolumeNameChoice = .sku) {
         self.isbn = isbn
         self.sku = sku
         self.title = title
@@ -49,6 +102,7 @@ public struct MasterInputs {
         self.cacheFiles = cacheFiles
         self.sampleRate = sampleRate
         self.expectedFileCount = expectedFileCount
+        self.volumeName = volumeName
     }
 }
 
@@ -265,6 +319,9 @@ public enum MasterBuilder {
             }
             log("Master structure assembled at \(masterPath.path), checksum=\(checksum ?? "nil")")
 
+            if let fatLabel = inputs.volumeName.fatLabel {
+                log("Volume name: \(fatLabel) (not the SKU); the image file is still named for \(inputs.sku).")
+            }
             let imageResult: DiskImageResult
             switch inputs.imageFormat {
             case .superfloppy:
@@ -272,6 +329,7 @@ public enum MasterBuilder {
                     fromSourceFolder: masterPath,
                     volumeLabel: inputs.sku,
                     outputPath: imageOutputPath,
+                    fatLabel: inputs.volumeName.fatLabel,
                     patternsToExclude: config.patternsToRemove,
                     log: log
                 )
@@ -280,6 +338,7 @@ public enum MasterBuilder {
                     fromSourceFolder: masterPath,
                     volumeLabel: inputs.sku,
                     outputPath: imageOutputPath,
+                    fatLabel: inputs.volumeName.fatLabel,
                     patternsToExclude: config.patternsToRemove,
                     log: log
                 )

@@ -89,4 +89,29 @@ final class DiskImageBuilderTests: XCTestCase {
         let result = try DiskImageBuilder.buildImage(fromSourceFolder: sourceDir, volumeLabel: "EMPTY", outputPath: outputDir)
         XCTAssertEqual(result.sizeBytes, 10 * 1024 * 1024)
     }
+
+    /// MYO blocks are labelled VOXBLOCK, but the image is still found by its SKU-named file.
+    func testBuildImageCanLabelTheVolumeSeparatelyFromTheFileName() throws {
+        let fm = FileManager.default
+        let sourceDir = fm.temporaryDirectory.appendingPathComponent("dib-label-\(UUID().uuidString)")
+        let outputDir = fm.temporaryDirectory.appendingPathComponent("dib-label-out-\(UUID().uuidString)")
+        try fm.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        try "x".write(to: sourceDir.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        defer {
+            try? Shell.run("/usr/bin/chflags", ["-R", "nouchg", outputDir.path])
+            try? fm.removeItem(at: sourceDir)
+            try? fm.removeItem(at: outputDir)
+        }
+
+        let custom = try DiskImageBuilder.buildImage(
+            fromSourceFolder: sourceDir, volumeLabel: "BK-12345-TEST", outputPath: outputDir, fatLabel: "VOXBLOCK"
+        )
+        XCTAssertEqual(custom.imagePath.lastPathComponent, "BK-12345-TEST.img")
+        XCTAssertEqual(custom.volumeLabel, "VOXBLOCK")
+        XCTAssertEqual(try ImageLayoutInspector.inspect(custom.imagePath).volumeLabel, "VOXBLOCK")
+
+        // Without a fatLabel the label is still derived from the SKU, as before.
+        let plain = try DiskImageBuilder.buildImage(fromSourceFolder: sourceDir, volumeLabel: "BK-54321-PLAN", outputPath: outputDir)
+        XCTAssertEqual(try ImageLayoutInspector.inspect(plain.imagePath).volumeLabel, "BK54321PLAN")
+    }
 }

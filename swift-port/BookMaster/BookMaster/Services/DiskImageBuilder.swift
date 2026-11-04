@@ -48,10 +48,13 @@ public struct DiskImageResult {
 /// business-process integration, not disk-image authoring, and out of
 /// scope here.
 public enum DiskImageBuilder {
+    /// `volumeLabel` names the output file and, unless `fatLabel` is given, derives the FAT label. Pass
+    /// `fatLabel` to label the filesystem something other than the file's name.
     public static func buildImage(
         fromSourceFolder sourceFolder: URL,
         volumeLabel: String,
         outputPath: URL,
+        fatLabel: String? = nil,
         patternsToExclude: [String] = ConfigStore.shared.patternsToRemove,
         log: (String) -> Void = { _ in }
     ) throws -> DiskImageResult {
@@ -69,7 +72,7 @@ public enum DiskImageBuilder {
 
         // Mirrors diskimage.py's format_disk_image(): strip hyphens,
         // uppercase, 11-char FAT volume-label limit.
-        let sanitizedLabel = String(volumeLabel.replacingOccurrences(of: "-", with: "").uppercased().prefix(11))
+        let sanitizedLabel = String((fatLabel ?? volumeLabel.replacingOccurrences(of: "-", with: "")).uppercased().prefix(11))
         let stagingPath = workDir.appendingPathComponent("\(volumeLabel).img")
 
         // 1) size the image from the source folder's actual disk usage,
