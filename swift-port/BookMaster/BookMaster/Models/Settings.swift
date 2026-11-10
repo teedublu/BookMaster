@@ -123,6 +123,13 @@ public struct AppSettings: Codable, Equatable {
     public var mastersLibraryPath: String = ""
     /// Drive or folder "Update Known Masters" scans for built images (<sku>/image/<sku>.img or MBR-<sku>.img). Empty means unset.
     public var mastersCatalogFolder: String = ""
+    /// Path to the Google service account JSON key used to read the
+    /// "Products" sheet (see ProductSheet). The service account's
+    /// client_email needs Viewer access to the sheet. Empty means the
+    /// live sheet is never fetched and the cached/bundled catalog is used.
+    public var productSheetKeyPath: String = ""
+    public var productSheetID: String = ProductSheet.defaultSpreadsheetID
+    public var productSheetTab: String = ProductSheet.defaultTab
 
     enum CodingKeys: String, CodingKey {
         case useWebcam = "use_webcam"
@@ -148,6 +155,9 @@ public struct AppSettings: Codable, Equatable {
         case duplicatorLogFolder = "duplicator_log_folder"
         case mastersLibraryPath = "masters_library_path"
         case mastersCatalogFolder = "masters_catalog_folder"
+        case productSheetKeyPath = "product_sheet_key_path"
+        case productSheetID = "product_sheet_id"
+        case productSheetTab = "product_sheet_tab"
     }
 
     public init() {}
@@ -189,5 +199,8 @@ public struct AppSettings: Codable, Equatable {
         duplicatorLogFolder = try c.decodeIfPresent(String.self, forKey: .duplicatorLogFolder) ?? defaults.duplicatorLogFolder
         mastersLibraryPath = try c.decodeIfPresent(String.self, forKey: .mastersLibraryPath) ?? defaults.mastersLibraryPath
         mastersCatalogFolder = try c.decodeIfPresent(String.self, forKey: .mastersCatalogFolder) ?? defaults.mastersCatalogFolder
+        productSheetKeyPath = try c.decodeIfPresent(String.self, forKey: .productSheetKeyPath) ?? defaults.productSheetKeyPath
+        productSheetID = try c.decodeIfPresent(String.self, forKey: .productSheetID) ?? defaults.productSheetID
+        productSheetTab = try c.decodeIfPresent(String.self, forKey: .productSheetTab) ?? defaults.productSheetTab
     }
 }

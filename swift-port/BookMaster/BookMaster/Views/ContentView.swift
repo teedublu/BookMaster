@@ -52,6 +52,9 @@ struct ContentView: View {
     @State private var batchSummary: (success: Int, failed: Int)?
     @State private var duplicatorSyncSummary: DuplicatorSyncSummary?
     @State private var isSyncingDuplicatorLogs = false
+    @State private var isRefreshingCatalog = false
+    @State private var catalogStatus = ""
+    @State private var catalogError: String?
     @State private var masterCatalogSummary: MasterCatalogSummary?
     @State private var masterCatalogTask: Task<Void, Never>?
     @State private var masterCatalogProgress: (done: Int, total: Int, sku: String)?
@@ -155,6 +158,7 @@ struct ContentView: View {
             }
             productionLogStore.open(inDirectory: resolvedDatabaseDirectory())
             syncDuplicatorLogs()
+            refreshProductCatalog()
             // .onChange(of: useWebcam) below only fires on a *transition* --
             // if "Scan barcode" was already on when settings.json loaded
             // (persisted true from a previous session), that onChange never
@@ -467,6 +471,7 @@ struct ContentView: View {
     private var importTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                productSheetPanel
                 productionPanel
             }
             .padding(16)
@@ -658,6 +663,16 @@ struct ContentView: View {
                     TextField("", text: $settingsStore.settings.isbn)
                         .frame(maxWidth: 220)
                     Toggle("Find folder containing ISBN", isOn: $settingsStore.settings.findIsbnFolder)
+                    Button {
+                        refreshProductCatalog()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .disabled(isRefreshingCatalog || settingsStore.settings.productSheetKeyPath.isEmpty)
+                    .help(settingsStore.settings.productSheetKeyPath.isEmpty
+                          ? "Set a service account key under Import > Product Sheet to load the latest product details."
+                          : "Reload the latest product details from the Products sheet.")
+                    if isRefreshingCatalog { ProgressView().controlSize(.small) }
                 }
                 HStack {
                     Text("SKU:").frame(width: 110, alignment: .trailing)
@@ -2326,6 +2341,98 @@ struct ContentView: View {
     private var formattedTargetLufs: String {
         let v = ConfigStore.shared.encoding.targetLufs
         return v == v.rounded() ? String(Int(v)) : String(v)
+    }
+
+    // MARK: Import tab -- product sheet (live catalog)
+
+    private var productSheetPanel: some View {
+        GroupBox("Product Sheet") {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Service Account Key (JSON):").font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    TextField("Path to key file, or blank to use the cached/bundled catalog", text: $settingsStore.settings.productSheetKeyPath)
+                        .font(.caption2)
+                    Button("Browse\u{2026}") { browseForProductSheetKey() }
+                }
+                HStack {
+                    Text("Sheet ID:").font(.caption).foregroundStyle(.secondary)
+                    TextField("", text: $settingsStore.settings.productSheetID).font(.caption2)
+                    Text("Tab:").font(.caption).foregroundStyle(.secondary)
+                    TextField("", text: $settingsStore.settings.productSheetTab).font(.caption2).frame(maxWidth: 120)
+                }
+                HStack(spacing: 8) {
+                    Button(isRefreshingCatalog ? "Refreshing\u{2026}" : "Refresh Now") { refreshProductCatalog() }
+                        .disabled(settingsStore.settings.productSheetKeyPath.isEmpty || isRefreshingCatalog)
+                    if isRefreshingCatalog { ProgressView().controlSize(.small) }
+                }
+                Text(catalogStatus.isEmpty ? describeCatalogSource() : catalogStatus)
+                    .font(.caption2).foregroundStyle(.secondary)
+                if let catalogError {
+                    Text("\u{26A0}\u{FE0F} \(catalogError)").font(.caption2).foregroundStyle(.red)
+                }
+            }
+            .frame(maxWidth: 520, alignment: .leading)
+        }
+    }
+
+    private func describeCatalogSource() -> String {
+        let count = BooksCatalog.shared.count
+        let when: (Date) -> String = { $0.formatted(date: .abbreviated, time: .shortened) }
+        switch BooksCatalog.source {
+        case .sheet(let fetchedAt):
+            return "\(count) books from the Products sheet, fetched \(when(fetchedAt))."
+        case .cache(let fetchedAt):
+            return "\(count) books from a cached copy of the Products sheet (fetched \(when(fetchedAt)))."
+        case .bundled:
+            return "\(count) books from the bundled books.csv snapshot. The Products sheet has not been loaded on this Mac yet."
+        }
+    }
+
+    /// Pulls the Products sheet into BooksCatalog (on launch and on
+    /// demand). On failure the current catalog stays in place and the
+    /// error is shown; on success the current ISBN is looked up again so
+    /// the form reflects the new data straight away.
+    private func refreshProductCatalog() {
+        let settings = settingsStore.settings
+        guard !isRefreshingCatalog, !ProductSheet.isRunningUnderTests else { return }
+        guard !settings.productSheetKeyPath.trimmingCharacters(in: .whitespaces).isEmpty else {
+            catalogStatus = describeCatalogSource()
+            return
+        }
+        isRefreshingCatalog = true
+        catalogError = nil
+        Task {
+            do {
+                let count = try await ProductSheet.refreshCatalog(
+                    keyFilePath: settings.productSheetKeyPath,
+                    spreadsheetID: settings.productSheetID.trimmingCharacters(in: .whitespaces),
+                    tab: settings.productSheetTab.trimmingCharacters(in: .whitespaces)
+                )
+                log.append("Loaded \(count) books from the Products sheet.")
+                if settingsStore.settings.lookupCsv, !settingsStore.settings.isbn.isEmpty {
+                    lookupISBNIfEnabled(settingsStore.settings.isbn)
+                }
+            } catch {
+                catalogError = error.localizedDescription
+                log.append("Product sheet refresh failed: \(error.localizedDescription) Using \(describeCatalogSource())")
+            }
+            catalogStatus = describeCatalogSource()
+            isRefreshingCatalog = false
+        }
+    }
+
+    private func browseForProductSheetKey() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.json]
+        panel.prompt = "Choose"
+        panel.message = "Choose the Google service account key (.json) that has Viewer access to the Products sheet."
+        if panel.runModal() == .OK, let url = panel.url {
+            settingsStore.settings.productSheetKeyPath = url.path
+            refreshProductCatalog()
+        }
     }
 
     // MARK: Import tab -- production log / duplicator ingestion (ports voxmaster's ingest-dupe/match-dupe/stats)
